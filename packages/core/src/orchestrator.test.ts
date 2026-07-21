@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { Orchestrator } from './orchestrator.js'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
 import { buildRegistry } from './registry.js'
-import { FakeBrowserLauncher, FakeWindowManager } from './testing/fakes.js'
+import { FakeBrowserLauncher, FakeLogger, FakeWindowManager } from './testing/fakes.js'
 import type { ScreenBounds } from './grid.js'
 
 const SCREEN: ScreenBounds = { x: 0, y: 0, width: 1920, height: 1080 }
@@ -359,5 +359,67 @@ describe('a crashed slot the user then stops', () => {
       state: 'stopped',
       lastError: 'Chrome executable not found',
     })
+  })
+})
+
+describe('logging lifecycle events', () => {
+  function withLogger(options: { autoRestart?: boolean } = {}) {
+    const logger = new FakeLogger()
+    const app = new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [{ id: 1, gameId: 'poke-idleworld' }],
+      autoRestart: options.autoRestart ?? false,
+      logger,
+    })
+    return { app, logger }
+  }
+
+  it('records a start reaching running', async () => {
+    const { app, logger } = withLogger()
+    await app.start(1)
+    expect(logger.events()).toEqual(['slot.start', 'slot.ready'])
+  })
+
+  it('tags each entry with the slot and, when known, the pid', async () => {
+    const { app, logger } = withLogger()
+    await app.start(1)
+    const ready = logger.entries.find((entry) => entry.event === 'slot.ready')
+    expect(ready).toMatchObject({ slotId: 1, gameId: 'poke-idleworld' })
+    expect(ready?.pid).toBeGreaterThan(0)
+  })
+
+  it('records a failed start as an error, with the reason', async () => {
+    const { app, logger } = withLogger()
+    launcher.failNextLaunch = new Error('Chrome executable not found')
+    await expect(app.start(1)).rejects.toThrow()
+    const crash = logger.entries.find((entry) => entry.event === 'slot.crash')
+    expect(crash).toMatchObject({ level: 'error', message: 'Chrome executable not found' })
+  })
+
+  it('records a crash and the auto-restart that follows', async () => {
+    const { app, logger } = withLogger({ autoRestart: true })
+    await app.start(1)
+    launcher.killSilently(launcher.pidForSlot(1)!)
+    await app.checkLiveness()
+    expect(logger.events()).toContain('slot.crash')
+    expect(logger.events()).toContain('slot.restart')
+  })
+
+  it('records a stop', async () => {
+    const { app, logger } = withLogger()
+    await app.start(1)
+    await app.stop(1)
+    expect(logger.events()).toContain('slot.stop')
+  })
+
+  it('is optional: an orchestrator with no logger still runs', async () => {
+    // Every existing test constructs the orchestrator without a logger, so this
+    // guarantees the feature stayed additive rather than required.
+    const app = makeOrchestrator()
+    await expect(app.start(1)).resolves.not.toThrow()
   })
 })

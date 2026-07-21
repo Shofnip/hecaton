@@ -8,6 +8,19 @@
  */
 import type { GridCell } from '../grid.js'
 import type { BrowserLauncher, LaunchRequest, Storage, WindowManager } from '../ports.js'
+import type { LogEntry, Logger } from '../log.js'
+
+export class FakeLogger implements Logger {
+  readonly entries: LogEntry[] = []
+
+  log(entry: LogEntry): void {
+    this.entries.push(entry)
+  }
+
+  events(): string[] {
+    return this.entries.map((entry) => entry.event)
+  }
+}
 
 export class FakeBrowserLauncher implements BrowserLauncher {
   readonly launched: LaunchRequest[] = []

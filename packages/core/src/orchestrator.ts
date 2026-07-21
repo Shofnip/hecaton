@@ -16,6 +16,7 @@ import type { GameDefinition } from './registry.js'
 import type { BrowserLauncher, WindowManager } from './ports.js'
 import { isLive, transition } from './slot-state.js'
 import type { SlotState } from './slot-state.js'
+import type { LogEntry, Logger } from './log.js'
 
 export interface OrchestratorDeps {
   launcher: BrowserLauncher
@@ -27,6 +28,8 @@ export interface OrchestratorDeps {
   autoRestart: boolean
   /** Restarts allowed per manual start, so a broken slot cannot spin forever. */
   maxRestartAttempts?: number
+  /** Optional: where lifecycle events go. Absent means no logging at all. */
+  logger?: Logger
 }
 
 const DEFAULT_MAX_RESTART_ATTEMPTS = 3
@@ -65,6 +68,7 @@ export class Orchestrator {
   private readonly registry: ReadonlyMap<string, GameDefinition>
   private readonly autoRestart: boolean
   private readonly maxRestartAttempts: number
+  private readonly logger: Logger | undefined
   private readonly slots = new Map<number, SlotRuntime>()
 
   constructor(deps: OrchestratorDeps) {
@@ -73,6 +77,7 @@ export class Orchestrator {
     this.registry = deps.registry
     this.autoRestart = deps.autoRestart
     this.maxRestartAttempts = deps.maxRestartAttempts ?? DEFAULT_MAX_RESTART_ATTEMPTS
+    this.logger = deps.logger
 
     // The grid is computed once from the configured slot count, so a slot keeps
     // its cell whether or not its neighbours happen to be running.
@@ -110,10 +115,23 @@ export class Orchestrator {
     return this.slot(slotId).state
   }
 
+  /** Emits a lifecycle event, if a logger was provided. Redaction is the port's. */
+  private emit(entry: LogEntry): void {
+    this.logger?.log(entry)
+  }
+
+  /** The slot fields every log entry carries. Never the url — see log.ts. */
+  private slotFields(slot: SlotRuntime): { slotId: number; gameId?: string } {
+    const fields: { slotId: number; gameId?: string } = { slotId: slot.config.id }
+    if (slot.config.gameId !== undefined) fields.gameId = slot.config.gameId
+    return fields
+  }
+
   async start(slotId: number): Promise<void> {
     const slot = this.slot(slotId)
     slot.state = transition(slot.state, 'start')
     slot.restartAttempts = 0
+    this.emit({ level: 'info', event: 'slot.start', ...this.slotFields(slot) })
     await this.spawn(slot)
   }
 
@@ -142,6 +160,7 @@ export class Orchestrator {
       })
       slot.state = transition(slot.state, 'ready')
       slot.lastError = undefined
+      this.emit({ level: 'info', event: 'slot.ready', ...this.slotFields(slot), pid: slot.pid })
       this.windows.setBounds(slot.pid, slot.cell)
     } catch (error) {
       slot.pid = undefined
@@ -161,6 +180,12 @@ export class Orchestrator {
   private recordFailure(slot: SlotRuntime, error: unknown): void {
     slot.state = transition(slot.state, 'crash')
     slot.lastError = error instanceof Error ? error.message : String(error)
+    this.emit({
+      level: 'error',
+      event: 'slot.crash',
+      ...this.slotFields(slot),
+      message: slot.lastError,
+    })
   }
 
   async stop(slotId: number): Promise<void> {
@@ -169,6 +194,7 @@ export class Orchestrator {
     slot.state = transition(slot.state, 'stop')
     slot.pid = undefined
     slot.restartAttempts = 0
+    this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
     if (pid !== undefined) await this.launcher.stop(pid)
   }
 
@@ -190,11 +216,18 @@ export class Orchestrator {
       slot.pid = undefined
       slot.state = transition(slot.state, 'crash')
       slot.lastError = 'the browser process ended unexpectedly'
+      this.emit({
+        level: 'error',
+        event: 'slot.crash',
+        ...this.slotFields(slot),
+        message: slot.lastError,
+      })
 
       if (!this.autoRestart || slot.restartAttempts >= this.maxRestartAttempts) continue
 
       slot.restartAttempts++
       slot.state = transition(slot.state, 'restart')
+      this.emit({ level: 'info', event: 'slot.restart', ...this.slotFields(slot) })
       try {
         await this.spawn(slot)
       } catch {

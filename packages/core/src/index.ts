@@ -13,6 +13,9 @@ export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.j
 export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
 
+export { formatLogRecord, redactUrls } from './log.js'
+export type { LogEntry, LogLevel, LogRecord, Logger } from './log.js'
+
 export { IPC_CHANNELS, parseNoPayload, parseSlotId, parseSlotUpdate } from './ipc.js'
 export type { IpcChannel } from './ipc.js'
 
