@@ -9,12 +9,17 @@
  *                        crash              crash
  *                          v                  v
  *                       crashed <-------------+
- *                          |
- *                       restart
- *                          v
- *                     restarting --ready--> running
+ *                         | |
+ *              restart    | |    start
+ *                 v       | |       v
+ *           restarting <--+ +--> starting --ready--> running
  *
  * `stop` is accepted from anywhere: the user closing a slot must always work.
+ * `start` is accepted from `crashed` for the same reason from the other side —
+ * that is the panel's retry button, and requiring a stop first would put the
+ * sequence in the UI. It is a different event from `restart`: `restart` is the
+ * automatic path and spends the restart budget, while a deliberate `start`
+ * resets it.
  */
 
 export const SLOT_STATES = ['stopped', 'starting', 'running', 'crashed', 'restarting'] as const
@@ -33,7 +38,7 @@ const TRANSITIONS: Readonly<Record<SlotState, Partial<Record<SlotEvent, SlotStat
   stopped: { start: 'starting', stop: 'stopped' },
   starting: { ready: 'running', crash: 'crashed', stop: 'stopped' },
   running: { crash: 'crashed', stop: 'stopped' },
-  crashed: { restart: 'restarting', stop: 'stopped' },
+  crashed: { start: 'starting', restart: 'restarting', stop: 'stopped' },
   restarting: { ready: 'running', crash: 'crashed', stop: 'stopped' },
 }
 

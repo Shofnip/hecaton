@@ -28,6 +28,15 @@ describe('transition', () => {
     it('lets the user give up on a crashed slot', () => {
       expect(transition('crashed', 'stop')).toBe('stopped')
     })
+
+    it('lets the user start a crashed slot again', () => {
+      // The panel's retry button. Without this, a slot that failed to launch
+      // could only be revived by stopping it first, and the panel would have to
+      // know that - a business rule leaking into the UI. `restart` is not the
+      // same event: it is the automatic path, and it spends the restart budget
+      // that a deliberate start resets.
+      expect(transition('crashed', 'start')).toBe('starting')
+    })
   })
 
   describe('stopping', () => {
