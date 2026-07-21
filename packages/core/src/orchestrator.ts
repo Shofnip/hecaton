@@ -37,6 +37,26 @@ interface SlotRuntime {
   pid: number | undefined
   restartAttempts: number
   cell: GridCell
+  lastError: string | undefined
+}
+
+/**
+ * What the panel needs to draw one slot card, and nothing more.
+ *
+ * Deliberately not the runtime: no pid, no profile directory, no grid cell. The
+ * renderer addresses slots by id — every command takes a slotId — so it has no
+ * use for a pid, and a view model that never carries one cannot leak one into
+ * the IPC surface later.
+ */
+export interface SlotSnapshot {
+  id: number
+  state: SlotState
+  gameId?: string
+  url?: string
+  persistProfile: boolean
+  mute: boolean
+  /** Why the slot is not running, when that is known. Cleared once it starts. */
+  lastError?: string
 }
 
 export class Orchestrator {
@@ -65,6 +85,7 @@ export class Orchestrator {
         pid: undefined,
         restartAttempts: 0,
         cell: cells[index]!,
+        lastError: undefined,
       })
     })
   }
@@ -106,7 +127,7 @@ export class Orchestrator {
     try {
       url = this.urlFor(slot)
     } catch (error) {
-      slot.state = transition(slot.state, 'crash')
+      this.recordFailure(slot, error)
       throw error
     }
 
@@ -120,12 +141,26 @@ export class Orchestrator {
         persistProfile: slot.config.persistProfile,
       })
       slot.state = transition(slot.state, 'ready')
+      slot.lastError = undefined
       this.windows.setBounds(slot.pid, slot.cell)
     } catch (error) {
       slot.pid = undefined
-      slot.state = transition(slot.state, 'crash')
+      this.recordFailure(slot, error)
       throw error
     }
+  }
+
+  /**
+   * Moves a slot to `crashed` and keeps the reason.
+   *
+   * The reason matters most on the path that does not rethrow: checkLiveness
+   * swallows a failed restart so one bad slot cannot abort the sweep over the
+   * others, and without this the slot would sit in `crashed` with nothing
+   * anywhere saying why.
+   */
+  private recordFailure(slot: SlotRuntime, error: unknown): void {
+    slot.state = transition(slot.state, 'crash')
+    slot.lastError = error instanceof Error ? error.message : String(error)
   }
 
   async stop(slotId: number): Promise<void> {
@@ -154,6 +189,7 @@ export class Orchestrator {
 
       slot.pid = undefined
       slot.state = transition(slot.state, 'crash')
+      slot.lastError = 'the browser process ended unexpectedly'
 
       if (!this.autoRestart || slot.restartAttempts >= this.maxRestartAttempts) continue
 
@@ -166,6 +202,27 @@ export class Orchestrator {
         // a failed restart must not abort the sweep over the other slots.
       }
     }
+  }
+
+  /**
+   * Everything the panel draws, as plain data.
+   *
+   * Built fresh per call rather than exposing the runtime: the renderer must
+   * not be able to change orchestrator state by writing to what it was handed.
+   */
+  snapshot(): SlotSnapshot[] {
+    return [...this.slots.values()].map((slot) => {
+      const view: SlotSnapshot = {
+        id: slot.config.id,
+        state: slot.state,
+        persistProfile: slot.config.persistProfile,
+        mute: slot.config.mute,
+      }
+      if (slot.config.gameId !== undefined) view.gameId = slot.config.gameId
+      if (slot.config.url !== undefined) view.url = slot.config.url
+      if (slot.lastError !== undefined) view.lastError = slot.lastError
+      return view
+    })
   }
 
   /** Re-applies the grid, e.g. after a slot was focused and maximised. */

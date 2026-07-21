@@ -279,3 +279,85 @@ describe('unknown slots', () => {
     await expect(makeOrchestrator().start(99)).rejects.toThrow(/slot 99/i)
   })
 })
+
+describe('snapshot for the panel', () => {
+  it('lists every configured slot with its state and what it points at', () => {
+    expect(makeOrchestrator().snapshot()).toEqual([
+      { id: 1, state: 'stopped', gameId: 'poke-idleworld', persistProfile: true, mute: false },
+      { id: 2, state: 'stopped', gameId: 'poke-idleworld', persistProfile: true, mute: false },
+    ])
+  })
+
+  it('carries neither the pid nor the profile directory', () => {
+    // The renderer addresses slots by id - every command takes a slotId - so it
+    // has no use for either. Leaving them out of the view model is what keeps
+    // them out of the IPC surface by construction rather than by discipline.
+    for (const slot of makeOrchestrator().snapshot()) {
+      expect(slot).not.toHaveProperty('pid')
+      expect(slot).not.toHaveProperty('profileDir')
+    }
+  })
+
+  it('reflects a running slot', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    expect(app.snapshot()[0]).toMatchObject({ id: 1, state: 'running' })
+  })
+
+  it('records why a start failed', async () => {
+    const app = makeOrchestrator()
+    launcher.failNextLaunch = new Error('Chrome executable not found')
+    await expect(app.start(1)).rejects.toThrow()
+    expect(app.snapshot()[0]).toMatchObject({
+      state: 'crashed',
+      lastError: 'Chrome executable not found',
+    })
+  })
+
+  it('clears the error once the slot starts', async () => {
+    const app = makeOrchestrator()
+    launcher.failNextLaunch = new Error('Chrome executable not found')
+    await expect(app.start(1)).rejects.toThrow()
+    await app.start(1)
+    expect(app.snapshot()[0]).not.toHaveProperty('lastError')
+  })
+
+  it('records why an auto-restart failed', async () => {
+    // checkLiveness swallows a failed restart so one bad slot cannot abort the
+    // sweep over the others. Without recording it here, the slot would sit in
+    // `crashed` with nothing anywhere saying why - the silent failure this
+    // project treats as a bug.
+    const app = makeOrchestrator({ autoRestart: true })
+    await app.start(1)
+    launcher.killSilently(launcher.pidForSlot(1)!)
+    launcher.failNextLaunch = new Error('profile is locked by another process')
+    await app.checkLiveness()
+    expect(app.snapshot()[0]).toMatchObject({
+      state: 'crashed',
+      lastError: 'profile is locked by another process',
+    })
+  })
+
+  it('hands out a copy the caller cannot use to drive the orchestrator', async () => {
+    const app = makeOrchestrator()
+    const before = app.snapshot()
+    before[0]!.state = 'running'
+    expect(app.snapshot()[0]?.state).toBe('stopped')
+  })
+})
+
+describe('a crashed slot the user then stops', () => {
+  it('keeps the reason on the card', async () => {
+    // Stopping a crashed slot is tidying up, not acknowledging the diagnosis.
+    // The card is the only place the reason is visible, and it stops being true
+    // at the next successful start - which is where it is cleared.
+    const app = makeOrchestrator()
+    launcher.failNextLaunch = new Error('Chrome executable not found')
+    await expect(app.start(1)).rejects.toThrow()
+    await app.stop(1)
+    expect(app.snapshot()[0]).toMatchObject({
+      state: 'stopped',
+      lastError: 'Chrome executable not found',
+    })
+  })
+})

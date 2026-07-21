@@ -16,6 +16,6 @@ export type { ParsedConfig } from './parse-config.js'
 export { slotProfileDirName } from './slot-profile.js'
 
 export { Orchestrator } from './orchestrator.js'
-export type { OrchestratorDeps } from './orchestrator.js'
+export type { OrchestratorDeps, SlotSnapshot } from './orchestrator.js'
 
 export type { BrowserLauncher, LaunchRequest, Storage, WindowManager } from './ports.js'
