@@ -10,6 +10,9 @@ export type { GameDefinition, Viewport } from './registry.js'
 export { DEFAULT_GLOBAL_CONFIG, SCHEMA_VERSION, resolveSlotConfig } from './config.js'
 export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
 
+export { parseConfig } from './parse-config.js'
+export type { ParsedConfig } from './parse-config.js'
+
 export { slotProfileDirName } from './slot-profile.js'
 
 export { Orchestrator } from './orchestrator.js'
