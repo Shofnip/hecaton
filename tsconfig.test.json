@@ -10,5 +10,8 @@
     "declarationMap": false,
     "types": ["node"]
   },
-  "include": ["packages/*/src/**/*.ts", "tests/**/*.ts", "vitest*.config.ts"]
+  // apps/* matches nothing until the Electron shell lands. It is listed now
+  // because the alternative is discovering, later, that the shell's tests were
+  // never type-checked - which is the failure tsconfig.test.json exists to fix.
+  "include": ["packages/*/src/**/*.ts", "apps/*/src/**/*.ts", "tests/**/*.ts", "vitest*.config.ts"]
 }

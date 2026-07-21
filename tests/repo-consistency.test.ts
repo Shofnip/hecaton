@@ -17,7 +17,7 @@
  * running in milliseconds on every commit.
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import fastConfig from '../vitest.config.js'
@@ -26,6 +26,22 @@ import integrationConfig from '../vitest.integration.config.js'
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 const read = (relative: string): string => readFileSync(join(ROOT, relative), 'utf8')
+
+/**
+ * Parses a tsconfig, which is JSONC — the ones in this repository carry the
+ * comments explaining why they exclude what they exclude.
+ *
+ * Only whole-line `//` comments are stripped, which is all these files use. A
+ * general JSONC parser would have to respect strings, and buying that here
+ * would mean a dependency for a test that reads three files we control.
+ */
+function readJsonc<T>(relative: string): T {
+  const stripped = read(relative)
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('//'))
+    .join('\n')
+  return JSON.parse(stripped) as T
+}
 
 const packageJson = JSON.parse(read('package.json')) as {
   scripts: Record<string, string>
@@ -115,24 +131,66 @@ describe('no test file is orphaned', () => {
   })
 })
 
-describe('no package is left out of the build', () => {
+/**
+ * Every workspace directory, derived from the `workspaces` globs rather than
+ * from a hardcoded list.
+ *
+ * Deriving it matters more than it looks. `apps/*` is a workspace that held
+ * nothing until the Electron shell arrived, and a test that iterated a
+ * hardcoded `packages` would have kept passing while the first app went
+ * uncompiled and untype-checked — the same shape of vacuous green this file
+ * exists to catch.
+ */
+function findWorkspaceDirs(): string[] {
+  const found: string[] = []
+  for (const pattern of packageJson.workspaces) {
+    const parent = pattern.replace(/\/\*$/, '')
+    let entries
+    try {
+      entries = readdirSync(join(ROOT, parent), { withFileTypes: true })
+    } catch {
+      // A declared workspace with no directory yet is not a failure: `apps/`
+      // was exactly that until phase 1.5.
+      continue
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      if (!existsSync(join(ROOT, parent, entry.name, 'package.json'))) continue
+      found.push(`${parent}/${entry.name}`)
+    }
+  }
+  return found
+}
+
+describe('no workspace is left out of the build', () => {
   const rootTsconfig = JSON.parse(read('tsconfig.json')) as { references: { path: string }[] }
   const referenced = new Set(rootTsconfig.references.map((reference) => reference.path))
+  const workspaces = findWorkspaceDirs()
 
-  const packages = readdirSync(join(ROOT, 'packages'), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-
-  it('finds packages', () => {
-    expect(packages.length).toBeGreaterThan(0)
+  it('finds workspaces', () => {
+    expect(workspaces.length).toBeGreaterThan(0)
   })
 
-  it.each(packages.map((name) => [name] as const))(
-    'packages/%s is referenced by the root tsconfig',
-    (name) => {
-      // An unreferenced package still passes `tsc --build` — by never being
+  it.each(workspaces.map((dir) => [dir] as const))(
+    '%s is referenced by the root tsconfig',
+    (dir) => {
+      // An unreferenced workspace still passes `tsc --build` — by never being
       // compiled. It would only break once something imported it.
-      expect(referenced).toContain(`./packages/${name}`)
+      expect(referenced).toContain(`./${dir}`)
     },
   )
+})
+
+describe('no workspace escapes the test type-check', () => {
+  // The build tsconfig excludes *.test.ts, so tsconfig.test.json is the only
+  // thing that type-checks test files. A workspace missing from its `include`
+  // has tests that compile nowhere: a broken signature stays green until
+  // someone reads it. This already happened once for every test file in the
+  // repository, which is why tsconfig.test.json exists at all.
+  const testTsconfig = readJsonc<{ include: string[] }>('tsconfig.test.json')
+  const workspaces = findWorkspaceDirs()
+
+  it.each(workspaces.map((dir) => [dir] as const))('%s is covered by tsconfig.test.json', (dir) => {
+    expect(matchesAny(`${dir}/src/example.test.ts`, testTsconfig.include)).toBe(true)
+  })
 })
