@@ -20,6 +20,11 @@ suite. **Adapters are covered by `*.integration.test.ts` against the real thing*
 Chrome, real windows, real disk — never by fakes, which would test the fake. The fakes exist
 so the **core** can be tested without I/O, including auto-restart on crash.
 
+**Never `--no-verify`, and never commit around a red test.** The pre-commit hook running
+`npm run check` is what turns this rule from discipline into a guarantee; bypassing it removes
+the guarantee and leaves only the discipline, which is what fails. If a hook blocks you, the
+thing it caught is the work.
+
 **2. Security decisions stop the work.** On hitting any trigger below, stop and present
 options as _what it protects · what it exposes · implementation cost · reversibility_,
 with an explicit recommendation and a note on which option is the most conservative.
