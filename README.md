@@ -14,7 +14,11 @@ The app does not embed games. It launches and arranges real browser windows, whi
 
 ## Status
 
-Phase 0 (feasibility spike) done. Foundation in progress. No usable app yet.
+**No usable app yet** — there is no UI, so nothing launches a game for you today.
+
+Done: the feasibility spike, the project foundation, the pure core (grid layout, slot state
+machine, registry validation, config merge, orchestrator) and the three adapters (Chrome via
+spawn, window control, disk storage). Next and last step of v1 is the Electron panel.
 
 ## Requirements
 
@@ -36,7 +40,10 @@ The fast suite must stay fast, so the red-green loop is worth running. Anything 
 launches a process, moves a window or touches disk goes in `*.integration.test.ts`.
 
 Config and logs are written to `%APPDATA%/helloweb`, including in development.
-Browser profiles live in `data/`, which is git-ignored — it holds session cookies.
+
+Where slot browser profiles live is **not decided yet** — `ChromeLauncher` takes the location
+as a parameter. `data/` is git-ignored regardless, since profiles hold session cookies of
+logged-in accounts.
 
 ### Native dependencies
 
@@ -54,5 +61,7 @@ Building them requires Visual Studio Build Tools and Python.
 
 ## A note on game terms of service
 
-Anything this app injects or automates runs inside your logged-in session. Verify each
-game's terms before relying on it. The risk of an account ban is the user's.
+This app does not automate play and does not inject anything into game pages — it launches
+ordinary Chrome windows and arranges them. Even so, every slot runs inside your logged-in
+session, so check each game's terms before relying on it. Should injection or automation
+return in a later phase, the risk of an account ban is the user's.

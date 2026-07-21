@@ -24,18 +24,26 @@ dependencies · packaging and distribution · log contents.
 Two principles that need no asking: never weaken an existing control to unblock a problem,
 and the app never stores passwords.
 
-**3. `.gitignore` before the first `git add`.** Already in place. `data/` holds session
-cookies of logged-in accounts.
+**3. `.gitignore` before the first `git add`.** In place, covering `data/`, signing certs,
+tokens and screenshot output.
+
+**Undecided:** where slot browser profiles live. `ChromeLauncher` takes `profilesRoot` as a
+parameter and nothing yet chooses it. Profiles _are_ the logged-in sessions, so this is a
+security decision for the project owner — do not settle it in passing while wiring the shell.
 
 ## Architecture boundaries
 
 - **`packages/core` has no I/O.** No `fs`, no `child_process`, no network. Pure functions
-  and state machines only. This is where most of the test suite lives.
+  and state machines only. This is not a convention: ESLint fails the build on those
+  imports. If a decision needs I/O, the decision stays in the core and the I/O moves to an
+  adapter.
 - **Adapters are thin and hold no business rules.** Each sits behind a narrow interface
-  (`BrowserLauncher`, `WindowManager`, `Storage`) with a fake for core tests.
-- **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}`
-  and nothing else. URLs are **https only** — in the registry and in custom slots. Do not grow the shared layer speculatively — with one game, any bigger
-  schema is a guess. Promote a field only when a second game proves the need.
+  declared in `core/src/ports.ts` (`BrowserLauncher`, `WindowManager`, `Storage`). Fakes for
+  them live in `core/src/testing/`, excluded from the build so they never ship.
+- **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}` and
+  nothing else. URLs are **https only**, in the registry and in custom slots alike. Do not
+  grow the shared layer speculatively — with one game, any bigger schema is a guess. Promote
+  a field only when a second game proves the need.
 
 ## Browser control: no CDP
 

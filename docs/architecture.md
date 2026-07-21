@@ -113,19 +113,24 @@ helloweb/
   apps/
     shell/              # Electron: main (orchestrator) + renderer (panel)
   packages/
-    core/               # PURE CORE - grid, state machine, config merge, validation. No I/O.
-    browser-engine/     # process adapter: spawn/stop/restart, PID tracking, crash detection
+    core/               # PURE CORE - grid, state machine, registry, config, orchestrator.
+                        #   No I/O, enforced by ESLint rather than by convention.
+                        #   src/testing/ holds the fakes; excluded from the build.
+    browser-engine/     # process adapter: Chrome via spawn, PID resolution, liveness
     window-manager/     # node-window-manager adapter: applies positions computed by core
-    games/              # registry - one folder per integrated game
-    slots/              # slot config persistence (disk adapter)
-    config/             # schema + global defaults
-    test-fakes/         # fakes for the interfaces
-  data/                 # per-slot user data dirs (GIT-IGNORED - session cookies)
+    storage/            # disk adapter: JSON files under %APPDATA%/helloweb
+    games/              # registry - one folder per integrated game (not yet built)
   docs/architecture.md
 ```
 
-Packages are created when they are implemented, not up front. Tests live beside the code
-they test (`*.test.ts`).
+Packages are created when they are implemented, not up front — the same restraint the game
+contract gets. Two placements worth explaining: config lives in the core because it is pure
+merge logic rather than I/O, and the fakes live in the core because the core is what defines
+the ports. A separate `test-fakes` package was considered and dropped: it would add a build
+cycle for no benefit while there is a single consumer.
+
+Tests live beside the code they test. `*.test.ts` is the fast suite and must stay free of
+I/O; `*.integration.test.ts` drives real processes, windows and disk and runs separately.
 
 ## The pure core
 
