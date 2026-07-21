@@ -62,6 +62,7 @@ Building them requires Visual Studio Build Tools and Python.
 
 - `docs/architecture.md` — how the system works now; edited freely, always current
 - `docs/adr/` — one immutable record per decision, including what was rejected and why
+- `docs/troubleshooting.md` — problems already hit, by the symptom you see first
 - `CLAUDE.md` — rules that are not derivable from the code
 
 ## A note on game terms of service
