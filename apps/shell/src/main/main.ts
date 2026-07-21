@@ -13,6 +13,7 @@
  */
 import { BrowserWindow, app, ipcMain, screen, session, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
+import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   IPC_CHANNELS,
@@ -25,7 +26,13 @@ import {
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot } from '@helloweb/core'
 import { ChromeLauncher } from '@helloweb/browser-engine'
 import { NativeWindowManager } from '@helloweb/window-manager'
-import { JsonFileStorage, configFilePath, logsDir, profilesDir } from '@helloweb/storage'
+import {
+  FileLogger,
+  JsonFileStorage,
+  configFilePath,
+  logsDir,
+  profilesDir,
+} from '@helloweb/storage'
 import { buildGameRegistry } from '@helloweb/games'
 import { allowsNavigation, cspHeaders, panelWebPreferences } from './security.js'
 import { firstRunSlots } from './first-run.js'
@@ -43,6 +50,7 @@ interface PersistedConfig extends GlobalConfig {
 }
 
 const storage = new JsonFileStorage<unknown>(configFilePath())
+const logger = new FileLogger(logsDir())
 let orchestrator: Orchestrator
 let globals: GlobalConfig
 let slots: SlotOverrides[]
@@ -72,6 +80,7 @@ async function loadConfiguration(): Promise<void> {
     registry,
     slots,
     autoRestart: true,
+    logger,
   })
 }
 
@@ -191,6 +200,10 @@ function registerIpc(): void {
       // that accepted a path would be "open an arbitrary file" with a friendly
       // name, and it is the app's only handoff to the OS shell.
       parseNoPayload(payload)
+      // Ensure the directory exists before opening it: on a run where nothing
+      // has been logged yet, openPath on a missing directory just fails and the
+      // button appears broken.
+      mkdirSync(logsDir(), { recursive: true })
       await shell.openPath(logsDir())
     },
   }
@@ -226,6 +239,7 @@ app.whenReady().then(async () => {
     // the user needs somewhere to read why, and the file is left untouched so
     // they can fix it. See decisions 1A and 2A.
     configError = error instanceof Error ? error.message : String(error)
+    logger.log({ level: 'error', event: 'config.error', message: configError })
     console.error('[shell] could not load configuration:', configError)
   }
 
