@@ -22,12 +22,16 @@ export function buildChromeArgs(request: LaunchRequest, profilePath: string): st
     '--no-default-browser-check',
     `--window-position=${bounds.x},${bounds.y}`,
     `--window-size=${bounds.width},${bounds.height}`,
-    '--new-window',
+    // App window, not a normal window with a tab. App windows do not take part
+    // in Chrome's session restore, so a slot never reopens last time's tabs and
+    // never accumulates them. This became necessary once stop() started closing
+    // cleanly: a clean exit is exactly what makes Chrome offer to restore, and a
+    // normal window would bring the old tabs back plus the one we open. The url
+    // is the app's target, so it is not passed again as a trailing argument.
+    `--app=${request.url}`,
   ]
 
   if (request.mute) args.push('--mute-audio')
 
-  // Last, so Chrome reads it as the page to open rather than as a flag.
-  args.push(request.url)
   return args
 }

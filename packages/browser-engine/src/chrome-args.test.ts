@@ -24,9 +24,21 @@ describe('buildChromeArgs', () => {
     expect(args).toContain('--window-size=960,1080')
   })
 
-  it('passes the url last, so Chrome treats it as the page and not as a flag', () => {
+  it('opens the url as an app window, not a tab', () => {
+    // App windows do not take part in Chrome's session restore, so a slot never
+    // reopens the tabs from last time and never accumulates them. A normal
+    // window would, and stopping cleanly (which it must, to avoid the "restore
+    // pages?" bubble) is exactly what makes that restore fire.
+    expect(buildChromeArgs(REQUEST, PROFILE_PATH)).toContain('--app=https://poke.idleworld.online/')
+  })
+
+  it('does not open a normal browser window alongside the app window', () => {
+    // --new-window plus --app would open two windows. Only the app window
+    // should exist, and the url must not trail as a bare argument either, which
+    // would open it as an ordinary tab.
     const args = buildChromeArgs(REQUEST, PROFILE_PATH)
-    expect(args[args.length - 1]).toBe('https://poke.idleworld.online/')
+    expect(args).not.toContain('--new-window')
+    expect(args).not.toContain('https://poke.idleworld.online/')
   })
 
   it('suppresses first-run prompts that would cover the game', () => {
