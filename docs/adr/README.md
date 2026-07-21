@@ -27,6 +27,32 @@ Status is one of `Accepted`, `Superseded by ADR-NNNN`, or `Deprecated`.
 
 English, like the rest of the repository. The app's UI is the only Portuguese surface.
 
+## Correcting a factual error
+
+A decision that changes gets a new ADR and a `Superseded by` line. But an ADR can also simply
+be **wrong about the code** — stating that a field exists when it does not, or describing
+behaviour it never had. That is a bug, not a decision, and the two need different handling.
+
+Immutability protects the reasoning and the rejected alternatives. It was never meant to
+preserve a mistaken description, and leaving one in place misleads every future reader.
+
+So, for a factual error in a committed ADR:
+
+1. **Leave the body untouched.** Do not reword the mistaken sentence.
+2. Append a `## Correction (YYYY-MM-DD)` section at the end, stating what was wrong, what is
+   true, and where in the code to verify it. Say whether the error was there from the start or
+   appeared when the code changed — they mean different things.
+3. Add an inline `[see Correction]` marker next to the mistaken sentence, so a reader of the
+   body is never misled by it.
+
+Nothing else in the body changes, and the decision itself is not revisited — if the _decision_
+turned out wrong, that is a new ADR, not a correction.
+
+Only for factual errors. An ADR whose historical context has since changed is not wrong: it
+records what was true when the decision was taken, which is the point of the format.
+
+ADR-0004 and ADR-0006 carry corrections and show the shape.
+
 ## Index
 
 | ADR                                               | Decision                          | Status   |

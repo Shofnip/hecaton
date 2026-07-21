@@ -57,7 +57,12 @@ its purpose. Only three things are defects in an ADR:
 2. **A reversed decision with no `Superseded by`.** The code now contradicts the decision
    itself and no later ADR records the change. This is the most serious finding you can make:
    the index is misrepresenting which decisions are in force.
-3. **A broken cross-reference** — a link to an ADR or file that does not exist.
+3. **A broken cross-reference** — a link to an ADR or file that does not exist, **or a pointer
+   to a convention the target does not actually describe.** Both ADR corrections once said
+   "per the convention in README", and the README documented no such convention: the link
+   resolved, so a link check passed, while a reader following it found nothing. Whenever a
+   document defers to another for a rule — "per", "see", "as described in", "following the
+   convention in" — open the target and confirm the rule is there.
 
 **Not a defect in an ADR:** historical context that has since changed. ADR-0001 says there was
 no mature Rust equivalent to `node-window-manager`. If one exists today, the ADR is still
@@ -141,10 +146,11 @@ statement is.
 For present-tense documents, that is simply the corrected text.
 
 **For an ADR already committed, never recommend rewriting the body.** The project's convention
-is: append a `## Correction (YYYY-MM-DD)` section at the end stating what was wrong and what is
-true, **and** add a minimal inline marker `[see Correction]` next to the incorrect sentence, so
-a reader of the body is never misled. Nothing else in the body changes. Reasoning and rejected
-alternatives are what immutability protects; a factual error about the code is not that.
+is documented in `docs/adr/README.md` under "Correcting a factual error" — follow what it says
+rather than this summary if the two ever diverge. In short: append a
+`## Correction (YYYY-MM-DD)` section stating what was wrong and what is true, and add an inline
+`[see Correction]` marker next to the mistaken sentence. Nothing else in the body changes.
+Reasoning and rejected alternatives are what immutability protects; a factual error is not.
 
 If the ADR is untracked (`git status` shows it as new), say so — it is still a draft and can be
 fixed in place.
