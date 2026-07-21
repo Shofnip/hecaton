@@ -8,5 +8,9 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  // Tests and fakes are versioned like any other code, but must never reach
+  // dist: the app ships dist, and a fake launcher that reports success for
+  // everything has no business inside a build users run. Type-checked by
+  // tsconfig.test.json instead.
+  "exclude": ["src/**/*.test.ts", "src/testing/**"]
 }
