@@ -1,0 +1,85 @@
+# =============================================================================
+# CRITICAL - leaking any of these leaks credentials or live sessions.
+# =============================================================================
+
+# Browser profiles: cookies and localStorage of logged-in game accounts.
+# The app never writes here in dev (config/logs live in %APPDATA%/helloweb),
+# but profiles are data dirs by design.
+data/
+profiles/
+
+# Playwright artifacts. Playwright is NOT part of this stack (the target game's
+# Cloudflare Turnstile rejects CDP-controlled browsers - see docs/architecture.md),
+# but these stay as defense in depth: traces record requests WITH headers, i.e.
+# cookies and tokens, and reports embed screenshots. Costs nothing to keep.
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+playwright/.cache/
+
+# Serialized cookies + localStorage.
+storageState.json
+storage-state.json
+*.storageState.json
+
+# Code-signing certificates (phase 3). Leaking these is worse than leaking a
+# session: it lets a third party sign malware as if it were this app.
+*.pfx
+*.p12
+*.key
+*.pem
+*.cer
+*.crt
+
+# GH_TOKEN (release publishing), CSC_LINK / CSC_KEY_PASSWORD (signing).
+.env
+.env.*
+!.env.example
+
+# Screenshots of a logged-in game expose account name, e-mail and resources.
+screenshots/
+captures/
+
+# Chromium Crashpad writes process memory, which can contain session data.
+# Most of it lands inside data/, but be explicit.
+crashes/
+Crashpad/
+*.dmp
+
+# =============================================================================
+# BUILD OUTPUT AND DEPENDENCIES
+# =============================================================================
+node_modules/
+dist/
+out/
+build/
+release/
+*.exe
+*.blockmap
+*.nsis
+*.nsis.7z
+latest*.yml
+
+# =============================================================================
+# TOOLING
+# =============================================================================
+coverage/
+*.tsbuildinfo
+.eslintcache
+*.log
+logs/
+npm-debug.log*
+.vite/
+.turbo/
+
+# =============================================================================
+# OS AND EDITOR NOISE
+# =============================================================================
+Thumbs.db
+desktop.ini
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json

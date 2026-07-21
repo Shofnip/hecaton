@@ -1,0 +1,10 @@
+# Normalize to LF in the repository. Prettier is configured with endOfLine: lf,
+# so without this the working tree and the index disagree on every file.
+* text=auto eol=lf
+
+# Binary assets must never be touched.
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
+*.node binary

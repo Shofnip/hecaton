@@ -1,0 +1,76 @@
+# CLAUDE.md
+
+Decisions that are invisible in the code and that future sessions must respect.
+Full rationale lives in `docs/architecture.md` — read it before changing architecture.
+
+## Non-negotiable rules
+
+**1. Strict TDD.** No production code without a failing test first. Red-green-refactor,
+every phase, no exceptions. Pure logic goes in `packages/core` and is tested directly;
+I/O goes in thin adapters tested through fakes. If an `if` encoding a business rule shows
+up inside an adapter, that rule belongs in the core.
+
+**2. Security decisions stop the work.** On hitting any trigger below, stop and present
+options as _what it protects · what it exposes · implementation cost · reversibility_,
+with an explicit recommendation and a note on which option is the most conservative.
+Never pick the safest option and move on — the project owner decides.
+
+Triggers: session data / `userDataDir` / cookies · external code execution · Electron
+security config (`webPreferences`, CSP, navigation allowlist) · IPC surface · network
+requests the app itself makes · Chromium flags that weaken protections · filesystem access
+outside the app's own data dir · credentials · injection scope on game pages · npm
+dependencies · packaging and distribution · log contents.
+
+Two principles that need no asking: never weaken an existing control to unblock a problem,
+and the app never stores passwords.
+
+**3. `.gitignore` before the first `git add`.** Already in place. `data/` holds session
+cookies of logged-in accounts.
+
+## Architecture boundaries
+
+- **`packages/core` has no I/O.** No `fs`, no `child_process`, no network. Pure functions
+  and state machines only. This is where most of the test suite lives.
+- **Adapters are thin and hold no business rules.** Each sits behind a narrow interface
+  (`BrowserLauncher`, `WindowManager`, `Storage`) with a fake for core tests.
+- **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport, mute}`
+  and nothing else. Do not grow the shared layer speculatively — with one game, any bigger
+  schema is a guess. Promote a field only when a second game proves the need.
+
+## Browser control: no CDP
+
+The target game (Poke IdleWorld) rejects CDP-controlled browsers — its Cloudflare Turnstile
+fails for Playwright regardless of binary or profile. **Chrome is launched with `spawn` and
+`--user-data-dir` per slot, never through Playwright.** Verified in the Phase 0 spike.
+
+Consequences: identify windows by **PID, never by title** (a title filter grabs the user's
+own browser windows); the PID `spawn` returns is a launcher stub, not the browser process;
+resolve the real PID once at launch and check liveness with `process.kill(pid, 0)` rather
+than polling WMI. Anti-detection is out of scope — the app is distributed, and a ban would
+land on the end user.
+
+## Language
+
+Code, filenames, comments, commits and docs in **English**. **App UI in Portuguese** —
+including `label` fields in game definitions, which are UI text.
+
+## Data locations
+
+Config and logs always go to `%APPDATA%/helloweb`, **including in development**. Never the
+repo directory: logs can contain page URLs with session tokens in query strings, and a
+single ignore-rule mistake would leak them. Same path in dev and prod also kills a class of
+packaging bug.
+
+## Commands
+
+```
+npm test           # vitest, unit tests - must be green at all times
+npm run typecheck  # tsc --build
+npm run lint       # eslint
+npm run check      # all three, what CI runs
+```
+
+## Definition of done
+
+Test was red before the implementation · core still has no I/O · no adapter gained a
+business rule · `tsc` clean · suite green · docs updated if a decision changed.
