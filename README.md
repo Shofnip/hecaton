@@ -26,10 +26,14 @@ Phase 0 (feasibility spike) done. Foundation in progress. No usable app yet.
 
 ```
 npm install
-npm run check      # typecheck + lint + tests
-npm test           # unit tests only
+npm run check             # typecheck + lint + fast tests
+npm test                  # fast suite, no I/O - stays under a second
 npm run test:watch
+npm run test:integration  # real Chrome, real windows, real disk. Windows only.
 ```
+
+The fast suite must stay fast, so the red-green loop is worth running. Anything that
+launches a process, moves a window or touches disk goes in `*.integration.test.ts`.
 
 Config and logs are written to `%APPDATA%/helloweb`, including in development.
 Browser profiles live in `data/`, which is git-ignored — it holds session cookies.

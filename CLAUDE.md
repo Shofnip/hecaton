@@ -64,11 +64,17 @@ packaging bug.
 ## Commands
 
 ```
-npm test           # vitest, unit tests - must be green at all times
-npm run typecheck  # tsc --build
-npm run lint       # eslint
-npm run check      # all three, what CI runs
+npm test                  # fast suite, no I/O - must be green at all times
+npm run typecheck         # tsc --build, plus tsconfig.test.json for test files
+npm run lint              # eslint
+npm run check             # all three, what CI runs
+npm run test:integration  # real Chrome/windows/disk, Windows only, not in check
 ```
+
+Native modules (`node-window-manager` and its transitive `extract-file-icon`) need
+explicit `allowScripts` entries in the root `package.json`. Approving the parent does
+not cover the transitive one, and the install succeeds either way — it only fails at
+runtime, so it is easy to miss.
 
 ## Definition of done
 
