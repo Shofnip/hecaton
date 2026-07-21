@@ -229,7 +229,28 @@ replacement. Code discarded, findings recorded above.
 5. Electron UI wiring it together · registry with Poke IdleWorld · custom slot.
 
 **Phase 2** — revisit automation with the extension path · per-slot proxy · possibly
-declarative actions.
+declarative actions · **profile cache clearing and profile reset** (see below).
+
+### Deferred: clearing and resetting a slot profile
+
+The app currently has no way to clear a slot's profile, by design — no code path can delete
+`profiles/slot-N`, so no bug can destroy a logged-in session. That leaves two real gaps,
+both of them risks this document already lists:
+
+- **Corrupt profile.** The panel reports it but offers no recovery; the user must delete the
+  directory by hand. Poor for a distributed app.
+- **Disk.** Persistent profiles accumulate cache, once per slot, with no way to reclaim it.
+
+These are two different needs, and only one is dangerous. **Clearing the cache**
+(`Default/Cache`, `Default/Code Cache`, `GPUCache`) frees disk without logging anyone out —
+cookies and localStorage are untouched. **Resetting a profile** discards the session, and
+recovering it means passing an interactive Turnstile again.
+
+If reset is wanted, the shape that preserves the current guarantee is **archiving rather than
+deleting**: rename `slot-N` to `slot-N.old-<timestamp>`. The app gets a fresh profile, the old
+one stays on disk, a wrong click is undoable, and no deletion code enters the app.
+
+Deferred deliberately: none of it blocks v1.
 
 **Phase 3 — distribution** — `electron-builder` · Windows installer · code signing decision ·
 auto-update · license · Electron security review before the first public release.
