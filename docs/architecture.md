@@ -3,6 +3,11 @@
 Living document. Started as the pre-implementation plan; updated with what the Phase 0 spike
 actually proved. When a decision changes, change it here in the same commit.
 
+This file describes the system as it is **now**. The reasoning behind decisions that reversed
+an earlier one, or where alternatives were seriously weighed, lives in
+[`docs/adr/`](adr/README.md) — one immutable file per decision, so that editing this document
+toward the present cannot quietly erase why the past was rejected.
+
 ## Context
 
 Run several web games at once, each in its own isolated session, with a control-room feel:
@@ -41,16 +46,12 @@ This is the decision the Phase 0 spike overturned, and the most important one he
 
 The original plan was Playwright's `chromium.launchPersistentContext`. **It does not work for
 the target game.** Its login page is protected by Cloudflare Turnstile, which rejects any
-CDP-controlled browser. Four tests, isolating one variable at a time:
+CDP-controlled browser — not the IP, not a fresh profile, not the binary, but the CDP
+connection itself.
 
-| Browser          | Profile              | CDP     | Turnstile  |
-| ---------------- | -------------------- | ------- | ---------- |
-| Installed Chrome | personal (incognito) | no      | passes     |
-| Installed Chrome | fresh                | no      | **passes** |
-| Installed Chrome | fresh                | **yes** | fails      |
-| Bundled Chromium | fresh                | **yes** | fails      |
-
-Not the IP, not a fresh profile, not the binary — the CDP connection itself.
+The four tests that isolated that, and the alternatives weighed, are recorded in
+[ADR-0003](adr/0003-spawn-over-cdp.md). They are not repeated here: this document is edited
+toward the present, and evidence belongs somewhere edits cannot quietly tidy it away.
 
 **So the app spawns Chrome directly**, like a desktop shortcut would:
 

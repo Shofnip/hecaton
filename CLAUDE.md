@@ -3,6 +3,12 @@
 Decisions that are invisible in the code and that future sessions must respect.
 Full rationale lives in `docs/architecture.md` — read it before changing architecture.
 
+**Recording new decisions.** `docs/architecture.md` always describes the present, so update it
+in the same commit that changes behaviour. On top of that, write an ADR in `docs/adr/` when the
+decision **reverses an earlier one** or when **alternatives were seriously weighed** — those
+files are never edited, so the reasoning survives later cleanups of the main document. Most
+decisions need neither: a commit message is enough.
+
 ## Non-negotiable rules
 
 **1. Strict TDD.** No production code without a failing test first. Red-green-refactor,
