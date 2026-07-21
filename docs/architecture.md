@@ -187,10 +187,23 @@ is **declarative actions** (`{ selector, op: 'click' }`) interpreted by the core
 
 ## Data locations
 
-Config and logs go to `%APPDATA%/helloweb` **always, including development**. Writing to the
-repo directory would make `.gitignore` the only line of defense against committing real state,
-and logs can carry page URLs with session tokens in query strings. Same path in dev and prod
-also removes a class of packaging bug.
+Everything the app writes goes to `%APPDATA%/helloweb` **always, including development**:
+
+|                   |                                                        |
+| ----------------- | ------------------------------------------------------ |
+| `config.json`     | global config and slot overrides, with `schemaVersion` |
+| `logs/`           | rotated structured logs                                |
+| `profiles/slot-N` | per-slot browser profile — the isolation mechanism     |
+
+Writing any of it into the repo directory would make `.gitignore` the only line of defense
+against committing real state. Logs can carry page URLs with session tokens in query strings,
+and a profile does not merely _risk_ holding credentials — it **is** the logged-in session.
+An early draft of this document claimed profiles lived in `data/` inside the repository; that
+was never decided and is now explicitly rejected. Same path in dev and prod also removes a
+class of packaging bug.
+
+Paths come from `@helloweb/storage` (`appDataDir`, `configFilePath`, `logsDir`,
+`profilesDir`) and are never assembled by hand.
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration
 step on load. Nearly free now; expensive to retrofit once users have saved files.

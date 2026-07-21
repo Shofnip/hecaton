@@ -3,7 +3,6 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { JsonFileStorage } from './json-file-storage.js'
-import { appDataDir, configFilePath } from './app-paths.js'
 
 interface Shape {
   schemaVersion: number
@@ -84,30 +83,5 @@ describe('JsonFileStorage', () => {
   })
 })
 
-describe('appDataDir', () => {
-  it('uses APPDATA on Windows', () => {
-    const resolved = appDataDir({ APPDATA: 'C:\\Users\\x\\AppData\\Roaming' }, 'win32')
-    expect(resolved).toBe(join('C:\\Users\\x\\AppData\\Roaming', 'helloweb'))
-  })
-
-  it('never resolves into the repository, in development or otherwise', () => {
-    const resolved = appDataDir({ APPDATA: 'C:\\Users\\x\\AppData\\Roaming' }, 'win32')
-    expect(resolved).not.toContain('helloweb\\packages')
-    expect(resolved.startsWith('C:\\Users\\x\\AppData\\Roaming')).toBe(true)
-  })
-
-  it('fails loudly when APPDATA is missing on Windows', () => {
-    expect(() => appDataDir({}, 'win32')).toThrow(/APPDATA/)
-  })
-
-  it('falls back to XDG_CONFIG_HOME elsewhere, so CI on Linux works', () => {
-    expect(appDataDir({ XDG_CONFIG_HOME: '/home/x/.config' }, 'linux')).toBe(
-      join('/home/x/.config', 'helloweb'),
-    )
-  })
-
-  it('puts config and logs under the same app directory', () => {
-    const env = { APPDATA: 'C:\\Users\\x\\AppData\\Roaming' }
-    expect(configFilePath(env, 'win32')).toBe(join(appDataDir(env, 'win32'), 'config.json'))
-  })
-})
+// Path resolution is pure string work, so it lives in app-paths.test.ts and runs
+// in the fast suite, where CI actually covers it.

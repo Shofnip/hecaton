@@ -27,10 +27,6 @@ and the app never stores passwords.
 **3. `.gitignore` before the first `git add`.** In place, covering `data/`, signing certs,
 tokens and screenshot output.
 
-**Undecided:** where slot browser profiles live. `ChromeLauncher` takes `profilesRoot` as a
-parameter and nothing yet chooses it. Profiles _are_ the logged-in sessions, so this is a
-security decision for the project owner — do not settle it in passing while wiring the shell.
-
 ## Architecture boundaries
 
 - **`packages/core` has no I/O.** No `fs`, no `child_process`, no network. Pure functions
@@ -64,10 +60,14 @@ including `label` fields in game definitions, which are UI text.
 
 ## Data locations
 
-Config and logs always go to `%APPDATA%/helloweb`, **including in development**. Never the
-repo directory: logs can contain page URLs with session tokens in query strings, and a
-single ignore-rule mistake would leak them. Same path in dev and prod also kills a class of
-packaging bug.
+Everything the app writes goes under `%APPDATA%/helloweb`, **including in development** —
+config, logs, and the per-slot browser profiles under `profiles/`. Never the repo directory:
+logs can contain page URLs with session tokens in query strings, and a profile _is_ a
+logged-in session, so a single ignore-rule mistake would leak a real account. Same path in
+dev and prod also kills a class of packaging bug.
+
+Use `appDataDir()`, `configFilePath()`, `logsDir()` and `profilesDir()` from
+`@helloweb/storage`. Never build these paths by hand.
 
 ## Commands
 

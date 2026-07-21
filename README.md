@@ -39,11 +39,10 @@ npm run test:integration  # real Chrome, real windows, real disk. Windows only.
 The fast suite must stay fast, so the red-green loop is worth running. Anything that
 launches a process, moves a window or touches disk goes in `*.integration.test.ts`.
 
-Config and logs are written to `%APPDATA%/helloweb`, including in development.
-
-Where slot browser profiles live is **not decided yet** — `ChromeLauncher` takes the location
-as a parameter. `data/` is git-ignored regardless, since profiles hold session cookies of
-logged-in accounts.
+Everything the app writes lives under `%APPDATA%/helloweb`, including in development:
+config, logs, and the per-slot browser profiles under `profiles/`. Nothing the app produces
+is ever written into the repository — profiles hold session cookies of logged-in accounts,
+and keeping them out of the working tree removes that risk at the source.
 
 ### Native dependencies
 

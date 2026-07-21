@@ -47,3 +47,19 @@ export function logsDir(
 ): string {
   return join(appDataDir(env, platform), 'logs')
 }
+
+/**
+ * Root for per-slot browser profiles.
+ *
+ * Outside the repository for the same reason as config and logs, only more so:
+ * logs *might* contain a session token, whereas a profile *is* the logged-in
+ * session — cookies for a real account. Keeping them here removes the risk at
+ * the source rather than leaving .gitignore as the only thing between a stray
+ * `git add -f` and a leaked account.
+ */
+export function profilesDir(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return join(appDataDir(env, platform), 'profiles')
+}
