@@ -38,7 +38,8 @@ and error handling throughout.
    alternative. Definitions ship **only in the repository**.
 9. **Language:** everything in English except the app UI, which is Portuguese.
 10. **Security decisions stop implementation** and go to the project owner with trade-offs.
-11. GitHub + CI (typecheck, lint, tests on every push).
+11. GitHub + CI (typecheck, lint, format check, tests) on pushes to `main` and on every pull
+    request. The integration suite is manual — it needs an interactive desktop.
 
 ## Browser control: `spawn`, not CDP
 
@@ -112,7 +113,7 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
 ```
 helloweb/
   apps/
-    shell/              # Electron: main (orchestrator) + renderer (panel)
+    shell/              # Electron: main (orchestrator) + renderer (panel) (not yet built)
   packages/
     core/               # PURE CORE - grid, state machine, registry, config, orchestrator.
                         #   No I/O, enforced by ESLint rather than by convention.
@@ -188,7 +189,7 @@ is **declarative actions** (`{ selector, op: 'click' }`) interpreted by the core
 
 ## Data locations
 
-Everything the app writes goes to `%APPDATA%/helloweb` **always, including development**:
+Everything the app **persists** goes to `%APPDATA%/helloweb`, **always, including development**:
 
 |                   |                                                        |
 | ----------------- | ------------------------------------------------------ |
@@ -202,6 +203,15 @@ and a profile does not merely _risk_ holding credentials — it **is** the logge
 An early draft of this document claimed profiles lived in `data/` inside the repository; that
 was never decided and is now explicitly rejected. Same path in dev and prod also removes a
 class of packaging bug.
+
+**One kind of state deliberately lives elsewhere.** A clean-session slot
+(`persistProfile: false`) gets a throwaway profile under the **OS temp directory**, deleted on
+`stop()` — see [ADR-0005](adr/0005-never-delete-a-persistent-profile.md). Temp is the correct
+home for discardable data: backup tools skip it and Windows reclaims it, neither of which is
+true of `%APPDATA%`. Moving it under the app directory would put throwaway sessions into users'
+backups and would need cleanup code to compensate. The consequence worth remembering is that
+session data can exist in two places, so "where can cookies land on this machine?" has two
+answers, and an orphaned throwaway profile survives an abrupt kill until Windows reclaims it.
 
 Paths come from `@helloweb/storage` (`appDataDir`, `configFilePath`, `logsDir`,
 `profilesDir`) and are never assembled by hand.

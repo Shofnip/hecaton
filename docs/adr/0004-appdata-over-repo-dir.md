@@ -22,6 +22,7 @@ failure mode worth naming: it looked settled precisely because three files agree
 ## Decision
 
 **`%APPDATA%/helloweb`, always — the same path in development and in production.**
+[see Correction]
 
 |                   |                                                            |
 | ----------------- | ---------------------------------------------------------- |
@@ -74,3 +75,25 @@ packaging.
 
 **`%APPDATA%` with a dev override flag** — same risk as above, one flag away, with the extra
 property that the unsafe mode is the one someone reaches for while debugging.
+
+## Correction (2026-07-21)
+
+"Always" above covers state the app **persists**. It is not literally everything the app writes.
+
+A clean-session slot (`persistProfile: false`) gets a throwaway profile created under the **OS
+temp directory**, not under `%APPDATA%/helloweb` — see `ChromeLauncher.launch` and
+[ADR-0005](0005-never-delete-a-persistent-profile.md). That was true when this ADR was written
+and the ADR did not say so.
+
+The decision stands and the placement is deliberate, not an oversight: temp is the correct home
+for discardable data, because backup tools skip it and Windows reclaims it, neither of which is
+true of `%APPDATA%`. Moving throwaway profiles under the app directory would copy discardable
+sessions into users' backups and require cleanup code to compensate.
+
+What the omission cost is precision in the security reasoning this ADR exists to record: a
+reader asking "where can session cookies land on this machine?" would get one answer from the
+text and needs two. The property that does hold without exception is the narrower one — **the
+app never writes state into the repository**.
+
+Found by the documentation auditor (`/audit-docs`) on its first run. The body is left unchanged
+per the convention in [README](README.md); only the inline `[see Correction]` marker was added.

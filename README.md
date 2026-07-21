@@ -39,10 +39,15 @@ npm run test:integration  # real Chrome, real windows, real disk. Windows only.
 The fast suite must stay fast, so the red-green loop is worth running. Anything that
 launches a process, moves a window or touches disk goes in `*.integration.test.ts`.
 
-Everything the app writes lives under `%APPDATA%/helloweb`, including in development:
+Everything the app persists lives under `%APPDATA%/helloweb`, including in development:
 config, logs, and the per-slot browser profiles under `profiles/`. Nothing the app produces
 is ever written into the repository — profiles hold session cookies of logged-in accounts,
 and keeping them out of the working tree removes that risk at the source.
+
+A slot configured for a clean session is the one exception: its profile is a throwaway
+directory under the OS temp folder, removed when the slot stops. If the app is killed before
+that, the directory survives until Windows reclaims it — worth knowing if you are cleaning a
+shared machine.
 
 ### Native dependencies
 

@@ -12,9 +12,13 @@ decisions need neither: a commit message is enough.
 ## Non-negotiable rules
 
 **1. Strict TDD.** No production code without a failing test first. Red-green-refactor,
-every phase, no exceptions. Pure logic goes in `packages/core` and is tested directly;
-I/O goes in thin adapters tested through fakes. If an `if` encoding a business rule shows
-up inside an adapter, that rule belongs in the core.
+every phase, no exceptions. If an `if` encoding a business rule shows up inside an adapter,
+that rule belongs in the core.
+
+Where each kind of test goes: pure logic in `packages/core` is tested directly, in the fast
+suite. **Adapters are covered by `*.integration.test.ts` against the real thing** — real
+Chrome, real windows, real disk — never by fakes, which would test the fake. The fakes exist
+so the **core** can be tested without I/O, including auto-restart on crash.
 
 **2. Security decisions stop the work.** On hitting any trigger below, stop and present
 options as _what it protects · what it exposes · implementation cost · reversibility_,
@@ -66,11 +70,18 @@ including `label` fields in game definitions, which are UI text.
 
 ## Data locations
 
-Everything the app writes goes under `%APPDATA%/helloweb`, **including in development** —
+Everything the app **persists** goes under `%APPDATA%/helloweb`, **including in development** —
 config, logs, and the per-slot browser profiles under `profiles/`. Never the repo directory:
 logs can contain page URLs with session tokens in query strings, and a profile _is_ a
 logged-in session, so a single ignore-rule mistake would leak a real account. Same path in
 dev and prod also kills a class of packaging bug.
+
+**One exception, deliberate:** a clean-session slot (`persistProfile: false`) gets a throwaway
+profile under the OS temp directory, deleted on `stop()` — see
+[ADR-0005](docs/adr/0005-never-delete-a-persistent-profile.md). Temp is the right home for
+discardable data: backup tools skip it and Windows reclaims it, neither of which is true of
+`%APPDATA%`. So session data can exist in two places, and an audit of "where do cookies land"
+must cover both.
 
 Use `appDataDir()`, `configFilePath()`, `logsDir()` and `profilesDir()` from
 `@helloweb/storage`. Never build these paths by hand.
