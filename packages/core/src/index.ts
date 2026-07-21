@@ -11,3 +11,8 @@ export { DEFAULT_GLOBAL_CONFIG, SCHEMA_VERSION, resolveSlotConfig } from './conf
 export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
 
 export { slotProfileDirName } from './slot-profile.js'
+
+export { Orchestrator } from './orchestrator.js'
+export type { OrchestratorDeps } from './orchestrator.js'
+
+export type { BrowserLauncher, LaunchRequest, Storage, WindowManager } from './ports.js'

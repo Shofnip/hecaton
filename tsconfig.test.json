@@ -1,0 +1,14 @@
+{
+  // The build tsconfig excludes *.test.ts so they stay out of dist, which also
+  // meant they were never type-checked. This config covers everything with
+  // noEmit, so a broken test signature fails CI instead of passing quietly.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["node"]
+  },
+  "include": ["packages/*/src/**/*.ts", "vitest.config.ts"]
+}
