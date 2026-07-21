@@ -28,7 +28,10 @@ describe('the shipped game registry', () => {
     expect(registry.get('poke-idleworld')).toEqual({
       id: 'poke-idleworld',
       name: 'Poke IdleWorld',
-      url: 'https://poke.idleworld.online/',
+      // /play, not the root: it goes straight to the game when a session
+      // exists, and falls back to /login by the game's own redirect when it
+      // does not, so it is correct in both states.
+      url: 'https://poke.idleworld.online/play',
     })
   })
 

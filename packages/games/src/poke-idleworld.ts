@@ -16,5 +16,9 @@ import type { GameDefinition } from '@helloweb/core'
 export const pokeIdleWorld: GameDefinition = {
   id: 'poke-idleworld',
   name: 'Poke IdleWorld',
-  url: 'https://poke.idleworld.online/',
+  // /play rather than the root. When a session exists it opens straight into
+  // the game; when it does not, the game itself redirects to /login. So it is
+  // the right entry point in both states, and there is no login page to sit on
+  // once a future game (or a preserved session) makes one unnecessary.
+  url: 'https://poke.idleworld.online/play',
 }
