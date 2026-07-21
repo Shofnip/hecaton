@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ChromeLauncher, findChromeExecutable } from './chrome-launcher.js'
@@ -164,6 +164,46 @@ describe.skipIf(!onWindows)('ChromeLauncher', () => {
   it('fails with a useful message when Chrome is missing', async () => {
     const broken = new ChromeLauncher(profilesRoot, 'C:\\nope\\chrome.exe')
     await expect(broken.launch(request(1))).rejects.toThrow(/chrome/i)
+  })
+
+  describe('stopping cleanly', () => {
+    /**
+     * Chrome records how it last exited in its own profile, and shows the
+     * "Restore pages? Chrome didn't shut down correctly" bubble when that says
+     * anything but Normal.
+     *
+     * Stopping with taskkill /F made every Stop -> Start cycle in the panel pop
+     * that bubble, over a window the user had just asked to open. Asking the
+     * window to close first is the fix; force stays as the fallback for a
+     * browser that will not go.
+     */
+    function exitTypeOf(profilePath: string): string | undefined {
+      const preferences = join(profilePath, 'Default', 'Preferences')
+      if (!existsSync(preferences)) return undefined
+      const parsed = JSON.parse(readFileSync(preferences, 'utf8')) as {
+        profile?: { exit_type?: string }
+      }
+      return parsed.profile?.exit_type
+    }
+
+    it('leaves the profile marked as a normal exit', async () => {
+      const pid = await launcher.launch(request(1))
+      started.push(pid)
+      // Chrome writes Preferences a moment after startup; without the window
+      // being fully up there is nothing to mark.
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      await launcher.stop(pid)
+
+      expect(exitTypeOf(join(profilesRoot, 'slot-1'))).toBe('Normal')
+    })
+
+    it('still returns once the browser is gone', async () => {
+      const pid = await launcher.launch(request(1))
+      started.push(pid)
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await launcher.stop(pid)
+      expect(launcher.isAlive(pid)).toBe(false)
+    })
   })
 
   it('is harmless when stopping a pid that is already gone', async () => {

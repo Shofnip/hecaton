@@ -130,18 +130,71 @@ export class ChromeLauncher implements BrowserLauncher {
     return pid
   }
 
+  /** How long a browser gets to shut down on its own before it is forced. */
+  private static readonly CLOSE_GRACE_MS = 5000
+
+  /**
+   * Stops a slot, asking before forcing.
+   *
+   * The asking matters. `taskkill /F` is an unclean exit, and Chrome records
+   * that in its own profile: the next launch of that slot opens with "Restore
+   * pages? Chrome didn't shut down correctly", over a window the user just
+   * asked for. A plain taskkill sends WM_CLOSE instead, which Chrome treats as
+   * a normal shutdown - it flushes its session state and marks the profile as
+   * closed properly.
+   *
+   * Force remains, because a browser that will not close must not leave a slot
+   * stuck forever. Only the order changed.
+   */
   async stop(pid: number): Promise<void> {
     const profile = this.profiles.get(pid)
+
     if (this.isAlive(pid)) {
-      try {
+      this.askToClose(pid)
+      await this.waitForExit(pid, ChromeLauncher.CLOSE_GRACE_MS)
+      if (this.isAlive(pid)) {
         // /T takes the renderer and GPU children with it; without it they linger.
-        execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
-      } catch {
-        // Already gone between the check and the kill.
+        try {
+          execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
+        } catch {
+          // Already gone between the check and the kill.
+        }
       }
     }
+
     this.profiles.delete(pid)
     if (profile?.ephemeral) await this.discard(profile.path)
+  }
+
+  /**
+   * Asks the browser window to close, the way clicking its X does.
+   *
+   * `taskkill` without /F was tried first and does not work here: Chrome
+   * ignores it, the full grace period elapses, and the force path runs anyway.
+   * CloseMainWindow posts WM_CLOSE to the process's main window, which Chrome
+   * treats as a real close - measured at ~360ms, after which it has flushed its
+   * session and written exit_type Normal into the profile.
+   *
+   * No double quotes in the command, deliberately: PowerShell eats those out of
+   * a -Command string, which docs/troubleshooting.md records the hard way.
+   */
+  private askToClose(pid: number): void {
+    try {
+      execFileSync(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid}).CloseMainWindow()`],
+        { stdio: 'ignore' },
+      )
+    } catch {
+      // No such process, or no main window to close. The force path follows.
+    }
+  }
+
+  private async waitForExit(pid: number, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    while (this.isAlive(pid) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
   }
 
   /**
