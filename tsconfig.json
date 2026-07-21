@@ -5,6 +5,7 @@
     { "path": "./packages/games" },
     { "path": "./packages/storage" },
     { "path": "./packages/browser-engine" },
-    { "path": "./packages/window-manager" }
+    { "path": "./packages/window-manager" },
+    { "path": "./apps/shell" }
   ]
 }

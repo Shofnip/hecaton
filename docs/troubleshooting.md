@@ -208,3 +208,56 @@ them.
 Avoid inner double quotes entirely — use single quotes inside, and filter with `Where-Object`
 rather than `-Filter "Name='chrome.exe'"`. `chrome-launcher.ts` does this deliberately; the
 comment there explains why.
+
+---
+
+## `npm install` succeeds but Electron has no binary
+
+**Symptom**
+
+```
+Error: Electron failed to install correctly, please delete node_modules/electron and try again
+```
+
+or `node_modules/electron/dist/` and `node_modules/electron/path.txt` simply do not exist,
+while `npm install` reported success and added the package.
+
+**Cause**
+
+**Electron ships no install script.** Its `package.json` has no `scripts` field at all: the
+downloader is exposed as a bin (`install-electron`, i.e. `node_modules/electron/install.js`)
+and is expected to be run explicitly.
+
+This is easy to misdiagnose as the npm-blocks-install-scripts trap above, because the symptom
+is identical — a successful install and a missing binary. It is not the same problem, and
+adding `"electron@<version>": true` to `allowScripts` does nothing, because there is no script
+to approve. The lockfile settles it:
+
+```
+node -e "const l=require('./package-lock.json'); console.log(l.packages['node_modules/electron'].hasInstallScript)"
+```
+
+`undefined` or `false` means no script exists and `allowScripts` is not the answer.
+
+**What to do**
+
+```
+node node_modules/electron/install.js
+```
+
+It downloads the platform binary through `@electron/get` and verifies it against the
+`checksums.json` shipped inside the npm package — so the integrity check is anchored to the
+tarball npm already verified against the lockfile, not to a checksum fetched alongside the
+download.
+
+Verify by looking, rather than by trusting the exit code:
+
+```
+cat node_modules/electron/path.txt          # electron.exe
+cat node_modules/electron/dist/version      # must match package.json
+```
+
+**CI does not need any of this.** `electron.d.ts` ships inside the npm package, so `typecheck`
+works with no binary present, and nothing in `npm ci` tries to download one. There is no need
+for `ELECTRON_SKIP_BINARY_DOWNLOAD` — that variable belongs to the era when the postinstall
+existed, and `install.js` does not read it.

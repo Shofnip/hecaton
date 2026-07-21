@@ -31,7 +31,7 @@
   "engines": {
     "node": ">=20"
   },
-  "//allowScripts": "npm 11+ blocks dependency install scripts. These two compile native code and are inert without an entry here. Approving the parent does NOT cover the transitive extract-file-icon - it needs its own line, which is easy to miss because the install still succeeds and only fails at runtime.",
+  "//allowScripts": "npm 11+ blocks dependency install scripts. These two compile native code and are inert without an entry here. Approving the parent does NOT cover the transitive extract-file-icon - it needs its own line, which is easy to miss because the install still succeeds and only fails at runtime. electron is deliberately NOT listed: it ships no install script at all, and its binary is fetched by running `node node_modules/electron/install.js` explicitly - see docs/troubleshooting.md.",
   "allowScripts": {
     "node-window-manager@2.2.4": true,
     "extract-file-icon@0.3.2": true

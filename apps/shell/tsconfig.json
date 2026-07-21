@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    // DOM for the renderer, node for main and preload. They share one config
+    // because the alternative is three projects for a four-card panel; the
+    // boundary that matters - the renderer never importing node or electron -
+    // is worth an ESLint rule rather than a tsconfig split.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/games" },
+    { "path": "../../packages/storage" },
+    { "path": "../../packages/browser-engine" },
+    { "path": "../../packages/window-manager" }
+  ]
+}
