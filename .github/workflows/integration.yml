@@ -1,0 +1,35 @@
+# Integration tests: real Chrome, real OS windows, real disk.
+#
+# Manual only, and kept out of ci.yml on purpose. As a skipped job inside CI it
+# left every push reporting "1/2", and an indicator that needs interpreting is an
+# indicator people stop reading.
+#
+# Two reasons it does not run automatically:
+#
+# 1. It needs an interactive desktop session. Hosted runners have none, so
+#    bringToTop and setBounds would pass or fail for reasons unrelated to the
+#    code. A job nobody can trust is worse than no job at all.
+# 2. It needs node-gyp to build two native modules, which currently fails on the
+#    hosted image: node-gyp 11.5 does not recognise the Visual Studio 18 it finds
+#    there, reporting 'unknown version undefined'.
+#
+# The authoritative run is local, on Windows: npm run test:integration
+# This workflow exists so it can also be triggered from the Actions tab, and it
+# is expected to fail on install until reason 2 is resolved upstream.
+
+name: Integration
+
+on:
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
