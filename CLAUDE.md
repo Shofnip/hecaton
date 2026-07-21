@@ -33,8 +33,8 @@ cookies of logged-in accounts.
   and state machines only. This is where most of the test suite lives.
 - **Adapters are thin and hold no business rules.** Each sits behind a narrow interface
   (`BrowserLauncher`, `WindowManager`, `Storage`) with a fake for core tests.
-- **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport, mute}`
-  and nothing else. Do not grow the shared layer speculatively — with one game, any bigger
+- **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}`
+  and nothing else. URLs are **https only** — in the registry and in custom slots. Do not grow the shared layer speculatively — with one game, any bigger
   schema is a guess. Promote a field only when a second game proves the need.
 
 ## Browser control: no CDP

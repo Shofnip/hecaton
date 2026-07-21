@@ -65,6 +65,21 @@ and focus, crash detection and auto-restart, the registry, per-slot config, mute
 What it costs: no CSS injection, no in-page actions, no screenshots, no in-page automation.
 Those depended on CDP.
 
+### Audio, a second casualty of dropping CDP
+
+The plan called for muting unfocused instances, which needed CDP. Without it Chrome only
+accepts `--mute-audio` **at launch** — a slot is born muted or not, and cannot change later.
+
+v1 handles this without any new dependency: **profiles are persistent, so the game's own audio
+setting sticks.** Mute inside the game once per slot and it survives closing and reopening.
+The app additionally offers `--mute-audio` per slot as a fallback for games with no audio
+control of their own.
+
+Making audio follow focus would mean silencing per PID through the Windows audio session API —
+another native module, deferred to phase 2. Writing the game's preference straight into the
+profile's LevelDB was considered and rejected: undocumented format, and a bad write loses the
+login rather than just the volume setting.
+
 **Anti-detection is out of scope.** The plan excluded fingerprint evasion from the start, and
 since the app is distributed, a terms-of-service ban would land on the end user, not the
 author. Never weaken this to unblock a feature.
@@ -122,8 +137,7 @@ makes strict TDD practical rather than theatre.
 - **Slot state machine:** `stopped → starting → running → crashed → restarting`, with valid
   and invalid transitions.
 - **Registry validation:** well/badly formed game definition, required fields, duplicate ids.
-- **Config merge:** global defaults + per-slot overrides.
-- **Mute policy:** which slot goes silent given who has focus.
+- **Config merge:** global defaults + per-slot overrides, including `mute` and `persistProfile`.
 - **`userDataDir` path resolution** per slot — pure string work, no disk access.
 
 Adapters get integration tests, never unit tests, and each sits behind a narrow interface
@@ -154,6 +168,11 @@ there is no way to implement them. They return if the extension path is taken la
 when a second game proves the need. A `label` is UI text, therefore Portuguese.
 
 **Custom slot:** URL plus generic options only. No game-specific anything.
+
+**Only `https:` URLs are accepted**, in the registry and in custom slots alike. This is a
+security boundary, not a style rule: it keeps game sessions encrypted, and it keeps
+`javascript:`, `file:` and `data:` out — each of which would turn a configuration field into
+code execution or disk access. A custom slot is not a way around it.
 
 **Security:** definitions ship only in the repository — same trust level as hardcoded, since
 all code is versioned and reviewed. A user-supplied games folder is **rejected, not deferred**:

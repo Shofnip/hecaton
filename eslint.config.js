@@ -15,4 +15,42 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  {
+    // The pure core must stay free of I/O. This is the project's central
+    // architectural boundary, so it is enforced rather than merely documented:
+    // if a decision needs the filesystem, a process or the network, the decision
+    // belongs here and the I/O belongs in an adapter.
+    files: ['packages/core/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'fs',
+                'node:fs',
+                'node:fs/promises',
+                'path',
+                'node:path',
+                'os',
+                'node:os',
+                'child_process',
+                'node:child_process',
+                'http',
+                'node:http',
+                'https',
+                'node:https',
+                'net',
+                'node:net',
+                'electron',
+              ],
+              message:
+                'packages/core must stay pure. Move the I/O to an adapter and keep the decision here.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 )
