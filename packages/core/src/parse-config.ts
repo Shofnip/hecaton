@@ -76,16 +76,26 @@ function requireString(value: unknown, field: string, context: string): string {
  *
  * Rebuilt rather than spread so that nothing unvalidated survives into the
  * running app, which is the same reason validateGameDefinition rebuilds.
+ *
+ * Exported because the config file is not the only untrusted source of a slot:
+ * the panel sends the same shape over IPC. Validating both with this function
+ * is what makes them agree by construction — the renderer cannot ask for a slot
+ * that could not have been written in config.json, and nobody has to keep two
+ * lists of rules in step.
  */
-function parseSlot(input: unknown, index: number, globals: GlobalConfig): SlotOverrides {
+export function parseSlotOverrides(
+  input: unknown,
+  globals: GlobalConfig,
+  where = 'slot entry',
+): SlotOverrides {
   if (!isPlainObject(input)) {
-    throw new Error(`config slots[${index}] must be an object, got ${JSON.stringify(input)}`)
+    throw new Error(`${where} must be an object, got ${JSON.stringify(input)}`)
   }
 
   // The id comes first so every later message can name the slot the user has
   // to go and fix, rather than an array index they would have to count out.
-  const id = requirePositiveInteger(input['id'], 'id', `config slots[${index}] `)
-  const context = `config slot ${id}: `
+  const id = requirePositiveInteger(input['id'], 'id', `${where}: `)
+  const context = `slot ${id}: `
   rejectUnknownKeys(input, SLOT_KEYS, context)
 
   const slot: SlotOverrides = { id }
@@ -140,7 +150,7 @@ export function parseConfig(input: unknown): ParsedConfig {
   const slots: SlotOverrides[] = []
   const seen = new Set<number>()
   for (const [index, raw] of rawSlots.entries()) {
-    const slot = parseSlot(raw, index, globals)
+    const slot = parseSlotOverrides(raw, globals, `config slots[${index}]`)
     if (seen.has(slot.id)) {
       // Which duplicate wins would depend on iteration order, so one of the
       // user's two entries would silently do nothing.

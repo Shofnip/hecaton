@@ -10,8 +10,11 @@ export type { GameDefinition, Viewport } from './registry.js'
 export { DEFAULT_GLOBAL_CONFIG, SCHEMA_VERSION, resolveSlotConfig } from './config.js'
 export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
 
-export { parseConfig } from './parse-config.js'
+export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
+
+export { IPC_CHANNELS, parseNoPayload, parseSlotId, parseSlotUpdate } from './ipc.js'
+export type { IpcChannel } from './ipc.js'
 
 export { slotProfileDirName } from './slot-profile.js'
 
