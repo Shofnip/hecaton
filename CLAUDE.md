@@ -37,6 +37,12 @@ and the app never stores passwords.
 **3. `.gitignore` before the first `git add`.** In place, covering `data/`, signing certs,
 tokens and screenshot output.
 
+**Stage explicit paths.** A `PreToolUse` hook (`.claude/hooks/block-blind-git-add.mjs`) refuses
+`git add -A`, `git add .`, `git add -u` and `git commit -a`. It exists because a blind `-A` once
+swept in files nobody had read and pushed them. No shell check can tell "reviewed" from "swept
+up" — naming each path is what forces the list to be looked at. Read `git status --short` first,
+then stage by name.
+
 ## Architecture boundaries
 
 - **`packages/core` has no I/O.** No `fs`, no `child_process`, no network. Pure functions
@@ -90,11 +96,17 @@ Use `appDataDir()`, `configFilePath()`, `logsDir()` and `profilesDir()` from
 
 ```
 npm test                  # fast suite, no I/O - must be green at all times
+npm run test:watch        # the same suite in watch mode, for the red-green loop
 npm run typecheck         # tsc --build, plus tsconfig.test.json for test files
 npm run lint              # eslint
-npm run check             # all three, what CI runs
-npm run test:integration  # real Chrome/windows/disk, Windows only, not in check
+npm run format:check      # prettier --check
+npm run format            # prettier --write
+npm run check             # the four above that CI runs: typecheck, lint, format:check, test
+npm run test:integration  # real Chrome/windows/disk, Windows only, manual, not in check
 ```
+
+The husky `pre-commit` hook runs `lint-staged` and then `npm run check`, so a commit that
+passes locally passes CI.
 
 `tests/repo-consistency.test.ts` checks the verification machinery itself: that `check` runs
 everything CI runs, that no `*.test.ts` falls outside every Vitest config, and that no package

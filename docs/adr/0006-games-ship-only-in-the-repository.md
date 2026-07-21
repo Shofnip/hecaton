@@ -33,7 +33,7 @@ who installs it.
 
 - Adding a game means a pull request. Slower for the user, and the intended trade.
 - The **custom slot** covers the common case without the risk: an arbitrary `https:` URL plus
-  generic options (viewport, profile, mute). No injected CSS, no actions, nothing
+  generic options (viewport, profile, mute) [see Correction]. No injected CSS, no actions, nothing
   game-specific — data the core already understands, not code it must run.
 - The registry contract can stay tiny, because it never has to be a plugin API.
 
@@ -57,3 +57,23 @@ do, and a malicious definition can only ask for things the core already permits.
 
 That is a different feature from "load a script", and should get its own ADR rather than being
 treated as a relaxation of this one.
+
+## Correction (2026-07-21)
+
+"generic options (viewport, profile, mute)" overstates what a custom slot accepts.
+
+`SlotOverrides` in `packages/core/src/config.ts` carries `persistProfile` and `mute` only.
+`viewport` exists on `GameDefinition`, not as a per-slot override, and window size comes from
+the grid (`computeGrid`), never from a viewport. This was already true when the ADR was
+written — `config.ts` predates it — so the enumeration was wrong from the start rather than
+having drifted.
+
+The decision is unaffected: the point stands that a custom slot is **data the core
+understands, not code it runs**. Only the list of options was inaccurate.
+
+Worth flagging for phase 1.5: a panel built from that sentence would offer a per-slot viewport
+field the core cannot accept, and adding one would be a change to the config contract rather
+than a UI detail.
+
+Found by the documentation auditor (`/audit-docs`). Body left unchanged per the convention in
+[README](README.md); only the inline `[see Correction]` marker was added.

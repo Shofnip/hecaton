@@ -122,6 +122,7 @@ helloweb/
     window-manager/     # node-window-manager adapter: applies positions computed by core
     storage/            # disk adapter: JSON files under %APPDATA%/helloweb
     games/              # registry - one folder per integrated game (not yet built)
+  tests/                # checks on the repository itself, not on any package
   docs/architecture.md
 ```
 
@@ -131,8 +132,13 @@ merge logic rather than I/O, and the fakes live in the core because the core is 
 the ports. A separate `test-fakes` package was considered and dropped: it would add a build
 cycle for no benefit while there is a single consumer.
 
-Tests live beside the code they test. `*.test.ts` is the fast suite and must stay free of
-I/O; `*.integration.test.ts` drives real processes, windows and disk and runs separately.
+Tests live beside the code they test, with one exception: `tests/` at the root holds checks
+about the repository itself rather than about any package — see `tests/repo-consistency.test.ts`,
+which verifies that `check` covers every CI step, that no test file falls outside every Vitest
+config, and that no package is missing from the root `tsconfig` references.
+
+`*.test.ts` is the fast suite and must stay free of I/O; `*.integration.test.ts` drives real
+processes, windows and disk and runs separately.
 
 ## The pure core
 

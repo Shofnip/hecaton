@@ -30,7 +30,7 @@ spawn, window control, disk storage). Next and last step of v1 is the Electron p
 
 ```
 npm install
-npm run check             # typecheck + lint + fast tests
+npm run check             # typecheck + lint + format:check + fast tests, what CI runs
 npm test                  # fast suite, no I/O - stays under a second
 npm run test:watch
 npm run test:integration  # real Chrome, real windows, real disk. Windows only.
