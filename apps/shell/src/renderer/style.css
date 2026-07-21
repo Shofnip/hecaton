@@ -1,0 +1,153 @@
+:root {
+  --bg: #16181d;
+  --card: #1e2128;
+  --line: #2c313b;
+  --text: #e6e8ec;
+  --muted: #9aa3b2;
+  --accent: #5b9dff;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1rem;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.5 'Segoe UI',
+    system-ui,
+    sans-serif;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
+}
+
+.bar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+button {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.slot {
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.slot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.slot-title {
+  font-weight: 600;
+}
+
+.slot-target {
+  color: var(--muted);
+  font-size: 0.85rem;
+  word-break: break-all;
+  margin-bottom: 0.6rem;
+}
+
+.state {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.state-running {
+  color: var(--ok);
+}
+
+.state-starting,
+.state-restarting {
+  color: var(--warn);
+}
+
+.state-crashed {
+  color: var(--bad);
+}
+
+.state-stopped {
+  color: var(--muted);
+}
+
+.slot-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.tags {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.tag {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.error {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--bad);
+  border-radius: 8px;
+  background: #2a1c1e;
+  color: var(--bad);
+  white-space: pre-wrap;
+}
+
+.slot-error {
+  margin: 0 0 0.6rem;
+  color: var(--bad);
+  font-size: 0.85rem;
+  word-break: break-word;
+}

@@ -8,6 +8,11 @@
     "composite": false,
     "declaration": false,
     "declarationMap": false,
+    // DOM because this config also sweeps in the shell's renderer, which is a
+    // web page. It is looser than any single package needs - core would happily
+    // type-check a `document` reference here - but each package's own build
+    // config stays strict, and that is the one that decides what ships.
+    "lib": ["ES2022", "DOM"],
     "types": ["node"]
   },
   // apps/* matches nothing until the Electron shell lands. It is listed now

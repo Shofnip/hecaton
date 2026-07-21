@@ -10,7 +10,9 @@
     "lib": ["ES2022", "DOM"],
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
+  // .cts is listed explicitly: the preload has to emit CommonJS, and a bare
+  // *.ts pattern does not pick it up.
+  "include": ["src/**/*.ts", "src/**/*.cts"],
   "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/core" },

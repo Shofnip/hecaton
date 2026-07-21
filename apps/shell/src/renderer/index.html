@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>helloweb</title>
+    <!--
+      The real policy is the header main injects; this tag is the second lock on
+      the same door, and it is what protects the page if the window is ever
+      loaded by something that does not go through that listener.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <h1>helloweb</h1>
+      <div class="bar-actions">
+        <button id="apply-layout" type="button">Restaurar grade</button>
+        <button id="reveal-logs" type="button">Abrir logs</button>
+      </div>
+    </header>
+
+    <p id="config-error" class="error" hidden></p>
+
+    <main id="slots" class="slots"></main>
+
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>
