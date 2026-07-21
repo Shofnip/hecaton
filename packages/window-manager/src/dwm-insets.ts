@@ -66,7 +66,10 @@ public class HellowebFrame {
         '-EncodedCommand',
         Buffer.from(script, 'utf16le').toString('base64'),
       ],
-      { encoding: 'utf8' },
+      // Capture stdout; silence stderr. Add-Type writes a "preparing modules"
+      // progress record to the error stream, which execFileSync otherwise
+      // inherits into the running app's console.
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
     )
   } catch {
     return undefined

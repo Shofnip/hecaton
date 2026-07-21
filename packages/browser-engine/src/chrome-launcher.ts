@@ -38,6 +38,10 @@ function listChromeProcesses(): ChromeProcess[] {
     stdout = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
+      // Capture stdout, but silence stderr rather than letting it inherit the
+      // app's console: PowerShell writes progress and CLIXML noise there, which
+      // otherwise surfaces in the running app's output for no reason.
+      stdio: ['ignore', 'pipe', 'ignore'],
     })
   } catch {
     return []
