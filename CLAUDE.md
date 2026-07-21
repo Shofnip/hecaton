@@ -96,6 +96,12 @@ npm run check             # all three, what CI runs
 npm run test:integration  # real Chrome/windows/disk, Windows only, not in check
 ```
 
+`tests/repo-consistency.test.ts` checks the verification machinery itself: that `check` runs
+everything CI runs, that no `*.test.ts` falls outside every Vitest config, and that no package
+is missing from the root `tsconfig` references. Each of those failed silently here at least
+once — a green signal that covered less than it appeared to. If you add a CI step, a package,
+or a test directory, these will tell you what else needs updating.
+
 Native modules (`node-window-manager` and its transitive `extract-file-icon`) need
 explicit `allowScripts` entries in the root `package.json`. Approving the parent does
 not cover the transitive one, and the install succeeds either way — it only fails at

@@ -10,5 +10,5 @@
     "declarationMap": false,
     "types": ["node"]
   },
-  "include": ["packages/*/src/**/*.ts", "vitest.config.ts"]
+  "include": ["packages/*/src/**/*.ts", "tests/**/*.ts", "vitest*.config.ts"]
 }
