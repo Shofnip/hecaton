@@ -1,3 +1,6 @@
+# lint-staged first: it formats and fixes staged files, so `check` sees them clean.
 npx lint-staged
-npm run typecheck
-npm test
+
+# The same four steps CI runs. Previously this ran typecheck and tests but not
+# format:check, so a commit could pass here and fail CI on formatting alone.
+npm run check

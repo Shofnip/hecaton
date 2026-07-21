@@ -16,6 +16,14 @@ export default tseslint.config(
     },
   },
   {
+    // Hook scripts are plain Node ESM, run by the Claude Code harness rather
+    // than by the app, so they get Node globals and none of the TS rules.
+    files: ['.claude/**/*.mjs'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly' },
+    },
+  },
+  {
     // The pure core must stay free of I/O. This is the project's central
     // architectural boundary, so it is enforced rather than merely documented:
     // if a decision needs the filesystem, a process or the network, the decision
