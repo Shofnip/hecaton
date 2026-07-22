@@ -41,7 +41,6 @@ interface SlotRuntime {
   state: SlotState
   pid: number | undefined
   restartAttempts: number
-  cell: GridCell
   lastError: string | undefined
 }
 
@@ -93,11 +92,9 @@ export class Orchestrator {
         state: 'stopped',
         pid: undefined,
         restartAttempts: 0,
-        cell: { x: 0, y: 0, width: 0, height: 0 },
         lastError: undefined,
       })
     }
-    this.reassignCells()
   }
 
   private slot(slotId: number): SlotRuntime {
@@ -107,20 +104,26 @@ export class Orchestrator {
   }
 
   /**
-   * Recomputes the grid for the current slot count and hands each slot its cell.
+   * The ids that occupy the grid right now, ordered.
    *
-   * Slots are ordered by id, so a slot keeps a stable position as neighbours
-   * come and go: id 1 is always the first cell, id 2 the second. Called after
-   * every add and remove, and once at construction. It moves no windows — that
-   * is start() and applyLayout()'s job, so an added-but-not-started slot does
-   * not shove its neighbours aside before it has anything to show.
+   * The grid follows the *running* count, not the configured one: a slot only
+   * takes a cell while it is live (starting, running or restarting). So one
+   * running slot fills the screen, a second splits it in two, and stopping one
+   * gives the other the whole screen back. A configured-but-stopped slot takes
+   * no space, which is why adding one does not disturb the windows already up.
    */
-  private reassignCells(): void {
-    const ids = [...this.slots.keys()].sort((a, b) => a - b)
+  private layoutIds(): number[] {
+    return [...this.slots.values()]
+      .filter((slot) => isLive(slot.state))
+      .map((slot) => slot.config.id)
+      .sort((a, b) => a - b)
+  }
+
+  /** The cell a live slot should occupy in the current running grid. */
+  private cellOf(slotId: number): GridCell {
+    const ids = this.layoutIds()
     const cells = computeGrid(ids.length, this.screen)
-    ids.forEach((id, index) => {
-      this.slots.get(id)!.cell = cells[index]!
-    })
+    return cells[ids.indexOf(slotId)]!
   }
 
   /**
@@ -154,10 +157,10 @@ export class Orchestrator {
       state: 'stopped',
       pid: undefined,
       restartAttempts: 0,
-      cell: { x: 0, y: 0, width: 0, height: 0 },
       lastError: undefined,
     })
-    this.reassignCells()
+    // No layout change: the new slot is stopped, so it is not on the grid until
+    // it starts, and the running windows keep their places until then.
     this.emit({ level: 'info', event: 'slot.add', slotId: id })
     return id
   }
@@ -178,8 +181,8 @@ export class Orchestrator {
     if (pid !== undefined) await this.launcher.stop(pid)
 
     this.slots.delete(slotId)
-    this.reassignCells()
     this.emit({ level: 'info', event: 'slot.remove', slotId })
+    // The removed window is gone; re-tile whatever is still running.
     this.applyLayout()
   }
 
@@ -257,14 +260,16 @@ export class Orchestrator {
         slotId: slot.config.id,
         url,
         profileDir: slot.config.profileDir,
-        bounds: slot.cell,
+        // The slot is already live (starting), so it counts toward the grid it
+        // is about to join: launch it straight into its cell rather than moving
+        // it a frame later.
+        bounds: this.cellOf(slot.config.id),
         mute: slot.config.mute,
         persistProfile: slot.config.persistProfile,
       })
       slot.state = transition(slot.state, 'ready')
       slot.lastError = undefined
       this.emit({ level: 'info', event: 'slot.ready', ...this.slotFields(slot), pid: slot.pid })
-      this.windows.setBounds(slot.pid, slot.cell)
     } catch (error) {
       slot.pid = undefined
       this.recordFailure(slot, error)
@@ -299,6 +304,8 @@ export class Orchestrator {
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
     if (pid !== undefined) await this.launcher.stop(pid)
+    // The slot left the grid; the survivors expand to fill it.
+    this.applyLayout()
   }
 
   focus(slotId: number): boolean {
@@ -312,10 +319,12 @@ export class Orchestrator {
    * slot crashing, or failing to come back, never touches its neighbours.
    */
   async checkLiveness(): Promise<void> {
+    let changed = false
     for (const slot of this.slots.values()) {
       if (!isLive(slot.state) || slot.pid === undefined) continue
       if (this.launcher.isAlive(slot.pid)) continue
 
+      changed = true
       slot.pid = undefined
       slot.state = transition(slot.state, 'crash')
       slot.lastError = 'the browser process ended unexpectedly'
@@ -338,6 +347,10 @@ export class Orchestrator {
         // a failed restart must not abort the sweep over the other slots.
       }
     }
+    // The running set changed - a slot left the grid, or came back - so the
+    // survivors re-tile to match. Only when something actually changed, so a
+    // quiet liveness tick moves no windows.
+    if (changed) this.applyLayout()
   }
 
   /**
@@ -361,11 +374,20 @@ export class Orchestrator {
     })
   }
 
-  /** Re-applies the grid, e.g. after a slot was focused and maximised. */
+  /**
+   * Re-tiles the running slots into the grid for their current count.
+   *
+   * Called after anything that changes the running set, and on demand after a
+   * slot was focused and maximised. Windows are placed by the same order the
+   * grid is computed in, so slot ids map to cells left-to-right, top-to-bottom.
+   */
   applyLayout(): void {
-    for (const slot of this.slots.values()) {
-      if (slot.state !== 'running' || slot.pid === undefined) continue
-      this.windows.setBounds(slot.pid, slot.cell)
-    }
+    const ids = this.layoutIds()
+    if (ids.length === 0) return
+    const cells = computeGrid(ids.length, this.screen)
+    ids.forEach((id, index) => {
+      const slot = this.slots.get(id)!
+      if (slot.pid !== undefined) this.windows.setBounds(slot.pid, cells[index]!)
+    })
   }
 }

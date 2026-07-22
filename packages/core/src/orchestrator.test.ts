@@ -60,11 +60,12 @@ describe('starting a slot', () => {
     })
   })
 
-  it('places the window in its grid cell', async () => {
+  it('launches the only running slot filling the screen', async () => {
     const app = makeOrchestrator()
     await app.start(1)
-    // Two configured slots on a 1920x1080 screen: side-by-side columns.
-    expect(launcher.launched[0]?.bounds).toEqual({ x: 0, y: 0, width: 960, height: 1080 })
+    // The grid follows the running count, not the configured one: two slots are
+    // configured, but only one is running, so it takes the whole screen.
+    expect(launcher.launched[0]?.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1080 })
   })
 
   it('accepts a custom url slot', async () => {
@@ -264,6 +265,35 @@ describe('window control', () => {
     await app.start(1)
     app.applyLayout()
     expect(windows.bounds.size).toBe(1)
+  })
+
+  it('gives the survivor the whole screen when its neighbour stops', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    // Two running: side by side. Then one stops, so the grid is for one again.
+    await app.stop(2)
+    expect(windows.bounds.get(launcher.pidForSlot(1)!)).toEqual({
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+    })
+  })
+
+  it('re-tiles the survivors when one crashes', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    launcher.killSilently(launcher.pidForSlot(1)!)
+    await app.checkLiveness()
+    // Slot 1 is gone; slot 2 should no longer sit in its old half.
+    expect(windows.bounds.get(launcher.pidForSlot(2)!)).toEqual({
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+    })
   })
 })
 
