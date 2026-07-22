@@ -151,3 +151,59 @@ button:disabled {
   font-size: 0.85rem;
   word-break: break-word;
 }
+
+.slot-actions + .slot-actions {
+  margin-top: 0.4rem;
+}
+
+.slot-editing {
+  border-color: var(--accent);
+}
+
+.field {
+  margin-bottom: 0.5rem;
+}
+
+.field-check {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+select,
+input[type='url'] {
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.hint {
+  margin: 0 0 0.4rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.info {
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.hint-detail {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 0.85rem;
+}

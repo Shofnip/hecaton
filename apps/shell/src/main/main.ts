@@ -20,9 +20,11 @@ import {
   Orchestrator,
   parseConfig,
   parseNoPayload,
+  parseSlotAddition,
   parseSlotId,
   parseSlotUpdate,
 } from '@helloweb/core'
+import { DEFAULT_GLOBAL_CONFIG } from '@helloweb/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot } from '@helloweb/core'
 import { ChromeLauncher } from '@helloweb/browser-engine'
 import { NativeWindowManager } from '@helloweb/window-manager'
@@ -51,8 +53,14 @@ interface PersistedConfig extends GlobalConfig {
 
 const storage = new JsonFileStorage<unknown>(configFilePath())
 const logger = new FileLogger(logsDir())
+// Built once from static registry data. The panel needs id and name (name is
+// the Portuguese label, UI text) to offer a game picker; it never needs the url.
+const GAMES = [...buildGameRegistry().values()].map((game) => ({ id: game.id, name: game.name }))
+
 let orchestrator: Orchestrator
-let globals: GlobalConfig
+// Starts at the shipped defaults so maxSlots is available even if a config that
+// cannot be parsed leaves the real globals unloaded.
+let globals: GlobalConfig = DEFAULT_GLOBAL_CONFIG
 let slots: SlotOverrides[]
 let panel: BrowserWindow | undefined
 /** Surfaced on the panel rather than thrown away when config cannot be read. */
@@ -66,10 +74,10 @@ async function loadConfiguration(): Promise<void> {
   slots = parsed.slots
 
   if (slots.length === 0) {
-    // First run: a full grid of the first shipped game, so the panel opens
-    // usable. v1 has no UI for adding a slot.
+    // First run: a single slot on the first shipped game, filling the screen.
+    // The user adds more from the panel, at which point the grid splits.
     const firstGame = [...registry.keys()][0]
-    if (firstGame !== undefined) slots = firstRunSlots(firstGame, globals.maxSlots)
+    if (firstGame !== undefined) slots = firstRunSlots(firstGame, 1)
   }
 
   orchestrator = new Orchestrator({
@@ -85,14 +93,25 @@ async function loadConfiguration(): Promise<void> {
 }
 
 async function saveConfiguration(): Promise<void> {
-  const value: PersistedConfig = { ...globals, slots }
+  // The orchestrator owns the slot list once running - add and remove change it
+  // - so its view is the one that gets persisted, never the startup copy.
+  const value: PersistedConfig = { ...globals, slots: orchestrator.slotConfigs() }
   await storage.save(value)
 }
 
+interface PanelState {
+  slots: SlotSnapshot[]
+  games: { id: string; name: string }[]
+  maxSlots: number
+  configError?: string
+}
+
 /** Everything the renderer is allowed to know. */
-function currentState(): { slots: SlotSnapshot[]; configError?: string } {
-  const state: { slots: SlotSnapshot[]; configError?: string } = {
+function currentState(): PanelState {
+  const state: PanelState = {
     slots: orchestrator ? orchestrator.snapshot() : [],
+    games: GAMES,
+    maxSlots: globals.maxSlots,
   }
   if (configError !== undefined) state.configError = configError
   return state
@@ -174,6 +193,18 @@ function registerIpc(): void {
 
     'slot:focus': (payload) => orchestrator.focus(parseSlotId(payload)),
 
+    'slot:add': async (payload) => {
+      orchestrator.addSlot(parseSlotAddition(payload, globals))
+      await saveConfiguration()
+      pushState()
+    },
+
+    'slot:remove': async (payload) => {
+      await orchestrator.removeSlot(parseSlotId(payload))
+      await saveConfiguration()
+      pushState()
+    },
+
     'layout:apply': (payload) => {
       parseNoPayload(payload)
       orchestrator.applyLayout()
@@ -185,13 +216,10 @@ function registerIpc(): void {
     },
 
     'config:updateSlot': async (payload) => {
-      const update = parseSlotUpdate(payload, globals)
-      const index = slots.findIndex((slot) => slot.id === update.id)
-      if (index === -1) throw new Error(`slot ${update.id} is not configured`)
-      slots[index] = update
+      // updateSlot throws if the id is not configured, so no separate check.
+      // A changed slot takes effect at its next launch, not mid-flight.
+      orchestrator.updateSlot(parseSlotUpdate(payload, globals))
       await saveConfiguration()
-      // The orchestrator resolves slots at construction, so a changed slot
-      // takes effect at the next launch rather than mid-flight.
       pushState()
     },
 

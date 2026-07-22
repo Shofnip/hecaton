@@ -1,15 +1,15 @@
 /**
  * The panel.
  *
- * Holds no rules: it renders what main sends and calls the seven bridge
- * methods. Anything it asks for is validated again in the main process, so this
- * file is a convenience for an honest caller rather than a boundary.
+ * Holds no rules: it renders what main sends and calls the bridge methods.
+ * Anything it asks for is validated again in the main process, so this file is a
+ * convenience for an honest caller rather than a boundary.
  *
  * The UI is Portuguese; everything else in the repository is English.
  *
  * Text is set through textContent, never innerHTML. A slot's error message can
- * carry a path or a url, and the CSP would stop a script from running but not a
- * mangled layout - and the habit is what matters more than this page.
+ * carry a path, and the habit of never building DOM from strings matters more
+ * than this one page.
  */
 
 interface SlotSnapshot {
@@ -22,18 +22,34 @@ interface SlotSnapshot {
   lastError?: string
 }
 
+interface GameOption {
+  id: string
+  name: string
+}
+
 interface PanelState {
   slots: SlotSnapshot[]
+  games: GameOption[]
+  maxSlots: number
   configError?: string
+}
+
+interface SlotAddition {
+  gameId?: string
+  url?: string
+  persistProfile?: boolean
+  mute?: boolean
 }
 
 interface HellowebApi {
   startSlot(id: number): Promise<void>
   stopSlot(id: number): Promise<void>
   focusSlot(id: number): Promise<boolean>
+  addSlot(slot: SlotAddition): Promise<void>
+  removeSlot(id: number): Promise<void>
   applyLayout(): Promise<void>
   readConfig(): Promise<PanelState>
-  updateSlot(update: unknown): Promise<void>
+  updateSlot(update: SlotAddition & { id: number }): Promise<void>
   revealLogs(): Promise<void>
   onState(listener: (state: PanelState) => void): void
 }
@@ -54,6 +70,16 @@ const STATE_LABELS: Record<SlotSnapshot['state'], string> = {
 
 const slotsElement = document.getElementById('slots') as HTMLElement
 const configErrorElement = document.getElementById('config-error') as HTMLElement
+const addButton = document.getElementById('add-slot') as HTMLButtonElement
+
+/** The last state main sent, so an edit can re-read it without asking again. */
+let lastState: PanelState = { slots: [], games: [], maxSlots: 4 }
+/**
+ * Which slot is being edited, if any. While a card is open for editing, pushed
+ * state is not re-rendered: the periodic liveness push would otherwise wipe a
+ * half-typed url out from under the user.
+ */
+let editingSlotId: number | undefined
 
 function element(tag: string, className: string, text?: string): HTMLElement {
   const node = document.createElement(tag)
@@ -79,7 +105,14 @@ function run(action: () => Promise<unknown>): void {
   })
 }
 
-function renderSlot(slot: SlotSnapshot): HTMLElement {
+function targetLabel(slot: SlotSnapshot): string {
+  if (slot.gameId !== undefined) {
+    return lastState.games.find((game) => game.id === slot.gameId)?.name ?? slot.gameId
+  }
+  return slot.url ?? 'sem jogo ou endereço'
+}
+
+function renderSlotView(slot: SlotSnapshot): HTMLElement {
   const card = element('article', 'slot')
 
   const head = element('div', 'slot-head')
@@ -89,7 +122,7 @@ function renderSlot(slot: SlotSnapshot): HTMLElement {
   )
   card.append(head)
 
-  card.append(element('div', 'slot-target', slot.gameId ?? slot.url ?? 'sem jogo ou endereço'))
+  card.append(element('div', 'slot-target', targetLabel(slot)))
 
   const tags = element('div', 'tags')
   tags.append(element('span', 'tag', slot.persistProfile ? 'sessão salva' : 'sessão limpa'))
@@ -110,16 +143,113 @@ function renderSlot(slot: SlotSnapshot): HTMLElement {
   )
   card.append(actions)
 
+  const secondary = element('div', 'slot-actions')
+  secondary.append(
+    button('Editar', false, () => {
+      editingSlotId = slot.id
+      render(lastState)
+    }),
+    button('Remover', lastState.slots.length <= 1, () =>
+      run(() => window.helloweb.removeSlot(slot.id)),
+    ),
+  )
+  card.append(secondary)
+
   return card
 }
 
+function renderSlotEditor(slot: SlotSnapshot): HTMLElement {
+  const card = element('article', 'slot slot-editing')
+  card.append(element('div', 'slot-title', `Editar slot ${slot.id}`))
+
+  // Target: a game from the registry, or a custom https url.
+  const targetRow = element('div', 'field')
+  const isCustom = slot.url !== undefined
+  const select = document.createElement('select')
+  for (const game of lastState.games) {
+    const option = document.createElement('option')
+    option.value = `game:${game.id}`
+    option.textContent = game.name
+    if (slot.gameId === game.id) option.selected = true
+    select.append(option)
+  }
+  const customOption = document.createElement('option')
+  customOption.value = 'custom'
+  customOption.textContent = 'Endereço personalizado (https)'
+  if (isCustom) customOption.selected = true
+  select.append(customOption)
+  targetRow.append(select)
+  card.append(targetRow)
+
+  const urlInput = document.createElement('input')
+  urlInput.type = 'url'
+  urlInput.placeholder = 'https://…'
+  urlInput.value = slot.url ?? ''
+  urlInput.hidden = !isCustom
+  card.append(urlInput)
+  select.addEventListener('change', () => {
+    urlInput.hidden = select.value !== 'custom'
+  })
+
+  const persist = checkbox('Manter sessão salva', slot.persistProfile)
+  const mute = checkbox('Sem áudio', slot.mute)
+  card.append(persist.row, mute.row)
+
+  const actions = element('div', 'slot-actions')
+  actions.append(
+    button('Salvar', false, () => {
+      const update: SlotAddition & { id: number } = {
+        id: slot.id,
+        persistProfile: persist.input.checked,
+        mute: mute.input.checked,
+      }
+      if (select.value === 'custom') update.url = urlInput.value.trim()
+      else update.gameId = select.value.slice('game:'.length)
+      run(async () => {
+        await window.helloweb.updateSlot(update)
+        editingSlotId = undefined
+      })
+    }),
+    button('Cancelar', false, () => {
+      editingSlotId = undefined
+      render(lastState)
+    }),
+  )
+  card.append(actions)
+
+  return card
+}
+
+function checkbox(label: string, checked: boolean): { row: HTMLElement; input: HTMLInputElement } {
+  const row = element('label', 'field-check')
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.checked = checked
+  row.append(input, document.createTextNode(` ${label}`))
+  return { row, input }
+}
+
 function render(state: PanelState): void {
+  lastState = state
   configErrorElement.hidden = state.configError === undefined
   configErrorElement.textContent = state.configError ?? ''
 
-  slotsElement.replaceChildren(...state.slots.map(renderSlot))
+  addButton.disabled = state.slots.length >= state.maxSlots
+
+  slotsElement.replaceChildren(
+    ...state.slots.map((slot) =>
+      slot.id === editingSlotId ? renderSlotEditor(slot) : renderSlotView(slot),
+    ),
+  )
 }
 
+addButton.addEventListener('click', () => {
+  // A new slot points at the first shipped game, ready to use; the user edits
+  // it afterwards if they want a custom url. With no games there is nothing to
+  // point it at, so the button does nothing.
+  const firstGame = lastState.games[0]
+  if (firstGame) run(() => window.helloweb.addSlot({ gameId: firstGame.id }))
+})
 document
   .getElementById('apply-layout')
   ?.addEventListener('click', () => run(() => window.helloweb.applyLayout()))
@@ -127,5 +257,16 @@ document
   .getElementById('reveal-logs')
   ?.addEventListener('click', () => run(() => window.helloweb.revealLogs()))
 
-window.helloweb.onState(render)
+// The "i" next to the password hint toggles the risk disclaimer.
+document.getElementById('hint-toggle')?.addEventListener('click', () => {
+  const detail = document.getElementById('hint-detail')
+  if (detail) detail.hidden = !detail.hidden
+})
+
+window.helloweb.onState((state) => {
+  // Do not redraw over an open editor: a background push must not discard a
+  // half-typed url.
+  if (editingSlotId === undefined) render(state)
+  else lastState = state
+})
 run(async () => render(await window.helloweb.readConfig()))

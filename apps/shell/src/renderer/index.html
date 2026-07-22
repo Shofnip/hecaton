@@ -18,10 +18,21 @@
     <header class="bar">
       <h1>helloweb</h1>
       <div class="bar-actions">
+        <button id="add-slot" type="button">+ Adicionar slot</button>
         <button id="apply-layout" type="button">Restaurar grade</button>
         <button id="reveal-logs" type="button">Abrir logs</button>
       </div>
     </header>
+
+    <p class="hint">
+      Salvar a senha no Chrome agiliza o re-login.
+      <button id="hint-toggle" type="button" class="info" aria-label="Mais informações">i</button>
+    </p>
+    <p id="hint-detail" class="hint-detail" hidden>
+      A senha fica armazenada no seu computador, dentro do perfil do Chrome. Se o computador for
+      comprometido, ela pode vazar. Por isso, use uma senha única para as contas jogadas com este
+      software. O aplicativo nunca vê nem envia sua senha para lugar nenhum.
+    </p>
 
     <p id="config-error" class="error" hidden></p>
 
