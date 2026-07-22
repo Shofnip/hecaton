@@ -55,8 +55,8 @@ then stage by name.
   imports. If a decision needs I/O, the decision stays in the core and the I/O moves to an
   adapter.
 - **Adapters are thin and hold no business rules.** Each sits behind a narrow interface
-  declared in `core/src/ports.ts` (`BrowserLauncher`, `WindowManager`, `Storage`,
-  `ProfileArchive`). Fakes for them live in `core/src/testing/`, excluded from the build so
+  declared in `core/src/ports.ts` (`BrowserLauncher`, `WindowManager`, `AudioController`,
+  `Storage`, `ProfileArchive`). Fakes for them live in `core/src/testing/`, excluded from the build so
   they never ship.
 - **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}` and
   nothing else. URLs are **https only**, in the registry and in custom slots alike. Do not

@@ -14,14 +14,18 @@ The app does not embed games. It launches and arranges real browser windows, whi
 
 ## Status
 
-**v1 is functionally complete.** The Electron panel (`apps/shell`) launches, arranges and
-focuses the slots, adds/removes/edits them, restores the grid, and surfaces state and errors.
+**v1 is functionally complete, and Phase 2's playing-comfort features have landed.** The
+Electron panel (`apps/shell`) launches, arranges and focuses the slots, adds/removes/edits them,
+restores the grid, and surfaces state and errors. Phase 2 added clearing a slot's browser cache
+without ending its session, and making **audio follow focus** — only the game in the foreground
+is audible, the rest muted per process, toggleable from the panel.
 
 It is built on the pure core (`packages/core` — grid layout, slot state machine, registry
-validation, config parsing, orchestrator, the IPC contract) and four adapters: Chrome via
-spawn (`browser-engine`), window control (`window-manager`), disk storage plus rotated logs
-(`storage`), and profile archiving (`browser-engine`). The shipped game registry lives in
-`packages/games`. Structured logging and per-slot profile archiving are wired in.
+validation, config parsing, orchestrator, the IPC contract) and five adapters: Chrome via
+spawn (`browser-engine`), window control (`window-manager`), per-process audio muting over
+WASAPI (`browser-engine`), disk storage plus rotated logs (`storage`), and profile archiving
+(`browser-engine`). The shipped game registry lives in `packages/games`. Structured logging and
+per-slot profile archiving are wired in.
 
 What remains before a public release is packaging and distribution (phase 3) — see
 [docs/architecture.md](docs/architecture.md).

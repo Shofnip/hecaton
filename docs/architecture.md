@@ -133,7 +133,7 @@ helloweb/
                         #   No I/O, enforced by ESLint rather than by convention.
                         #   src/testing/ holds the fakes; excluded from the build.
     browser-engine/     # process adapter: Chrome via spawn, PID resolution, liveness,
-                        #   and profile archiving
+                        #   profile archiving, and per-process audio muting (WASAPI)
     window-manager/     # node-window-manager adapter: applies positions computed by core
     storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/helloweb
     games/              # registry - one file per integrated game
@@ -169,9 +169,9 @@ makes strict TDD practical rather than theatre.
 - **`userDataDir` path resolution** per slot — pure string work, no disk access.
 
 Adapters get integration tests, never unit tests, and each sits behind a narrow interface
-(`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `Storage`, `ProfileArchive`)
-with a fake for core tests. Auto-restart-on-crash is testable against the fake without launching
-a browser.
+(`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `AudioController`, `Storage`,
+`ProfileArchive`) with a fake for core tests. Auto-restart-on-crash is testable against the fake
+without launching a browser.
 
 That narrowness is what absorbed the Playwright→spawn switch without the core noticing. Keep
 it that way.
@@ -302,8 +302,12 @@ replacement. Code discarded, findings recorded above.
    [ADR-0008](adr/0008-archive-a-removed-slot-profile.md)/[ADR-0009](adr/0009-login-is-bound-to-the-tab.md)
    for the profile and session decisions.
 
-**Phase 2** — revisit automation with the extension path · per-slot proxy · possibly
-declarative actions.
+**Phase 2 — playing comfort. Done.** Narrowed from the automation phase it was first sketched
+as: the extension path, per-slot proxy and declarative actions were dropped, to return only if a
+future need makes them worth it. What landed instead removes friction while playing — **clearing
+a slot's cache** without ending its session, and making **audio follow focus** so only the
+foreground game is audible ([ADR-0010](adr/0010-audio-follows-focus-without-a-dependency.md)), a
+global toggle on by default.
 
 ### Resetting a slot profile — implemented by archiving
 
@@ -329,8 +333,8 @@ the id never carries a path. Because it discards no session, it needs no confirm
 **clear archives**. Two validated IPC channels back it: `profiles:clearSlotCache` (a slot id)
 and `profiles:clearAllCaches` (no payload).
 
-**Phase 3 — distribution** — `electron-builder` · Windows installer · code signing decision ·
-auto-update · license · Electron security review before the first public release.
+**Phase 3 — distribution. Not started.** `electron-builder` · Windows installer · code signing
+decision · auto-update · license · Electron security review before the first public release.
 
 ## Verification
 
