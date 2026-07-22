@@ -161,6 +161,13 @@ describe('parseSlotAddition', () => {
     expect(() => parseSlotAddition({ id: 2, gameId: 'g' }, globals)).toThrow(/id/)
   })
 
+  it('fills in https on a bare domain', () => {
+    // The panel lets the user type just the host; the boundary makes it https.
+    expect(parseSlotAddition({ url: 'example.com' }, globals)).toEqual({
+      url: 'https://example.com',
+    })
+  })
+
   it.each([
     ['a non-https url', { url: 'http://example.com/' }],
     ['a javascript url', { url: 'javascript:alert(1)' }],

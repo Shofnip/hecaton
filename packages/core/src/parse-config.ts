@@ -18,6 +18,7 @@
  */
 import { DEFAULT_GLOBAL_CONFIG, SCHEMA_VERSION, resolveSlotConfig } from './config.js'
 import type { GlobalConfig, SlotOverrides } from './config.js'
+import { normalizeUrl } from './normalize-url.js'
 
 export interface ParsedConfig {
   globals: GlobalConfig
@@ -115,7 +116,11 @@ function readSlotFields(
   context: string,
 ): void {
   if (input['gameId'] !== undefined) into.gameId = requireString(input['gameId'], 'gameId', context)
-  if (input['url'] !== undefined) into.url = requireString(input['url'], 'url', context)
+  if (input['url'] !== undefined) {
+    // Normalised here, at the boundary, so the value that is validated, stored
+    // and shown is the same one - a bare host the user typed becomes https.
+    into.url = normalizeUrl(requireString(input['url'], 'url', context))
+  }
   if (input['persistProfile'] !== undefined) {
     into.persistProfile = requireBoolean(input['persistProfile'], 'persistProfile', context)
   }

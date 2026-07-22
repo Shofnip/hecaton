@@ -25,6 +25,8 @@ export {
 } from './ipc.js'
 export type { IpcChannel } from './ipc.js'
 
+export { normalizeUrl } from './normalize-url.js'
+
 export { slotProfileDirName } from './slot-profile.js'
 
 export { Orchestrator } from './orchestrator.js'
