@@ -31,6 +31,7 @@ import { NativeWindowManager } from '@helloweb/window-manager'
 import {
   FileLogger,
   JsonFileStorage,
+  appDataDir,
   configFilePath,
   logsDir,
   profilesDir,
@@ -43,6 +44,14 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const RENDERER_DIR = join(HERE, '..', 'renderer')
 // .cjs, not .js: a sandboxed preload must be CommonJS, and this package is ESM.
 const PRELOAD = join(HERE, '..', 'preload', 'preload.cjs')
+
+// Keep Electron's own cache under our data dir, not in the generic, shared
+// %APPDATA%/Electron. Two reasons: ADR-0004 says everything the app persists
+// lives under %APPDATA%/helloweb, and the shared folder is where "unable to
+// move the cache: access denied" comes from - any other Electron app, or a
+// still-closing instance of ours, holds it. Must run before the app is ready,
+// while the paths can still be set.
+app.setPath('userData', join(appDataDir(), 'shell'))
 
 /** How often the shell asks the orchestrator to look for dead browsers. */
 const LIVENESS_INTERVAL_MS = 2000
@@ -297,29 +306,45 @@ function createPanel(): void {
   })
 }
 
-app.whenReady().then(async () => {
-  lockDownSession()
+/**
+ * One instance only. A second one would orchestrate the same slots, spawn a
+ * second Chrome per slot, and race the first over config.json and the profile
+ * directories - and share the cache, which is what "unable to move the cache"
+ * was. A second launch quits at once and surfaces the existing panel instead.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (!panel) return
+    if (panel.isMinimized()) panel.restore()
+    panel.focus()
+  })
 
-  try {
-    await loadConfiguration()
-  } catch (error) {
-    // A config the app cannot fully understand stops the slots, not the panel:
-    // the user needs somewhere to read why, and the file is left untouched so
-    // they can fix it. See decisions 1A and 2A.
-    configError = error instanceof Error ? error.message : String(error)
-    logger.log({ level: 'error', event: 'config.error', message: configError })
-    console.error('[shell] could not load configuration:', configError)
-  }
+  app.whenReady().then(async () => {
+    lockDownSession()
 
-  registerIpc()
-  createPanel()
+    try {
+      await loadConfiguration()
+    } catch (error) {
+      // A config the app cannot fully understand stops the slots, not the panel:
+      // the user needs somewhere to read why, and the file is left untouched so
+      // they can fix it. See decisions 1A and 2A.
+      configError = error instanceof Error ? error.message : String(error)
+      logger.log({ level: 'error', event: 'config.error', message: configError })
+      console.error('[shell] could not load configuration:', configError)
+    }
 
-  if (orchestrator) {
-    setInterval(() => {
-      void orchestrator.checkLiveness().then(pushState)
-    }, LIVENESS_INTERVAL_MS)
-  }
-})
+    registerIpc()
+    createPanel()
 
-// The panel is the app. Closing it should not leave a tray-less process behind.
-app.on('window-all-closed', () => app.quit())
+    if (orchestrator) {
+      setInterval(() => {
+        void orchestrator.checkLiveness().then(pushState)
+      }, LIVENESS_INTERVAL_MS)
+    }
+  })
+
+  // The panel is the app. Closing it should not leave a tray-less process behind.
+  app.on('window-all-closed', () => app.quit())
+}
