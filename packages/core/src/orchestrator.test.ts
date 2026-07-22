@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { Orchestrator } from './orchestrator.js'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
 import { buildRegistry } from './registry.js'
-import { FakeBrowserLauncher, FakeLogger, FakeWindowManager } from './testing/fakes.js'
+import {
+  FakeBrowserLauncher,
+  FakeLogger,
+  FakeProfileArchive,
+  FakeWindowManager,
+} from './testing/fakes.js'
 import type { ScreenBounds } from './grid.js'
 
 const SCREEN: ScreenBounds = { x: 0, y: 0, width: 1920, height: 1080 }
@@ -553,14 +558,52 @@ describe('adding and removing slots', () => {
     expect(launcher.stopped).toContain(pid)
   })
 
-  it('reuses the freed id, and so its profile, on the next add', () => {
+  it('archives the removed slot profile, and only after stopping it', async () => {
+    const archive = new FakeProfileArchive()
+    const app = new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [{ id: 1, gameId: 'poke-idleworld' }],
+      autoRestart: false,
+      profiles: archive,
+    })
+    app.addSlot({ gameId: 'poke-idleworld' })
+    await app.start(2)
+    await app.removeSlot(2)
+    // slot-2 is the profile dir for slot id 2. It is archived, not deleted, and
+    // the browser was stopped first so the rename does not race an open profile.
+    expect(archive.archived).toEqual(['slot-2'])
+    expect(launcher.stopped).toContain(launcher.pidForSlot(2))
+  })
+
+  it('does not archive a persistent profile that is only being reconfigured', () => {
+    // updateSlot changes a target; it must never touch the profile.
+    const archive = new FakeProfileArchive()
+    const app = new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [{ id: 1, gameId: 'poke-idleworld' }],
+      autoRestart: false,
+      profiles: archive,
+    })
+    app.updateSlot({ id: 1, url: 'https://example.com/' })
+    expect(archive.archived).toEqual([])
+  })
+
+  it('reuses the freed id on the next add', async () => {
     const app = oneSlot()
     app.addSlot({ gameId: 'poke-idleworld' }) // id 2
     app.addSlot({ gameId: 'poke-idleworld' }) // id 3
-    void app.removeSlot(2)
-    // Lowest free id is 2, whose profile dir (slot-2) still exists on disk. This
-    // is deliberate: removal never destroys a session (ADR-0005), so getting it
-    // back on re-add is the friendly outcome.
+    await app.removeSlot(2)
+    // The lowest free id is reused so the cap of maxSlots is respected. Removal
+    // archives that id's profile (slot-2) aside, so the re-added slot gets a
+    // fresh one rather than the removed slot's session.
     expect(app.addSlot({ gameId: 'poke-idleworld' })).toBe(2)
   })
 

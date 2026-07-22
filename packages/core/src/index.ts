@@ -32,4 +32,10 @@ export { slotProfileDirName } from './slot-profile.js'
 export { Orchestrator } from './orchestrator.js'
 export type { OrchestratorDeps, SlotSnapshot } from './orchestrator.js'
 
-export type { BrowserLauncher, LaunchRequest, Storage, WindowManager } from './ports.js'
+export type {
+  BrowserLauncher,
+  LaunchRequest,
+  ProfileArchive,
+  Storage,
+  WindowManager,
+} from './ports.js'

@@ -44,3 +44,18 @@ export interface Storage<T> {
   load(): Promise<T | undefined>
   save(value: T): Promise<void>
 }
+
+/**
+ * Setting a removed slot's profile aside, and clearing what was set aside.
+ *
+ * `archive` renames the profile rather than deleting it — the shape ADR-0005
+ * settled on for a reset: the slot starts fresh, the old session is recoverable,
+ * and no code path in the app deletes a live profile. Deletion happens only in
+ * `clearArchives`, and only over profiles already archived, never a live one.
+ */
+export interface ProfileArchive {
+  /** Renames `profileDir` aside. A no-op if the slot never had a profile on disk. */
+  archive(profileDir: string): Promise<void>
+  /** Permanently removes every archived profile. The only deletion in the app. */
+  clearArchives(): Promise<void>
+}

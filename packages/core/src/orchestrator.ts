@@ -13,7 +13,7 @@ import type { GridCell, ScreenBounds } from './grid.js'
 import { resolveSlotConfig } from './config.js'
 import type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
 import type { GameDefinition } from './registry.js'
-import type { BrowserLauncher, WindowManager } from './ports.js'
+import type { BrowserLauncher, ProfileArchive, WindowManager } from './ports.js'
 import { isLive, transition } from './slot-state.js'
 import type { SlotState } from './slot-state.js'
 import type { LogEntry, Logger } from './log.js'
@@ -30,6 +30,8 @@ export interface OrchestratorDeps {
   maxRestartAttempts?: number
   /** Optional: where lifecycle events go. Absent means no logging at all. */
   logger?: Logger
+  /** Optional: sets a removed slot's profile aside. Absent means removal leaves it. */
+  profiles?: ProfileArchive
 }
 
 const DEFAULT_MAX_RESTART_ATTEMPTS = 3
@@ -70,6 +72,7 @@ export class Orchestrator {
   private readonly autoRestart: boolean
   private readonly maxRestartAttempts: number
   private readonly logger: Logger | undefined
+  private readonly profiles: ProfileArchive | undefined
   private readonly screen: ScreenBounds
   private readonly globals: GlobalConfig
   private readonly slots = new Map<number, SlotRuntime>()
@@ -81,6 +84,7 @@ export class Orchestrator {
     this.autoRestart = deps.autoRestart
     this.maxRestartAttempts = deps.maxRestartAttempts ?? DEFAULT_MAX_RESTART_ATTEMPTS
     this.logger = deps.logger
+    this.profiles = deps.profiles
     this.screen = deps.screen
     this.globals = deps.globals
 
@@ -169,8 +173,10 @@ export class Orchestrator {
    * Removes a slot, stopping its browser first if it is running.
    *
    * The last slot cannot go: an empty panel does nothing and there is no UI to
-   * add one back from. The profile directory is left untouched, as ever.
-   * Remaining windows are repositioned to fill the gap.
+   * add one back from. The slot's profile is archived — renamed aside, never
+   * deleted — so the removed slot's session is discarded from use but stays
+   * recoverable. Archiving happens after the browser is stopped, so the rename
+   * does not race an open profile. Remaining windows fill the gap.
    */
   async removeSlot(slotId: number): Promise<void> {
     if (this.slots.size <= 1) {
@@ -179,6 +185,7 @@ export class Orchestrator {
     const slot = this.slot(slotId)
     const pid = slot.pid
     if (pid !== undefined) await this.launcher.stop(pid)
+    await this.profiles?.archive(slot.config.profileDir)
 
     this.slots.delete(slotId)
     this.emit({ level: 'info', event: 'slot.remove', slotId })

@@ -7,8 +7,29 @@
  * them out when a second consumer needs them, not before.
  */
 import type { GridCell } from '../grid.js'
-import type { BrowserLauncher, LaunchRequest, Storage, WindowManager } from '../ports.js'
+import type {
+  BrowserLauncher,
+  LaunchRequest,
+  ProfileArchive,
+  Storage,
+  WindowManager,
+} from '../ports.js'
 import type { LogEntry, Logger } from '../log.js'
+
+export class FakeProfileArchive implements ProfileArchive {
+  readonly archived: string[] = []
+  cleared = 0
+
+  archive(profileDir: string): Promise<void> {
+    this.archived.push(profileDir)
+    return Promise.resolve()
+  }
+
+  clearArchives(): Promise<void> {
+    this.cleared++
+    return Promise.resolve()
+  }
+}
 
 export class FakeLogger implements Logger {
   readonly entries: LogEntry[] = []
