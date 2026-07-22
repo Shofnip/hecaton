@@ -8,6 +8,7 @@
  */
 import type { GridCell } from '../grid.js'
 import type {
+  AudioController,
   BrowserLauncher,
   LaunchRequest,
   ProfileArchive,
@@ -100,6 +101,9 @@ export class FakeWindowManager implements WindowManager {
   /** Pids whose window is "not found yet", as when the browser is still starting. */
   readonly missing = new Set<number>()
 
+  /** The pid the test declares to be in the OS foreground. */
+  foreground: number | undefined
+
   setBounds(pid: number, bounds: GridCell): boolean {
     if (this.missing.has(pid)) return false
     this.bounds.set(pid, bounds)
@@ -110,6 +114,27 @@ export class FakeWindowManager implements WindowManager {
     if (this.missing.has(pid)) return false
     this.focused.push(pid)
     return true
+  }
+
+  foregroundPid(): number | undefined {
+    return this.foreground
+  }
+}
+
+export class FakeAudioController implements AudioController {
+  /** Every call, in order, so a test can assert what changed and how often. */
+  readonly calls: { pid: number; muted: boolean }[] = []
+
+  setMuted(pid: number, muted: boolean): Promise<void> {
+    this.calls.push({ pid, muted })
+    return Promise.resolve()
+  }
+
+  /** The last mute state applied to a pid, or false if it was never touched. */
+  isMuted(pid: number): boolean {
+    let state = false
+    for (const call of this.calls) if (call.pid === pid) state = call.muted
+    return state
   }
 }
 

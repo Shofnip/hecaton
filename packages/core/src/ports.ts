@@ -38,6 +38,29 @@ export interface WindowManager {
   /** False when the window is not found yet; the browser may still be starting. */
   setBounds(pid: number, bounds: GridCell): boolean
   focus(pid: number): boolean
+  /**
+   * The pid of the process owning the window in the OS foreground, or undefined
+   * when it cannot be determined (nothing focused, or the query failed). Cheap
+   * enough to call on a timer — a single foreground-window lookup, no WMI.
+   */
+  foregroundPid(): number | undefined
+}
+
+/**
+ * Per-process audio mute, so the core can make exactly one slot audible.
+ *
+ * Keyed by the slot's main pid — the same pid every other port speaks. On
+ * Windows a slot's audio actually lives in a child "audio service" process, but
+ * mapping the main pid to it is an OS detail the adapter owns; the core must
+ * never learn it, exactly as it never learns a window handle.
+ */
+export interface AudioController {
+  /**
+   * Mutes or unmutes the browser with this main pid. A no-op when that process
+   * has no audio session yet (nothing has played), so the core can call it
+   * freely without first checking whether a session exists.
+   */
+  setMuted(pid: number, muted: boolean): Promise<void>
 }
 
 export interface Storage<T> {

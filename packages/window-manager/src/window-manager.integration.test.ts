@@ -100,6 +100,15 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
     expect(manager.focus(pid)).toBe(true)
   })
 
+  it('reports the focused window by pid', async () => {
+    // Audio-follows-focus stands on this: the foreground window is identified by
+    // the same pid the launcher and setBounds speak, never by title. After we
+    // bring our own window to the front, it is the one the OS reports.
+    expect(manager.focus(pid)).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(manager.foregroundPid()).toBe(pid)
+  })
+
   it('reports failure for a pid with no window, instead of throwing', () => {
     // The orchestrator calls this while a browser is still starting up.
     expect(manager.setBounds(999_999, { x: 0, y: 0, width: 100, height: 100 })).toBe(false)

@@ -3,6 +3,7 @@ import { Orchestrator } from './orchestrator.js'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
 import { buildRegistry } from './registry.js'
 import {
+  FakeAudioController,
   FakeBrowserLauncher,
   FakeLogger,
   FakeProfileArchive,
@@ -18,12 +19,19 @@ const REGISTRY = buildRegistry([
 let launcher: FakeBrowserLauncher
 let windows: FakeWindowManager
 
-function makeOrchestrator(options: { autoRestart?: boolean; maxRestartAttempts?: number } = {}) {
+function makeOrchestrator(
+  options: {
+    autoRestart?: boolean
+    maxRestartAttempts?: number
+    audio?: FakeAudioController
+    audioFollowsFocus?: boolean
+  } = {},
+) {
   return new Orchestrator({
     launcher,
     windows,
     screen: SCREEN,
-    globals: DEFAULT_GLOBAL_CONFIG,
+    globals: { ...DEFAULT_GLOBAL_CONFIG, audioFollowsFocus: options.audioFollowsFocus ?? true },
     registry: REGISTRY,
     slots: [
       { id: 1, gameId: 'poke-idleworld' },
@@ -33,6 +41,7 @@ function makeOrchestrator(options: { autoRestart?: boolean; maxRestartAttempts?:
     ...(options.maxRestartAttempts !== undefined
       ? { maxRestartAttempts: options.maxRestartAttempts }
       : {}),
+    ...(options.audio ? { audio: options.audio } : {}),
   })
 }
 
@@ -682,5 +691,108 @@ describe('clearing a slot cache', () => {
     // slot 1 is running and is skipped; slot 2 is stopped and is cleared.
     await app.clearAllCaches()
     expect(archive.clearedCaches).toEqual(['slot-2'])
+  })
+})
+
+describe('audio following focus', () => {
+  async function twoRunning(audio: FakeAudioController, audioFollowsFocus = true) {
+    const app = makeOrchestrator({ audio, audioFollowsFocus })
+    await app.start(1)
+    await app.start(2)
+    return app
+  }
+
+  it('mutes every running slot but the focused one', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    const pid1 = launcher.pidForSlot(1)!
+    const pid2 = launcher.pidForSlot(2)!
+    windows.foreground = pid1
+    await app.updateAudioFocus()
+    expect(audio.isMuted(pid1)).toBe(false)
+    expect(audio.isMuted(pid2)).toBe(true)
+  })
+
+  it('mutes all running slots when the foreground is not a slot', async () => {
+    // Focus on the panel, the user's own browser, or any non-slot window: no
+    // slot matches, so by the one rule every slot is muted.
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    windows.foreground = 999_999
+    await app.updateAudioFocus()
+    expect(audio.isMuted(launcher.pidForSlot(1)!)).toBe(true)
+    expect(audio.isMuted(launcher.pidForSlot(2)!)).toBe(true)
+  })
+
+  it('moves the audio when focus moves', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    const pid1 = launcher.pidForSlot(1)!
+    const pid2 = launcher.pidForSlot(2)!
+    windows.foreground = pid1
+    await app.updateAudioFocus()
+    windows.foreground = pid2
+    await app.updateAudioFocus()
+    expect(audio.isMuted(pid1)).toBe(true)
+    expect(audio.isMuted(pid2)).toBe(false)
+  })
+
+  it('touches a slot only when its mute state changes', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    windows.foreground = launcher.pidForSlot(1)!
+    await app.updateAudioFocus()
+    const afterFirst = audio.calls.length
+    await app.updateAudioFocus()
+    expect(audio.calls.length).toBe(afterFirst)
+  })
+
+  it('does not touch the focused slot at all when nothing needs muting', async () => {
+    // A freshly launched slot is not muted by us, so focusing it needs no call:
+    // only the slots that must go silent are touched.
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    const pid1 = launcher.pidForSlot(1)!
+    windows.foreground = pid1
+    await app.updateAudioFocus()
+    expect(audio.calls.some((c) => c.pid === pid1)).toBe(false)
+  })
+
+  it('unmutes everything and ignores focus when the toggle is off', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio, false)
+    windows.foreground = launcher.pidForSlot(1)!
+    await app.updateAudioFocus()
+    expect(audio.isMuted(launcher.pidForSlot(1)!)).toBe(false)
+    expect(audio.isMuted(launcher.pidForSlot(2)!)).toBe(false)
+  })
+
+  it('turning the toggle off unmutes what focus had muted', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    const pid2 = launcher.pidForSlot(2)!
+    windows.foreground = launcher.pidForSlot(1)!
+    await app.updateAudioFocus()
+    expect(audio.isMuted(pid2)).toBe(true)
+    app.setAudioFollowsFocus(false)
+    await app.updateAudioFocus()
+    expect(audio.isMuted(pid2)).toBe(false)
+  })
+
+  it('never mutes a stopped slot', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    const pid2 = launcher.pidForSlot(2)!
+    await app.stop(2)
+    windows.foreground = launcher.pidForSlot(1)!
+    await app.updateAudioFocus()
+    expect(audio.calls.some((c) => c.pid === pid2 && c.muted)).toBe(false)
+  })
+
+  it('is a no-op without an audio controller', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    windows.foreground = launcher.pidForSlot(1)!
+    await expect(app.updateAudioFocus()).resolves.toBeUndefined()
   })
 })

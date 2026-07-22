@@ -13,7 +13,7 @@ import type { GridCell, ScreenBounds } from './grid.js'
 import { resolveSlotConfig } from './config.js'
 import type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
 import type { GameDefinition } from './registry.js'
-import type { BrowserLauncher, ProfileArchive, WindowManager } from './ports.js'
+import type { AudioController, BrowserLauncher, ProfileArchive, WindowManager } from './ports.js'
 import { isLive, transition } from './slot-state.js'
 import type { SlotState } from './slot-state.js'
 import type { LogEntry, Logger } from './log.js'
@@ -32,6 +32,8 @@ export interface OrchestratorDeps {
   logger?: Logger
   /** Optional: sets a removed slot's profile aside. Absent means removal leaves it. */
   profiles?: ProfileArchive
+  /** Optional: mutes slots by pid so audio can follow focus. Absent disables the feature. */
+  audio?: AudioController
 }
 
 const DEFAULT_MAX_RESTART_ATTEMPTS = 3
@@ -73,9 +75,19 @@ export class Orchestrator {
   private readonly maxRestartAttempts: number
   private readonly logger: Logger | undefined
   private readonly profiles: ProfileArchive | undefined
+  private readonly audio: AudioController | undefined
   private readonly screen: ScreenBounds
   private readonly globals: GlobalConfig
   private readonly slots = new Map<number, SlotRuntime>()
+
+  /** Whether exactly one slot — the focused one — should be audible at a time. */
+  private audioFollowsFocus: boolean
+  /**
+   * The mute state we have applied per pid, so a focus tick touches only what
+   * changed. Keyed by pid rather than slot id: a restarted slot gets a new pid,
+   * so it is treated as freshly unmuted with no stale entry to clear.
+   */
+  private readonly appliedMute = new Map<number, boolean>()
 
   constructor(deps: OrchestratorDeps) {
     this.launcher = deps.launcher
@@ -85,8 +97,10 @@ export class Orchestrator {
     this.maxRestartAttempts = deps.maxRestartAttempts ?? DEFAULT_MAX_RESTART_ATTEMPTS
     this.logger = deps.logger
     this.profiles = deps.profiles
+    this.audio = deps.audio
     this.screen = deps.screen
     this.globals = deps.globals
+    this.audioFollowsFocus = deps.globals.audioFollowsFocus
 
     for (const overrides of deps.slots) {
       const config = resolveSlotConfig(this.globals, overrides)
@@ -350,6 +364,44 @@ export class Orchestrator {
     const slot = this.slot(slotId)
     if (slot.state !== 'running' || slot.pid === undefined) return false
     return this.windows.focus(slot.pid)
+  }
+
+  /** Flips the audio-follows-focus toggle. Takes effect on the next focus tick. */
+  setAudioFollowsFocus(enabled: boolean): void {
+    this.audioFollowsFocus = enabled
+  }
+
+  /**
+   * Makes the audio match the focused window: the running slot in the OS
+   * foreground stays audible, every other running slot is muted.
+   *
+   * One rule, no special cases. When the toggle is off, or the foreground is a
+   * window that is no slot (the panel, the user's own browser), no running slot
+   * equals the foreground pid, so they are all muted — or, with the toggle off,
+   * all unmuted. Called on a timer by the shell, like checkLiveness; a slot is
+   * touched only when its mute state actually changes, so a quiet tick shells
+   * out to nothing.
+   */
+  async updateAudioFocus(): Promise<void> {
+    if (!this.audio) return
+    const foreground = this.windows.foregroundPid()
+
+    const running = new Set<number>()
+    for (const slot of this.slots.values()) {
+      if (slot.state !== 'running' || slot.pid === undefined) continue
+      running.add(slot.pid)
+      const desired = this.audioFollowsFocus ? slot.pid !== foreground : false
+      if ((this.appliedMute.get(slot.pid) ?? false) === desired) continue
+      await this.audio.setMuted(slot.pid, desired)
+      this.appliedMute.set(slot.pid, desired)
+    }
+
+    // Forget pids that are no longer running, so a long session of restarts does
+    // not grow the map without bound. A stopped slot's process is already gone,
+    // so there is nothing to unmute — only tracking to drop.
+    for (const pid of [...this.appliedMute.keys()]) {
+      if (!running.has(pid)) this.appliedMute.delete(pid)
+    }
   }
 
   /**

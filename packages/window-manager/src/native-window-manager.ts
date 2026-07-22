@@ -36,6 +36,7 @@ interface NativeWindow {
 
 interface NativeApi {
   getWindows(): NativeWindow[]
+  getActiveWindow(): NativeWindow | undefined
 }
 
 const { windowManager } = require('node-window-manager') as { windowManager: NativeApi }
@@ -123,6 +124,21 @@ export class NativeWindowManager implements WindowManager {
     if (!window) return false
     window.bringToTop()
     return true
+  }
+
+  /**
+   * The pid of the process owning the foreground window.
+   *
+   * By pid, never by title — the same rule setBounds and focus follow, and here
+   * it is what lets the core tell "a slot is focused" apart from "the user's own
+   * window is focused" without ever inspecting a title. node-window-manager
+   * reads GetForegroundWindow; a zero pid (no window, or one it cannot read) is
+   * reported as undefined, which the core treats as "no slot focused".
+   */
+  foregroundPid(): number | undefined {
+    const active = windowManager.getActiveWindow()
+    const pid = active?.processId
+    return pid && pid > 0 ? pid : undefined
   }
 
   /** The rectangle the user sees — the same coordinates setBounds accepts. */

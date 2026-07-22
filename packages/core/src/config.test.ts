@@ -17,6 +17,12 @@ describe('DEFAULT_GLOBAL_CONFIG', () => {
     expect(DEFAULT_GLOBAL_CONFIG.mute).toBe(false)
   })
 
+  it('defaults to audio following the focused window', () => {
+    // The feature the user gets out of the box: only the game in the foreground
+    // is audible. A global toggle can turn it off; on is the shipped state.
+    expect(DEFAULT_GLOBAL_CONFIG.audioFollowsFocus).toBe(true)
+  })
+
   it('carries a schema version from the first commit', () => {
     expect(SCHEMA_VERSION).toBe(1)
     expect(DEFAULT_GLOBAL_CONFIG.schemaVersion).toBe(SCHEMA_VERSION)

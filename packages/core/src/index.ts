@@ -33,6 +33,7 @@ export { Orchestrator } from './orchestrator.js'
 export type { OrchestratorDeps, SlotSnapshot } from './orchestrator.js'
 
 export type {
+  AudioController,
   BrowserLauncher,
   LaunchRequest,
   ProfileArchive,

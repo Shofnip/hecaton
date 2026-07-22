@@ -30,7 +30,13 @@ describe('parseConfig on a first run', () => {
 describe('parseConfig on a valid file', () => {
   it('returns globals and slots', () => {
     expect(parseConfig(valid)).toEqual({
-      globals: { schemaVersion: SCHEMA_VERSION, maxSlots: 4, persistProfile: true, mute: false },
+      globals: {
+        schemaVersion: SCHEMA_VERSION,
+        maxSlots: 4,
+        persistProfile: true,
+        mute: false,
+        audioFollowsFocus: true,
+      },
       slots: [
         { id: 1, gameId: 'poke-idleworld' },
         { id: 2, url: 'https://example.com/', persistProfile: false, mute: true },
@@ -40,6 +46,20 @@ describe('parseConfig on a valid file', () => {
 
   it('accepts a file with no slots', () => {
     expect(parseConfig({ ...valid, slots: [] }).slots).toEqual([])
+  })
+
+  it('reads an explicit audioFollowsFocus', () => {
+    expect(parseConfig({ ...valid, audioFollowsFocus: false }).globals.audioFollowsFocus).toBe(
+      false,
+    )
+  })
+
+  it('defaults audioFollowsFocus to true when the file predates the setting', () => {
+    // Added after v1 shipped, so a config written before it simply omits the
+    // key. Defaulting keeps those files valid without a schema bump — the field
+    // is additive and its absence has one unambiguous meaning.
+    expect('audioFollowsFocus' in valid).toBe(false)
+    expect(parseConfig(valid).globals.audioFollowsFocus).toBe(true)
   })
 })
 
@@ -62,6 +82,7 @@ describe('parseConfig refuses a file it cannot fully understand', () => {
     ['a non-positive maxSlots', { ...valid, maxSlots: 0 }],
     ['a non-boolean persistProfile', { ...valid, persistProfile: 'yes' }],
     ['a non-boolean mute', { ...valid, mute: 1 }],
+    ['a non-boolean audioFollowsFocus', { ...valid, audioFollowsFocus: 'on' }],
     ['slots that are not an array', { ...valid, slots: {} }],
   ])('rejects %s', (_case, input) => {
     expect(() => parseConfig(input)).toThrow()

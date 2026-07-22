@@ -25,7 +25,14 @@ export interface ParsedConfig {
   slots: SlotOverrides[]
 }
 
-const GLOBAL_KEYS = ['schemaVersion', 'maxSlots', 'persistProfile', 'mute', 'slots'] as const
+const GLOBAL_KEYS = [
+  'schemaVersion',
+  'maxSlots',
+  'persistProfile',
+  'mute',
+  'audioFollowsFocus',
+  'slots',
+] as const
 const SLOT_KEYS = ['id', 'gameId', 'url', 'persistProfile', 'mute'] as const
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -191,6 +198,13 @@ export function parseConfig(input: unknown): ParsedConfig {
     maxSlots: requirePositiveInteger(input['maxSlots'], 'maxSlots', 'config: '),
     persistProfile: requireBoolean(input['persistProfile'], 'persistProfile', 'config: '),
     mute: requireBoolean(input['mute'], 'mute', 'config: '),
+    // Additive after v1: a file written before this setting existed omits the
+    // key, and its absence means the shipped default (on). Present but not a
+    // boolean is still an error — a typo must not be read as "off".
+    audioFollowsFocus:
+      input['audioFollowsFocus'] === undefined
+        ? DEFAULT_GLOBAL_CONFIG.audioFollowsFocus
+        : requireBoolean(input['audioFollowsFocus'], 'audioFollowsFocus', 'config: '),
   }
 
   const rawSlots = input['slots']

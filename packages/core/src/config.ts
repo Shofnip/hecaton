@@ -19,6 +19,12 @@ export interface GlobalConfig {
   maxSlots: number
   persistProfile: boolean
   mute: boolean
+  /**
+   * When true, only the game whose window is in the OS foreground is audible —
+   * the others are muted per-process and unmuted as focus moves. A global
+   * switch, not per slot: the point is that exactly one slot plays at a time.
+   */
+  audioFollowsFocus: boolean
 }
 
 /** What a slot may override. Everything except the id is optional. */
@@ -51,6 +57,9 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   // Audio on by default. Muting is the game's own setting, which persists in
   // the profile; --mute-audio is offered per slot as a fallback.
   mute: false,
+  // On by default: out of the box, only the focused game makes sound. The panel
+  // toggle turns it off for someone who wants every slot audible at once.
+  audioFollowsFocus: true,
 }
 
 export function resolveSlotConfig(globals: GlobalConfig, slot: SlotOverrides): ResolvedSlotConfig {
