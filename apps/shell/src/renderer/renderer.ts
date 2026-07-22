@@ -112,12 +112,16 @@ function targetLabel(slot: SlotSnapshot): string {
   return slot.url ?? 'sem jogo ou endereço'
 }
 
-function renderSlotView(slot: SlotSnapshot): HTMLElement {
+function renderSlotView(slot: SlotSnapshot, position: number): HTMLElement {
   const card = element('article', 'slot')
 
   const head = element('div', 'slot-head')
   head.append(
-    element('span', 'slot-title', `Slot ${slot.id}`),
+    // The number shown is the position, so it stays 1..N with no gaps: remove
+    // the middle slot and the ones after it renumber. Commands still use the
+    // slot's real id (slot.id), which is stable and names its profile - so a
+    // renumber changes only the label, never which session a slot holds.
+    element('span', 'slot-title', `Slot ${position}`),
     element('span', `state state-${slot.state}`, STATE_LABELS[slot.state]),
   )
   card.append(head)
@@ -158,9 +162,9 @@ function renderSlotView(slot: SlotSnapshot): HTMLElement {
   return card
 }
 
-function renderSlotEditor(slot: SlotSnapshot): HTMLElement {
+function renderSlotEditor(slot: SlotSnapshot, position: number): HTMLElement {
   const card = element('article', 'slot slot-editing')
-  card.append(element('div', 'slot-title', `Editar slot ${slot.id}`))
+  card.append(element('div', 'slot-title', `Editar slot ${position}`))
 
   // Target: a game from the registry, or a custom https url.
   const targetRow = element('div', 'field')
@@ -237,8 +241,10 @@ function render(state: PanelState): void {
   addButton.disabled = state.slots.length >= state.maxSlots
 
   slotsElement.replaceChildren(
-    ...state.slots.map((slot) =>
-      slot.id === editingSlotId ? renderSlotEditor(slot) : renderSlotView(slot),
+    ...state.slots.map((slot, index) =>
+      slot.id === editingSlotId
+        ? renderSlotEditor(slot, index + 1)
+        : renderSlotView(slot, index + 1),
     ),
   )
 }
