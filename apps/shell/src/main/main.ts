@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path'
 import {
   IPC_CHANNELS,
   Orchestrator,
+  parseAudioFollowsFocus,
   parseConfig,
   parseNoPayload,
   parseSlotAddition,
@@ -121,6 +122,7 @@ interface PanelState {
   slots: SlotSnapshot[]
   games: { id: string; name: string }[]
   maxSlots: number
+  audioFollowsFocus: boolean
   configError?: string
 }
 
@@ -130,6 +132,7 @@ function currentState(): PanelState {
     slots: orchestrator ? orchestrator.snapshot() : [],
     games: GAMES,
     maxSlots: globals.maxSlots,
+    audioFollowsFocus: globals.audioFollowsFocus,
   }
   if (configError !== undefined) state.configError = configError
   return state
@@ -241,6 +244,17 @@ function registerIpc(): void {
       // updateSlot throws if the id is not configured, so no separate check.
       // A changed slot takes effect at its next launch, not mid-flight.
       orchestrator.updateSlot(parseSlotUpdate(payload, globals))
+      await saveConfiguration()
+      pushState()
+    },
+
+    'config:setAudioFollowsFocus': async (payload) => {
+      // A global on/off for making audio follow focus. The orchestrator holds
+      // the live toggle - the next focus tick applies it - and globals holds the
+      // persisted copy so it survives a restart.
+      const enabled = parseAudioFollowsFocus(payload)
+      orchestrator.setAudioFollowsFocus(enabled)
+      globals = { ...globals, audioFollowsFocus: enabled }
       await saveConfiguration()
       pushState()
     },

@@ -34,6 +34,8 @@ const api = {
   applyLayout: () => ipcRenderer.invoke('layout:apply'),
   readConfig: () => ipcRenderer.invoke('config:read'),
   updateSlot: (update: unknown) => ipcRenderer.invoke('config:updateSlot', update),
+  setAudioFollowsFocus: (enabled: boolean) =>
+    ipcRenderer.invoke('config:setAudioFollowsFocus', enabled),
   revealLogs: () => ipcRenderer.invoke('logs:reveal'),
   clearArchives: () => ipcRenderer.invoke('profiles:clearArchives'),
   clearSlotCache: (id: number) => ipcRenderer.invoke('profiles:clearSlotCache', id),

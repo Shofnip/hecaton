@@ -18,6 +18,7 @@ export type { LogEntry, LogLevel, LogRecord, Logger } from './log.js'
 
 export {
   IPC_CHANNELS,
+  parseAudioFollowsFocus,
   parseNoPayload,
   parseSlotAddition,
   parseSlotId,

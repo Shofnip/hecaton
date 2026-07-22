@@ -42,6 +42,15 @@ body {
 .bar-actions {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
+}
+
+.bar-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 button {

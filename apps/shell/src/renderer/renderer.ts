@@ -31,6 +31,7 @@ interface PanelState {
   slots: SlotSnapshot[]
   games: GameOption[]
   maxSlots: number
+  audioFollowsFocus: boolean
   configError?: string
 }
 
@@ -54,6 +55,7 @@ interface HellowebApi {
   clearArchives(): Promise<void>
   clearSlotCache(id: number): Promise<void>
   clearAllCaches(): Promise<void>
+  setAudioFollowsFocus(enabled: boolean): Promise<void>
   onState(listener: (state: PanelState) => void): void
 }
 
@@ -74,6 +76,7 @@ const STATE_LABELS: Record<SlotSnapshot['state'], string> = {
 const slotsElement = document.getElementById('slots') as HTMLElement
 const configErrorElement = document.getElementById('config-error') as HTMLElement
 const addButton = document.getElementById('add-slot') as HTMLButtonElement
+const audioFollowsFocusToggle = document.getElementById('audio-follows-focus') as HTMLInputElement
 
 const REMOVE_DETAIL =
   'O perfil deste slot será arquivado: o cache, os cookies e as senhas salvas nele deixam de ser ' +
@@ -126,7 +129,7 @@ function confirmModal(message: string, detail: string, confirmLabel: string): Pr
 }
 
 /** The last state main sent, so an edit can re-read it without asking again. */
-let lastState: PanelState = { slots: [], games: [], maxSlots: 4 }
+let lastState: PanelState = { slots: [], games: [], maxSlots: 4, audioFollowsFocus: true }
 /**
  * Which slot is being edited, if any. While a card is open for editing, pushed
  * state is not re-rendered: the periodic liveness push would otherwise wipe a
@@ -300,6 +303,9 @@ function render(state: PanelState): void {
   configErrorElement.textContent = state.configError ?? ''
 
   addButton.disabled = state.slots.length >= state.maxSlots
+  // Reflect the persisted toggle. Assigning .checked does not fire 'change', so
+  // this never loops back into a write - only a user click does.
+  audioFollowsFocusToggle.checked = state.audioFollowsFocus
 
   slotsElement.replaceChildren(
     ...state.slots.map((slot, index) =>
@@ -332,6 +338,12 @@ document.getElementById('clear-archives')?.addEventListener('click', () => {
   void confirmModal('Limpar perfis arquivados?', CLEAR_DETAIL, 'Limpar').then((ok) => {
     if (ok) run(() => window.helloweb.clearArchives())
   })
+})
+
+// The global audio-follows-focus switch. Non-destructive, so it applies at once
+// with no confirmation; main persists it and echoes it back in the next state.
+audioFollowsFocusToggle.addEventListener('change', () => {
+  run(() => window.helloweb.setAudioFollowsFocus(audioFollowsFocusToggle.checked))
 })
 
 // The "i" next to the password hint toggles the risk disclaimer.

@@ -37,6 +37,7 @@ export const IPC_CHANNELS = [
   'layout:apply',
   'config:read',
   'config:updateSlot',
+  'config:setAudioFollowsFocus',
   'logs:reveal',
   'profiles:clearArchives',
   'profiles:clearSlotCache',
@@ -64,6 +65,21 @@ export function parseNoPayload(input: unknown): void {
   if (input !== undefined) {
     throw new Error(`this channel takes no arguments, got ${JSON.stringify(input)}`)
   }
+}
+
+/**
+ * The audio-follows-focus toggle, as the panel flips it.
+ *
+ * A single boolean, validated as one: the renderer is a separate process, so a
+ * stray truthy value must not be read as "on". This is the whole payload of a
+ * dedicated channel rather than a field on a generic config-write, so the IPC
+ * surface stays a list of specific things the renderer may do.
+ */
+export function parseAudioFollowsFocus(input: unknown): boolean {
+  if (typeof input !== 'boolean') {
+    throw new Error(`audioFollowsFocus must be true or false, got ${JSON.stringify(input)}`)
+  }
+  return input
 }
 
 /**

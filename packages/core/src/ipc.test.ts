@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
 import {
   IPC_CHANNELS,
+  parseAudioFollowsFocus,
   parseNoPayload,
   parseSlotAddition,
   parseSlotId,
@@ -30,11 +31,31 @@ describe('the channel list', () => {
       'layout:apply',
       'config:read',
       'config:updateSlot',
+      'config:setAudioFollowsFocus',
       'logs:reveal',
       'profiles:clearArchives',
       'profiles:clearSlotCache',
       'profiles:clearAllCaches',
     ])
+  })
+})
+
+describe('parseAudioFollowsFocus', () => {
+  it('accepts a boolean', () => {
+    expect(parseAudioFollowsFocus(true)).toBe(true)
+    expect(parseAudioFollowsFocus(false)).toBe(false)
+  })
+
+  it.each([
+    ['a truthy number', 1],
+    ['a string', 'true'],
+    ['null', null],
+    ['undefined', undefined],
+    ['an object', {}],
+  ])('rejects %s', (_case, input) => {
+    // The renderer is a separate process, so what arrives is `unknown`; only a
+    // real boolean flips the setting, a stray truthy value must not.
+    expect(() => parseAudioFollowsFocus(input)).toThrow(/audioFollowsFocus/i)
   })
 })
 
