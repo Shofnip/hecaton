@@ -35,6 +35,7 @@ const api = {
   readConfig: () => ipcRenderer.invoke('config:read'),
   updateSlot: (update: unknown) => ipcRenderer.invoke('config:updateSlot', update),
   revealLogs: () => ipcRenderer.invoke('logs:reveal'),
+  clearArchives: () => ipcRenderer.invoke('profiles:clearArchives'),
 
   /**
    * State pushed by main. The listener receives only the payload: handing over

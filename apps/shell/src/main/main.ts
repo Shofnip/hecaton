@@ -11,7 +11,7 @@
  * exposes checkLiveness() as an explicit call precisely so crash handling stays
  * testable without waiting for wall-clock time.
  */
-import { BrowserWindow, app, ipcMain, screen, session, shell } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, screen, session, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -26,7 +26,7 @@ import {
 } from '@helloweb/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@helloweb/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot } from '@helloweb/core'
-import { ChromeLauncher } from '@helloweb/browser-engine'
+import { ChromeLauncher, FileProfileArchive } from '@helloweb/browser-engine'
 import { NativeWindowManager } from '@helloweb/window-manager'
 import {
   FileLogger,
@@ -53,6 +53,7 @@ interface PersistedConfig extends GlobalConfig {
 
 const storage = new JsonFileStorage<unknown>(configFilePath())
 const logger = new FileLogger(logsDir())
+const profiles = new FileProfileArchive(profilesDir())
 // Built once from static registry data. The panel needs id and name (name is
 // the Portuguese label, UI text) to offer a game picker; it never needs the url.
 const GAMES = [...buildGameRegistry().values()].map((game) => ({ id: game.id, name: game.name }))
@@ -89,6 +90,7 @@ async function loadConfiguration(): Promise<void> {
     slots,
     autoRestart: true,
     logger,
+    profiles,
   })
 }
 
@@ -159,6 +161,31 @@ function lockDownWindow(window: BrowserWindow): void {
   window.webContents.on('will-attach-webview', (event) => event.preventDefault())
 }
 
+const REMOVE_DETAIL =
+  'O perfil deste slot será arquivado: o cache, os cookies e as senhas salvas nele deixam de ser usados. ' +
+  'Use "Limpar arquivados" para apagá-los de vez.'
+
+const CLEAR_DETAIL =
+  'Os dados dos slots removidos serão apagados definitivamente do computador. Esta ação não pode ser desfeita.'
+
+/**
+ * A native yes/no dialog, parented to the panel. Returns true only if the user
+ * picks the confirming button. The confirming button is never the default, so
+ * a stray Enter cancels.
+ */
+async function confirm(message: string, detail: string, confirmLabel: string): Promise<boolean> {
+  if (!panel) return false
+  const result = await dialog.showMessageBox(panel, {
+    type: 'warning',
+    buttons: ['Cancelar', confirmLabel],
+    defaultId: 0,
+    cancelId: 0,
+    message,
+    detail,
+  })
+  return result.response === 1
+}
+
 /**
  * One handler per channel, each validating its own payload.
  *
@@ -200,7 +227,12 @@ function registerIpc(): void {
     },
 
     'slot:remove': async (payload) => {
-      await orchestrator.removeSlot(parseSlotId(payload))
+      const id = parseSlotId(payload)
+      // Removing archives the slot's profile, so it is destructive from the
+      // user's side (the slot loses its saved session). Confirm in a native
+      // dialog, which the renderer cannot skip.
+      if (!(await confirm('Remover este slot?', REMOVE_DETAIL, 'Remover'))) return
+      await orchestrator.removeSlot(id)
       await saveConfiguration()
       pushState()
     },
@@ -233,6 +265,14 @@ function registerIpc(): void {
       // button appears broken.
       mkdirSync(logsDir(), { recursive: true })
       await shell.openPath(logsDir())
+    },
+
+    'profiles:clearArchives': async (payload) => {
+      parseNoPayload(payload)
+      // The one permanent deletion in the app: it removes the archived profiles
+      // of slots removed earlier. Confirm, because it cannot be undone.
+      if (!(await confirm('Limpar perfis arquivados?', CLEAR_DETAIL, 'Limpar'))) return
+      await profiles.clearArchives()
     },
   }
 

@@ -31,6 +31,7 @@ describe('the channel list', () => {
       'config:read',
       'config:updateSlot',
       'logs:reveal',
+      'profiles:clearArchives',
     ])
   })
 })

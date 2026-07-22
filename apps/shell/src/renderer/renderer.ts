@@ -51,6 +51,7 @@ interface HellowebApi {
   readConfig(): Promise<PanelState>
   updateSlot(update: SlotAddition & { id: number }): Promise<void>
   revealLogs(): Promise<void>
+  clearArchives(): Promise<void>
   onState(listener: (state: PanelState) => void): void
 }
 
@@ -262,6 +263,9 @@ document
 document
   .getElementById('reveal-logs')
   ?.addEventListener('click', () => run(() => window.helloweb.revealLogs()))
+document
+  .getElementById('clear-archives')
+  ?.addEventListener('click', () => run(() => window.helloweb.clearArchives()))
 
 // The "i" next to the password hint toggles the risk disclaimer.
 document.getElementById('hint-toggle')?.addEventListener('click', () => {
