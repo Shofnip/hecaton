@@ -14,11 +14,17 @@ The app does not embed games. It launches and arranges real browser windows, whi
 
 ## Status
 
-**No usable app yet** — there is no UI, so nothing launches a game for you today.
+**v1 is functionally complete.** The Electron panel (`apps/shell`) launches, arranges and
+focuses the slots, adds/removes/edits them, restores the grid, and surfaces state and errors.
 
-Done: the feasibility spike, the project foundation, the pure core (grid layout, slot state
-machine, registry validation, config merge, orchestrator) and the three adapters (Chrome via
-spawn, window control, disk storage). Next and last step of v1 is the Electron panel.
+It is built on the pure core (`packages/core` — grid layout, slot state machine, registry
+validation, config parsing, orchestrator, the IPC contract) and four adapters: Chrome via
+spawn (`browser-engine`), window control (`window-manager`), disk storage plus rotated logs
+(`storage`), and profile archiving (`browser-engine`). The shipped game registry lives in
+`packages/games`. Structured logging and per-slot profile archiving are wired in.
+
+What remains before a public release is packaging and distribution (phase 3) — see
+[docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 

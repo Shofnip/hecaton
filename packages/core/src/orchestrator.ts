@@ -133,10 +133,10 @@ export class Orchestrator {
   /**
    * Adds a slot pointed at the given game or url and returns its id.
    *
-   * The id is the lowest free number in `[1, maxSlots]`. That the cap forces id
-   * reuse is deliberate: a slot's id is its profile directory name, so re-adding
-   * after a remove reuses the same profile — and removal never deletes it
-   * (ADR-0005), so the session comes back rather than being lost.
+   * The id is the lowest free number in `[1, maxSlots]`, reused so the cap is
+   * respected. A slot's id is its profile directory name, and removal archives
+   * that profile aside (slot-N.old-…), so a re-added slot with the same id gets
+   * a fresh profile rather than the removed slot's session.
    *
    * Adds nothing to the screen: the new slot is stopped, and moving the others
    * to make room now would leave a blank cell until it launches.

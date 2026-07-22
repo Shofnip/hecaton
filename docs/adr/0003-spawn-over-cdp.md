@@ -25,6 +25,7 @@ Not the IP address, not a cold profile, not the browser binary. The CDP connecti
 ## Decision
 
 **The app spawns the installed Chrome directly**, the way a desktop shortcut would:
+[see Correction]
 
 ```
 chrome.exe --user-data-dir=<per-slot dir> --no-first-run --no-default-browser-check
@@ -78,3 +79,19 @@ interface meant the switch cost the core nothing; a fork would have cost it perm
 injects CSS and JS, reads the game DOM, and Turnstile accepts it. But **Chrome 150 ignores
 `--load-extension`**; it only loads via manual "Load unpacked". For a distributed app that means
 the Web Store or enterprise policy, each with its own cost. Deferred, not dead.
+
+## Correction (2026-07-21)
+
+The command block shows `--new-window <url>`. The app now launches in app-window mode with
+`--app=<url>`, and passes no `--new-window` and no trailing URL — see
+`packages/browser-engine/src/chrome-args.ts`.
+
+This changed after the ADR was written. Once `stop()` began closing Chrome cleanly (via
+`CloseMainWindow`, so the profile is not left marked as a crash), a normal window offered to
+restore the previous tabs on the next launch, which accumulated tabs across restarts. An app
+window does not take part in session restore, which removes that.
+
+The decision this ADR records — spawn Chrome directly, no CDP, no remote-debugging port — is
+unchanged; only the window-mode flag differs. Found by the documentation auditor (`/audit-docs`);
+the body is left as written per the convention in [README](README.md), with only the inline
+`[see Correction]` marker added.

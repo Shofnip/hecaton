@@ -113,15 +113,16 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
 ```
 helloweb/
   apps/
-    shell/              # Electron: main (orchestrator) + renderer (panel) (not yet built)
+    shell/              # Electron: main (orchestrator) + preload + renderer (panel)
   packages/
     core/               # PURE CORE - grid, state machine, registry, config, orchestrator.
                         #   No I/O, enforced by ESLint rather than by convention.
                         #   src/testing/ holds the fakes; excluded from the build.
-    browser-engine/     # process adapter: Chrome via spawn, PID resolution, liveness
+    browser-engine/     # process adapter: Chrome via spawn, PID resolution, liveness,
+                        #   and profile archiving
     window-manager/     # node-window-manager adapter: applies positions computed by core
-    storage/            # disk adapter: JSON files under %APPDATA%/helloweb
-    games/              # registry - one folder per integrated game (not yet built)
+    storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/helloweb
+    games/              # registry - one file per integrated game
   tests/                # checks on the repository itself, not on any package
   docs/architecture.md
 ```
@@ -169,7 +170,7 @@ in a free layer the core does not interpret.
 const game: GameDefinition = {
   id: 'poke-idleworld',
   name: 'Poke IdleWorld',
-  url: 'https://poke.idleworld.online/',
+  url: 'https://poke.idleworld.online/play',
   viewport: { width: 1280, height: 720 },
 }
 ```

@@ -55,8 +55,9 @@ then stage by name.
   imports. If a decision needs I/O, the decision stays in the core and the I/O moves to an
   adapter.
 - **Adapters are thin and hold no business rules.** Each sits behind a narrow interface
-  declared in `core/src/ports.ts` (`BrowserLauncher`, `WindowManager`, `Storage`). Fakes for
-  them live in `core/src/testing/`, excluded from the build so they never ship.
+  declared in `core/src/ports.ts` (`BrowserLauncher`, `WindowManager`, `Storage`,
+  `ProfileArchive`). Fakes for them live in `core/src/testing/`, excluded from the build so
+  they never ship.
 - **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}` and
   nothing else. URLs are **https only**, in the registry and in custom slots alike. Do not
   grow the shared layer speculatively — with one game, any bigger schema is a guess. Promote
@@ -77,7 +78,7 @@ land on the end user.
 ## Language
 
 Code, filenames, comments, commits and docs in **English**. **App UI in Portuguese** —
-including `label` fields in game definitions, which are UI text.
+including the `name` field in game definitions, which is UI text.
 
 ## Data locations
 
