@@ -257,6 +257,21 @@ function registerIpc(): void {
       parseNoPayload(payload)
       await profiles.clearArchives()
     },
+
+    'profiles:clearSlotCache': async (payload) => {
+      // Frees disk without logging anyone out: only the cache sub-directories
+      // go, never the session. Routed through the orchestrator, not the adapter
+      // directly, because refusing a running slot and mapping the id to its
+      // profile dir are both its decisions - the id never carries a path.
+      await orchestrator.clearSlotCache(parseSlotId(payload))
+    },
+
+    'profiles:clearAllCaches': async (payload) => {
+      // Same as above for every stopped slot; running slots are skipped by the
+      // orchestrator, not failed.
+      parseNoPayload(payload)
+      await orchestrator.clearAllCaches()
+    },
   }
 
   for (const channel of IPC_CHANNELS) {

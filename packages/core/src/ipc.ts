@@ -39,6 +39,8 @@ export const IPC_CHANNELS = [
   'config:updateSlot',
   'logs:reveal',
   'profiles:clearArchives',
+  'profiles:clearSlotCache',
+  'profiles:clearAllCaches',
 ] as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number]

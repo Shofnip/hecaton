@@ -307,9 +307,17 @@ archives and gated behind an in-app confirmation. See
 [ADR-0008](adr/0008-archive-a-removed-slot-profile.md); the property that still holds is that no
 live profile is ever deleted, only an archived one, and only by an explicit user action.
 
-A separate **cache clear** (`Default/Cache`, `Default/Code Cache`, `GPUCache` — freeing disk
-without logging anyone out) is not built; it remains a phase-2 nicety, distinct from the
-session-discarding reset above.
+A separate **cache clear** frees disk without logging anyone out, and is distinct from the
+session-discarding reset above: it deletes only a profile's cache sub-directories
+(`Default/Cache`, `Default/Code Cache`, `GPUCache`), never `Cookies` or `Login Data`. It is
+offered per slot and as a "clear every slot" action, both refused for a **running** slot —
+Chrome holds its cache files open, so the guard lives in the orchestrator (`clearSlotCache`
+skips nothing and throws; `clearAllCaches` skips the running slots), and the panel disabling
+the per-slot button is only its UX echo. Routed through the orchestrator rather than the
+archive adapter directly, since mapping a slot id to its profile directory is the core's job and
+the id never carries a path. Because it discards no session, it needs no confirmation, unlike
+**clear archives**. Two validated IPC channels back it: `profiles:clearSlotCache` (a slot id)
+and `profiles:clearAllCaches` (no payload).
 
 **Phase 3 — distribution** — `electron-builder` · Windows installer · code signing decision ·
 auto-update · license · Electron security review before the first public release.

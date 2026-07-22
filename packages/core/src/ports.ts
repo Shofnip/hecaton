@@ -63,4 +63,11 @@ export interface ProfileArchive {
    * one.
    */
   clearArchives(): Promise<void>
+  /**
+   * Deletes only the cache sub-directories of a live profile, freeing disk
+   * without logging anyone out — the session files (Cookies, Login Data) are
+   * left untouched. The orchestrator only calls this for a stopped slot, since
+   * Chrome holds its cache files open while running.
+   */
+  clearCache(profileDir: string): Promise<void>
 }

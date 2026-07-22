@@ -69,3 +69,48 @@ describe('FileProfileArchive', () => {
     expect(readdirSync(root)).toEqual(['slot-1'])
   })
 })
+
+/** A profile with both cache directories and session files inside it. */
+function makeProfileWithCache(name: string): void {
+  const cacheDirs = [join('Default', 'Cache'), join('Default', 'Code Cache'), 'GPUCache']
+  for (const dir of cacheDirs) {
+    mkdirSync(join(root, name, dir), { recursive: true })
+    writeFileSync(join(root, name, dir, 'blob'), 'cached')
+  }
+  mkdirSync(join(root, name, 'Default'), { recursive: true })
+  writeFileSync(join(root, name, 'Default', 'Cookies'), 'session')
+  writeFileSync(join(root, name, 'Default', 'Login Data'), 'creds')
+}
+
+describe('FileProfileArchive.clearCache', () => {
+  it('deletes the cache directories but keeps the session', async () => {
+    makeProfileWithCache('slot-2')
+    await archive.clearCache('slot-2')
+
+    // The cache is gone...
+    expect(existsSync(join(root, 'slot-2', 'Default', 'Cache'))).toBe(false)
+    expect(existsSync(join(root, 'slot-2', 'Default', 'Code Cache'))).toBe(false)
+    expect(existsSync(join(root, 'slot-2', 'GPUCache'))).toBe(false)
+    // ...but the login survives: clearing cache never logs anyone out.
+    expect(existsSync(join(root, 'slot-2', 'Default', 'Cookies'))).toBe(true)
+    expect(existsSync(join(root, 'slot-2', 'Default', 'Login Data'))).toBe(true)
+  })
+
+  it('touches only the named profile, not its neighbours', async () => {
+    makeProfileWithCache('slot-1')
+    makeProfileWithCache('slot-2')
+    await archive.clearCache('slot-2')
+
+    // slot-1's cache is left exactly as it was.
+    expect(existsSync(join(root, 'slot-1', 'Default', 'Cache'))).toBe(true)
+    expect(existsSync(join(root, 'slot-1', 'GPUCache'))).toBe(true)
+  })
+
+  it('is a no-op when the profile or its cache is not there', async () => {
+    // A slot that never launched, or one already cache-free, must not throw.
+    await expect(archive.clearCache('slot-3')).resolves.toBeUndefined()
+    makeProfile('slot-1') // profile with a session but no cache dirs
+    await expect(archive.clearCache('slot-1')).resolves.toBeUndefined()
+    expect(existsSync(join(root, 'slot-1', 'Default', 'Cookies'))).toBe(true)
+  })
+})

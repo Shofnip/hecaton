@@ -18,6 +18,7 @@ import type { LogEntry, Logger } from '../log.js'
 
 export class FakeProfileArchive implements ProfileArchive {
   readonly archived: string[] = []
+  readonly clearedCaches: string[] = []
   cleared = 0
 
   archive(profileDir: string): Promise<void> {
@@ -27,6 +28,11 @@ export class FakeProfileArchive implements ProfileArchive {
 
   clearArchives(): Promise<void> {
     this.cleared++
+    return Promise.resolve()
+  }
+
+  clearCache(profileDir: string): Promise<void> {
+    this.clearedCaches.push(profileDir)
     return Promise.resolve()
   }
 }

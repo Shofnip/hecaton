@@ -4,8 +4,8 @@
  * Runs sandboxed, so it has no Node beyond what Electron polyfills for
  * preloads. That is the intent: this file exposes a fixed set of named methods
  * and nothing else — no ipcRenderer, no require, no channel taken from the
- * caller. A renderer compromise can call exactly these seven things, with
- * arguments the main process re-validates anyway.
+ * caller. A renderer compromise can call exactly this fixed set of methods,
+ * with arguments the main process re-validates anyway.
  *
  * `.cts` on purpose. The package is ESM, so a `.ts` file here emits an ES
  * module, and Electron cannot load an ESM preload — it fails with "Cannot use
@@ -36,6 +36,8 @@ const api = {
   updateSlot: (update: unknown) => ipcRenderer.invoke('config:updateSlot', update),
   revealLogs: () => ipcRenderer.invoke('logs:reveal'),
   clearArchives: () => ipcRenderer.invoke('profiles:clearArchives'),
+  clearSlotCache: (id: number) => ipcRenderer.invoke('profiles:clearSlotCache', id),
+  clearAllCaches: () => ipcRenderer.invoke('profiles:clearAllCaches'),
 
   /**
    * State pushed by main. The listener receives only the payload: handing over

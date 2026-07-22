@@ -194,6 +194,37 @@ export class Orchestrator {
   }
 
   /**
+   * Clears a stopped slot's browser cache, freeing disk without ending its
+   * session — the adapter deletes only the cache sub-directories, never the
+   * Cookies or Login Data.
+   *
+   * Refused while the slot is live: Chrome holds its cache files open, so a
+   * delete would race the process. This guard is the real safeguard; the panel
+   * disabling the button when the slot runs is only its UX echo, exactly as the
+   * remove confirmation is UX over the archiving safeguard.
+   */
+  async clearSlotCache(slotId: number): Promise<void> {
+    const slot = this.slot(slotId)
+    if (isLive(slot.state)) {
+      throw new Error(`cannot clear the cache of slot ${slotId} while it is running; stop it first`)
+    }
+    await this.profiles?.clearCache(slot.config.profileDir)
+  }
+
+  /**
+   * Clears the cache of every stopped slot, skipping the running ones rather
+   * than failing: a live slot cannot have its cache cleared, but that is no
+   * reason to refuse the others.
+   */
+  async clearAllCaches(): Promise<void> {
+    for (const id of [...this.slots.keys()].sort((a, b) => a - b)) {
+      const slot = this.slots.get(id)!
+      if (isLive(slot.state)) continue
+      await this.profiles?.clearCache(slot.config.profileDir)
+    }
+  }
+
+  /**
    * Replaces what an existing slot points at. Takes effect at its next launch,
    * since the running browser is already on the old target.
    */

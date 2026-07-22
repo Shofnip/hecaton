@@ -20,6 +20,15 @@ import type { ProfileArchive } from '@helloweb/core'
 /** Marks an archived profile. A live profile never contains this. */
 const ARCHIVE_MARKER = '.old-'
 
+/**
+ * The cache sub-directories cleared by clearCache, relative to a profile. These
+ * are the only paths it ever removes: the session lives elsewhere in the
+ * profile (Default/Cookies, Default/Login Data), so deleting exactly these frees
+ * disk without logging anyone out. `GPUCache` sits at the profile root, the
+ * other two under `Default`.
+ */
+const CACHE_DIRS = [join('Default', 'Cache'), join('Default', 'Code Cache'), 'GPUCache']
+
 export class FileProfileArchive implements ProfileArchive {
   constructor(private readonly profilesRoot: string) {}
 
@@ -39,6 +48,27 @@ export class FileProfileArchive implements ProfileArchive {
         return
       } catch {
         await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    }
+  }
+
+  async clearCache(profileDir: string): Promise<void> {
+    // Only ever the cache sub-directories of this one profile, never the profile
+    // itself and never a session file. A missing directory is fine - a slot that
+    // never launched, or an already cache-free one, is a no-op, not an error.
+    for (const dir of CACHE_DIRS) {
+      const path = join(this.profilesRoot, profileDir, dir)
+      if (!existsSync(path)) continue
+
+      // Same EPERM retry as archive/clearArchives: Chrome may hold a handle for
+      // a moment after it exits, and the orchestrator only clears stopped slots.
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try {
+          rmSync(path, { recursive: true, force: true })
+          break
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 250))
+        }
       }
     }
   }

@@ -633,3 +633,54 @@ describe('adding and removing slots', () => {
     ])
   })
 })
+
+describe('clearing a slot cache', () => {
+  function twoSlots(archive: FakeProfileArchive) {
+    return new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [
+        { id: 1, gameId: 'poke-idleworld' },
+        { id: 2, gameId: 'poke-idleworld' },
+      ],
+      autoRestart: false,
+      profiles: archive,
+    })
+  }
+
+  it('clears the cache of a stopped slot by its profile dir', async () => {
+    const archive = new FakeProfileArchive()
+    const app = twoSlots(archive)
+    // slot 2 is stopped: its cache may be cleared. slot-2 is its profile dir.
+    await app.clearSlotCache(2)
+    expect(archive.clearedCaches).toEqual(['slot-2'])
+  })
+
+  it('refuses to clear the cache of a running slot, touching nothing', async () => {
+    const archive = new FakeProfileArchive()
+    const app = twoSlots(archive)
+    await app.start(1)
+    // Chrome locks its cache files while running; clearing them under a live
+    // process is refused. The guard is here, not only in the disabled button.
+    await expect(app.clearSlotCache(1)).rejects.toThrow(/running/i)
+    expect(archive.clearedCaches).toEqual([])
+  })
+
+  it('refuses an unknown slot id', async () => {
+    const archive = new FakeProfileArchive()
+    const app = twoSlots(archive)
+    await expect(app.clearSlotCache(99)).rejects.toThrow(/not configured/i)
+  })
+
+  it('clears every stopped slot and skips the running ones', async () => {
+    const archive = new FakeProfileArchive()
+    const app = twoSlots(archive)
+    await app.start(1)
+    // slot 1 is running and is skipped; slot 2 is stopped and is cleared.
+    await app.clearAllCaches()
+    expect(archive.clearedCaches).toEqual(['slot-2'])
+  })
+})

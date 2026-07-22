@@ -52,6 +52,8 @@ interface HellowebApi {
   updateSlot(update: SlotAddition & { id: number }): Promise<void>
   revealLogs(): Promise<void>
   clearArchives(): Promise<void>
+  clearSlotCache(id: number): Promise<void>
+  clearAllCaches(): Promise<void>
   onState(listener: (state: PanelState) => void): void
 }
 
@@ -204,6 +206,12 @@ function renderSlotView(slot: SlotSnapshot, position: number): HTMLElement {
       editingSlotId = slot.id
       render(lastState)
     }),
+    // Disabled while the slot is live: Chrome holds its cache files open, and the
+    // orchestrator refuses a running slot anyway. Cache-clear never logs out - it
+    // frees disk and keeps the session - so it takes no confirmation.
+    button('Limpar cache', running || busy, () =>
+      run(() => window.helloweb.clearSlotCache(slot.id)),
+    ),
     button('Remover', lastState.slots.length <= 1, () => {
       void confirmModal(`Remover o slot ${position}?`, REMOVE_DETAIL, 'Remover').then((ok) => {
         if (ok) run(() => window.helloweb.removeSlot(slot.id))
@@ -315,6 +323,11 @@ document
 document
   .getElementById('reveal-logs')
   ?.addEventListener('click', () => run(() => window.helloweb.revealLogs()))
+document.getElementById('clear-all-caches')?.addEventListener('click', () => {
+  // Non-destructive: clears the cache of every stopped slot and skips the
+  // running ones, so it needs no confirmation and stays enabled even mid-play.
+  run(() => window.helloweb.clearAllCaches())
+})
 document.getElementById('clear-archives')?.addEventListener('click', () => {
   void confirmModal('Limpar perfis arquivados?', CLEAR_DETAIL, 'Limpar').then((ok) => {
     if (ok) run(() => window.helloweb.clearArchives())
