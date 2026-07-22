@@ -99,18 +99,64 @@ export function parseSlotOverrides(
   rejectUnknownKeys(input, SLOT_KEYS, context)
 
   const slot: SlotOverrides = { id }
-  if (input['gameId'] !== undefined) slot.gameId = requireString(input['gameId'], 'gameId', context)
-  if (input['url'] !== undefined) slot.url = requireString(input['url'], 'url', context)
-  if (input['persistProfile'] !== undefined) {
-    slot.persistProfile = requireBoolean(input['persistProfile'], 'persistProfile', context)
-  }
-  if (input['mute'] !== undefined) slot.mute = requireBoolean(input['mute'], 'mute', context)
+  readSlotFields(input, slot, context)
 
   // Cross-field rules live in resolveSlotConfig. Calling it here is a
   // validation pass whose result is deliberately discarded: the orchestrator
   // resolves slots itself, and duplicating the rules is how they drift.
   resolveSlotConfig(globals, slot)
   return slot
+}
+
+/** The optional fields common to every slot form. Mutates `into`. */
+function readSlotFields(
+  input: Record<string, unknown>,
+  into: SlotOverrides,
+  context: string,
+): void {
+  if (input['gameId'] !== undefined) into.gameId = requireString(input['gameId'], 'gameId', context)
+  if (input['url'] !== undefined) into.url = requireString(input['url'], 'url', context)
+  if (input['persistProfile'] !== undefined) {
+    into.persistProfile = requireBoolean(input['persistProfile'], 'persistProfile', context)
+  }
+  if (input['mute'] !== undefined) into.mute = requireBoolean(input['mute'], 'mute', context)
+}
+
+/** The keys an addition may carry — the slot keys minus the id it does not choose. */
+const SLOT_ADDITION_KEYS = SLOT_KEYS.filter((key) => key !== 'id')
+
+/**
+ * Validates a slot the panel wants to add, which carries no id.
+ *
+ * The id is the orchestrator's to assign — the renderer cannot know which
+ * number is free — so an id in the payload is rejected rather than trusted. The
+ * cross-field rules still apply, most of all https: an add channel does not get
+ * to skip the boundary a config entry and an update both enforce. A placeholder
+ * id runs those checks and is then dropped.
+ */
+export function parseSlotAddition(
+  input: unknown,
+  globals: GlobalConfig,
+): Omit<SlotOverrides, 'id'> {
+  if (!isPlainObject(input)) {
+    throw new Error(`new slot must be an object, got ${JSON.stringify(input)}`)
+  }
+  rejectUnknownKeys(input, SLOT_ADDITION_KEYS, 'new slot: ')
+
+  // Validate through the full slot shape with a placeholder id, then return
+  // just the fields — the real id is the orchestrator's to assign.
+  const withPlaceholder: SlotOverrides = { id: 1 }
+  readSlotFields(input, withPlaceholder, 'new slot: ')
+  resolveSlotConfig(globals, withPlaceholder)
+
+  const fields: Omit<SlotOverrides, 'id'> = {}
+  if (withPlaceholder.gameId !== undefined) fields.gameId = withPlaceholder.gameId
+  if (withPlaceholder.url !== undefined) fields.url = withPlaceholder.url
+  if (withPlaceholder.persistProfile !== undefined) {
+    fields.persistProfile = withPlaceholder.persistProfile
+  }
+  if (withPlaceholder.mute !== undefined) fields.mute = withPlaceholder.mute
+  return fields
 }
 
 export function parseConfig(input: unknown): ParsedConfig {

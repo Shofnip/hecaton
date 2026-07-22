@@ -32,6 +32,8 @@ export const IPC_CHANNELS = [
   'slot:start',
   'slot:stop',
   'slot:focus',
+  'slot:add',
+  'slot:remove',
   'layout:apply',
   'config:read',
   'config:updateSlot',
@@ -72,3 +74,8 @@ export function parseNoPayload(input: unknown): void {
 export function parseSlotUpdate(input: unknown, globals: GlobalConfig): SlotOverrides {
   return parseSlotOverrides(input, globals, 'slot update')
 }
+
+// A slot the panel wants to add carries no id — the orchestrator assigns it —
+// so its validator lives beside the config one and is surfaced here as part of
+// the IPC contract.
+export { parseSlotAddition } from './parse-config.js'

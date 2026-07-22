@@ -423,3 +423,140 @@ describe('logging lifecycle events', () => {
     await expect(app.start(1)).resolves.not.toThrow()
   })
 })
+
+describe('adding and removing slots', () => {
+  function oneSlot() {
+    return new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [{ id: 1, gameId: 'poke-idleworld' }],
+      autoRestart: false,
+    })
+  }
+
+  it('starts a single slot filling the whole screen', async () => {
+    const app = oneSlot()
+    await app.start(1)
+    // One slot: 1x1 grid, the whole work area.
+    expect(windows.bounds.get(launcher.pidForSlot(1)!)).toEqual({
+      x: 0,
+      y: 0,
+      width: 1920,
+      height: 1080,
+    })
+  })
+
+  it('adds a slot pointed at the given game and returns its id', () => {
+    const app = oneSlot()
+    expect(app.addSlot({ gameId: 'poke-idleworld' })).toBe(2)
+    expect(app.snapshot().map((slot) => slot.id)).toEqual([1, 2])
+  })
+
+  it('does not move a running window when a slot is only added', async () => {
+    const app = oneSlot()
+    await app.start(1)
+    app.addSlot({ gameId: 'poke-idleworld' })
+    // The new slot is not running yet, so leaving slot 1 fullscreen avoids a
+    // blank half sitting next to it until the second one launches.
+    expect(windows.bounds.get(launcher.pidForSlot(1)!)?.width).toBe(1920)
+  })
+
+  it('resizes both windows into the two-up layout when the second slot starts', async () => {
+    const app = oneSlot()
+    await app.start(1)
+    app.addSlot({ gameId: 'poke-idleworld' })
+    await app.start(2)
+    expect(windows.bounds.get(launcher.pidForSlot(1)!)).toEqual({
+      x: 0,
+      y: 0,
+      width: 960,
+      height: 1080,
+    })
+    expect(windows.bounds.get(launcher.pidForSlot(2)!)).toEqual({
+      x: 960,
+      y: 0,
+      width: 960,
+      height: 1080,
+    })
+  })
+
+  it('uses the 2x2 layout for three slots', async () => {
+    const app = oneSlot()
+    app.addSlot({ gameId: 'poke-idleworld' })
+    app.addSlot({ gameId: 'poke-idleworld' })
+    await app.start(1)
+    await app.start(2)
+    await app.start(3)
+    // 3 slots -> 2x2 grid, three cells filled.
+    expect(windows.bounds.get(launcher.pidForSlot(3)!)).toEqual({
+      x: 0,
+      y: 540,
+      width: 960,
+      height: 540,
+    })
+  })
+
+  it('refuses to add past the configured maximum', () => {
+    const app = oneSlot()
+    app.addSlot({ gameId: 'poke-idleworld' })
+    app.addSlot({ gameId: 'poke-idleworld' })
+    app.addSlot({ gameId: 'poke-idleworld' })
+    // maxSlots is 4; the fifth has nowhere to go.
+    expect(() => app.addSlot({ gameId: 'poke-idleworld' })).toThrow(/max/i)
+  })
+
+  it('validates a custom url slot on add', () => {
+    const app = oneSlot()
+    expect(() => app.addSlot({ url: 'http://insecure.test/' })).toThrow(/https/)
+  })
+
+  it('removes a slot and stops it if it was running', async () => {
+    const app = oneSlot()
+    app.addSlot({ gameId: 'poke-idleworld' })
+    await app.start(2)
+    const pid = launcher.pidForSlot(2)!
+    await app.removeSlot(2)
+    expect(app.snapshot().map((slot) => slot.id)).toEqual([1])
+    expect(launcher.stopped).toContain(pid)
+  })
+
+  it('reuses the freed id, and so its profile, on the next add', () => {
+    const app = oneSlot()
+    app.addSlot({ gameId: 'poke-idleworld' }) // id 2
+    app.addSlot({ gameId: 'poke-idleworld' }) // id 3
+    void app.removeSlot(2)
+    // Lowest free id is 2, whose profile dir (slot-2) still exists on disk. This
+    // is deliberate: removal never destroys a session (ADR-0005), so getting it
+    // back on re-add is the friendly outcome.
+    expect(app.addSlot({ gameId: 'poke-idleworld' })).toBe(2)
+  })
+
+  it('will not remove the last slot', async () => {
+    const app = oneSlot()
+    await expect(app.removeSlot(1)).rejects.toThrow(/last/i)
+  })
+
+  it('changes what a slot points at, replacing the old target', () => {
+    const app = oneSlot()
+    app.updateSlot({ id: 1, url: 'https://example.com/' })
+    const slot = app.snapshot()[0]!
+    expect(slot.url).toBe('https://example.com/')
+    // Switched from a game to a url: the gameId must be gone, not left beside
+    // the url, since a slot points at one or the other and never both.
+    expect(slot).not.toHaveProperty('gameId')
+  })
+
+  it('reports the persisted slot list, preserving inherited settings', () => {
+    const app = oneSlot()
+    app.addSlot({ url: 'https://example.com/', mute: true })
+    // The first slot inherited persistProfile/mute from globals and set neither,
+    // so its persisted form should not invent explicit values.
+    expect(app.slotConfigs()).toEqual([
+      { id: 1, gameId: 'poke-idleworld' },
+      { id: 2, url: 'https://example.com/', mute: true },
+    ])
+  })
+})

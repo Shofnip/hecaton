@@ -35,6 +35,8 @@ export interface OrchestratorDeps {
 const DEFAULT_MAX_RESTART_ATTEMPTS = 3
 
 interface SlotRuntime {
+  /** The raw overrides as given, kept so the persisted form stays faithful. */
+  overrides: SlotOverrides
   config: ResolvedSlotConfig
   state: SlotState
   pid: number | undefined
@@ -69,6 +71,8 @@ export class Orchestrator {
   private readonly autoRestart: boolean
   private readonly maxRestartAttempts: number
   private readonly logger: Logger | undefined
+  private readonly screen: ScreenBounds
+  private readonly globals: GlobalConfig
   private readonly slots = new Map<number, SlotRuntime>()
 
   constructor(deps: OrchestratorDeps) {
@@ -78,27 +82,122 @@ export class Orchestrator {
     this.autoRestart = deps.autoRestart
     this.maxRestartAttempts = deps.maxRestartAttempts ?? DEFAULT_MAX_RESTART_ATTEMPTS
     this.logger = deps.logger
+    this.screen = deps.screen
+    this.globals = deps.globals
 
-    // The grid is computed once from the configured slot count, so a slot keeps
-    // its cell whether or not its neighbours happen to be running.
-    const cells = computeGrid(deps.slots.length, deps.screen)
-    deps.slots.forEach((overrides, index) => {
-      const config = resolveSlotConfig(deps.globals, overrides)
+    for (const overrides of deps.slots) {
+      const config = resolveSlotConfig(this.globals, overrides)
       this.slots.set(config.id, {
+        overrides,
         config,
         state: 'stopped',
         pid: undefined,
         restartAttempts: 0,
-        cell: cells[index]!,
+        cell: { x: 0, y: 0, width: 0, height: 0 },
         lastError: undefined,
       })
-    })
+    }
+    this.reassignCells()
   }
 
   private slot(slotId: number): SlotRuntime {
     const slot = this.slots.get(slotId)
     if (!slot) throw new Error(`slot ${slotId} is not configured`)
     return slot
+  }
+
+  /**
+   * Recomputes the grid for the current slot count and hands each slot its cell.
+   *
+   * Slots are ordered by id, so a slot keeps a stable position as neighbours
+   * come and go: id 1 is always the first cell, id 2 the second. Called after
+   * every add and remove, and once at construction. It moves no windows — that
+   * is start() and applyLayout()'s job, so an added-but-not-started slot does
+   * not shove its neighbours aside before it has anything to show.
+   */
+  private reassignCells(): void {
+    const ids = [...this.slots.keys()].sort((a, b) => a - b)
+    const cells = computeGrid(ids.length, this.screen)
+    ids.forEach((id, index) => {
+      this.slots.get(id)!.cell = cells[index]!
+    })
+  }
+
+  /**
+   * Adds a slot pointed at the given game or url and returns its id.
+   *
+   * The id is the lowest free number in `[1, maxSlots]`. That the cap forces id
+   * reuse is deliberate: a slot's id is its profile directory name, so re-adding
+   * after a remove reuses the same profile — and removal never deletes it
+   * (ADR-0005), so the session comes back rather than being lost.
+   *
+   * Adds nothing to the screen: the new slot is stopped, and moving the others
+   * to make room now would leave a blank cell until it launches.
+   */
+  addSlot(overrides: Omit<SlotOverrides, 'id'>): number {
+    let id: number | undefined
+    for (let candidate = 1; candidate <= this.globals.maxSlots; candidate++) {
+      if (!this.slots.has(candidate)) {
+        id = candidate
+        break
+      }
+    }
+    if (id === undefined) {
+      throw new Error(`cannot add a slot: the maximum of ${this.globals.maxSlots} is reached`)
+    }
+
+    const full: SlotOverrides = { ...overrides, id }
+    const config = resolveSlotConfig(this.globals, full)
+    this.slots.set(id, {
+      overrides: full,
+      config,
+      state: 'stopped',
+      pid: undefined,
+      restartAttempts: 0,
+      cell: { x: 0, y: 0, width: 0, height: 0 },
+      lastError: undefined,
+    })
+    this.reassignCells()
+    this.emit({ level: 'info', event: 'slot.add', slotId: id })
+    return id
+  }
+
+  /**
+   * Removes a slot, stopping its browser first if it is running.
+   *
+   * The last slot cannot go: an empty panel does nothing and there is no UI to
+   * add one back from. The profile directory is left untouched, as ever.
+   * Remaining windows are repositioned to fill the gap.
+   */
+  async removeSlot(slotId: number): Promise<void> {
+    if (this.slots.size <= 1) {
+      throw new Error('cannot remove the last slot')
+    }
+    const slot = this.slot(slotId)
+    const pid = slot.pid
+    if (pid !== undefined) await this.launcher.stop(pid)
+
+    this.slots.delete(slotId)
+    this.reassignCells()
+    this.emit({ level: 'info', event: 'slot.remove', slotId })
+    this.applyLayout()
+  }
+
+  /**
+   * Replaces what an existing slot points at. Takes effect at its next launch,
+   * since the running browser is already on the old target.
+   */
+  updateSlot(overrides: SlotOverrides): void {
+    const slot = this.slot(overrides.id)
+    slot.config = resolveSlotConfig(this.globals, overrides)
+    slot.overrides = overrides
+  }
+
+  /** The slots in their persisted shape, for the shell to save. */
+  slotConfigs(): SlotOverrides[] {
+    return [...this.slots.keys()]
+      .sort((a, b) => a - b)
+      .map((id) => ({ ...this.slots.get(id)!.overrides }))
   }
 
   /** A slot points either at a registry game or at its own url — never both. */
@@ -133,6 +232,10 @@ export class Orchestrator {
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.start', ...this.slotFields(slot) })
     await this.spawn(slot)
+    // Re-tile every running window: the slot just added and started is what
+    // turns one fullscreen window into a two-up split, and its neighbours have
+    // to move to their new cells at that moment, not before.
+    this.applyLayout()
   }
 
   /**

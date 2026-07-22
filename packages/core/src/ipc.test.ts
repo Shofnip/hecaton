@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
-import { IPC_CHANNELS, parseNoPayload, parseSlotId, parseSlotUpdate } from './ipc.js'
+import {
+  IPC_CHANNELS,
+  parseNoPayload,
+  parseSlotAddition,
+  parseSlotId,
+  parseSlotUpdate,
+} from './ipc.js'
 
 const globals = DEFAULT_GLOBAL_CONFIG
 
@@ -19,6 +25,8 @@ describe('the channel list', () => {
       'slot:start',
       'slot:stop',
       'slot:focus',
+      'slot:add',
+      'slot:remove',
       'layout:apply',
       'config:read',
       'config:updateSlot',
@@ -128,5 +136,41 @@ describe('parseSlotUpdate', () => {
     // written in config.json. One validator for both is what keeps that true
     // without anyone having to compare two lists.
     expect(() => parseSlotUpdate({ id: 1, url: 'https://example.com/' }, globals)).not.toThrow()
+  })
+})
+
+describe('parseSlotAddition', () => {
+  it('accepts a slot pointed at a game, with no id', () => {
+    // The id is the orchestrator's to assign, so the add payload must not carry
+    // one - it has no way to know which slot number is free.
+    expect(parseSlotAddition({ gameId: 'poke-idleworld' }, globals)).toEqual({
+      gameId: 'poke-idleworld',
+    })
+  })
+
+  it('accepts a custom url with generic options', () => {
+    expect(
+      parseSlotAddition(
+        { url: 'https://example.com/', persistProfile: false, mute: true },
+        globals,
+      ),
+    ).toEqual({ url: 'https://example.com/', persistProfile: false, mute: true })
+  })
+
+  it('rejects an id, which the caller does not get to choose', () => {
+    expect(() => parseSlotAddition({ id: 2, gameId: 'g' }, globals)).toThrow(/id/)
+  })
+
+  it.each([
+    ['a non-https url', { url: 'http://example.com/' }],
+    ['a javascript url', { url: 'javascript:alert(1)' }],
+    ['both a game and a url', { gameId: 'g', url: 'https://example.com/' }],
+    ['a non-boolean mute', { gameId: 'g', mute: 1 }],
+    ['an unknown key', { gameId: 'g', viewport: {} }],
+    ['not an object', 'slot'],
+  ])('rejects %s', (_case, input) => {
+    // Same rules as an update, minus the id: the https boundary in particular
+    // is not something an add channel gets to skip.
+    expect(() => parseSlotAddition(input, globals)).toThrow()
   })
 })
