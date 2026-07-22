@@ -7,7 +7,9 @@
  * session by accident: the worst a bug here can do is move a directory that is
  * recoverable by renaming it back.
  *
- * `clearArchives` is the only deletion in the app, and it is guarded to touch
+ * `clearArchives` is the only path that deletes a profile which ever held a
+ * persistent session (the browser adapter's `discard` also deletes, but only
+ * throwaway clean-session profiles under `%TEMP%`), and it is guarded to touch
  * only directories that were archived (`slot-N.old-…`). A live `slot-N` is
  * never a candidate, whatever its name.
  */

@@ -98,8 +98,12 @@ Retry with a short delay rather than failing — `ChromeLauncher.discard` alread
 the integration tests do the same in their cleanup. If you write new code that removes a
 profile directory, expect the race.
 
-Note that only throwaway profiles are ever deleted; `profiles/slot-N` is never removed by the
-app, by design (see ADR-0005).
+Note that a **live** `profiles/slot-N` is never deleted by the app. Two deletion paths exist,
+both away from a live profile: `ChromeLauncher.discard` removes a throwaway clean-session
+profile under `%TEMP%` on `stop()`, and `clearArchives` (the "clear archives" action) permanently
+removes profiles a removed slot archived to `slot-N.old-<stamp>`. So a persistent session can be
+deleted — but only after it has been explicitly archived by removing its slot, never while live.
+See ADR-0005 (and its Correction) and ADR-0008.
 
 ---
 

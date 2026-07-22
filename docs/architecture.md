@@ -58,8 +58,12 @@ toward the present, and evidence belongs somewhere edits cannot quietly tidy it 
 
 ```
 chrome.exe --user-data-dir=<per-slot dir> --no-first-run --no-default-browser-check
-           --window-position=x,y --window-size=w,h --new-window <url>
+           --window-position=x,y --window-size=w,h --app=<url>
 ```
+
+`--app=<url>` opens an app window rather than a normal tabbed one, which keeps the slot out of
+Chrome's session restore — so it never reopens last time's tabs and never accumulates them (this
+matters once `stop()` closes cleanly; see [ADR-0003](adr/0003-spawn-over-cdp.md)).
 
 What this keeps: session isolation (`--user-data-dir` is the same mechanism), window layout
 and focus, crash detection and auto-restart, the registry, per-slot config, mute.
@@ -172,7 +176,9 @@ const game: GameDefinition = {
   id: 'poke-idleworld',
   name: 'Poke IdleWorld',
   url: 'https://poke.idleworld.online/play',
-  viewport: { width: 1280, height: 720 },
+  // viewport is optional and the shipped Poke definition omits it — nothing
+  // consumes it, window size comes from computeGrid. Shown here only to name
+  // the field.
 }
 ```
 

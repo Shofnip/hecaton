@@ -56,6 +56,11 @@ export interface Storage<T> {
 export interface ProfileArchive {
   /** Renames `profileDir` aside. A no-op if the slot never had a profile on disk. */
   archive(profileDir: string): Promise<void>
-  /** Permanently removes every archived profile. The only deletion in the app. */
+  /**
+   * Permanently removes every archived profile. The only path that deletes a
+   * profile which ever held a persistent session — the browser adapter also
+   * deletes throwaway clean-session profiles on stop, but never a persistent
+   * one.
+   */
   clearArchives(): Promise<void>
 }
