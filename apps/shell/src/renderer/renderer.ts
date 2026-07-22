@@ -73,6 +73,56 @@ const slotsElement = document.getElementById('slots') as HTMLElement
 const configErrorElement = document.getElementById('config-error') as HTMLElement
 const addButton = document.getElementById('add-slot') as HTMLButtonElement
 
+const REMOVE_DETAIL =
+  'O perfil deste slot será arquivado: o cache, os cookies e as senhas salvas nele deixam de ser ' +
+  'usados. Use "Limpar arquivados" para apagá-los de vez.'
+const CLEAR_DETAIL =
+  'Os dados dos slots removidos serão apagados definitivamente do computador. Esta ação não pode ' +
+  'ser desfeita.'
+
+const modal = document.getElementById('modal') as HTMLElement
+const modalMessage = document.getElementById('modal-message') as HTMLElement
+const modalDetail = document.getElementById('modal-detail') as HTMLElement
+const modalCancel = document.getElementById('modal-cancel') as HTMLButtonElement
+const modalConfirm = document.getElementById('modal-confirm') as HTMLButtonElement
+
+/**
+ * An in-app confirmation modal. Resolves true only if the user confirms.
+ *
+ * The confirmation is UX, not the safeguard - the destructive action is safe by
+ * construction in the main process (removal archives, it does not delete). So a
+ * styled modal here is fine where the safety does not depend on it. Cancel is
+ * focused and Escape cancels, so a stray key never confirms.
+ */
+function confirmModal(message: string, detail: string, confirmLabel: string): Promise<boolean> {
+  modalMessage.textContent = message
+  modalDetail.textContent = detail
+  modalConfirm.textContent = confirmLabel
+  modal.hidden = false
+  modalCancel.focus()
+
+  return new Promise((resolve) => {
+    const close = (result: boolean): void => {
+      modal.hidden = true
+      modalConfirm.onclick = null
+      modalCancel.onclick = null
+      modal.onclick = null
+      document.removeEventListener('keydown', onKey)
+      resolve(result)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') close(false)
+    }
+    modalConfirm.onclick = () => close(true)
+    modalCancel.onclick = () => close(false)
+    // A click on the backdrop, outside the dialog, cancels.
+    modal.onclick = (event) => {
+      if (event.target === modal) close(false)
+    }
+    document.addEventListener('keydown', onKey)
+  })
+}
+
 /** The last state main sent, so an edit can re-read it without asking again. */
 let lastState: PanelState = { slots: [], games: [], maxSlots: 4 }
 /**
@@ -154,9 +204,11 @@ function renderSlotView(slot: SlotSnapshot, position: number): HTMLElement {
       editingSlotId = slot.id
       render(lastState)
     }),
-    button('Remover', lastState.slots.length <= 1, () =>
-      run(() => window.helloweb.removeSlot(slot.id)),
-    ),
+    button('Remover', lastState.slots.length <= 1, () => {
+      void confirmModal(`Remover o slot ${position}?`, REMOVE_DETAIL, 'Remover').then((ok) => {
+        if (ok) run(() => window.helloweb.removeSlot(slot.id))
+      })
+    }),
   )
   card.append(secondary)
 
@@ -263,9 +315,11 @@ document
 document
   .getElementById('reveal-logs')
   ?.addEventListener('click', () => run(() => window.helloweb.revealLogs()))
-document
-  .getElementById('clear-archives')
-  ?.addEventListener('click', () => run(() => window.helloweb.clearArchives()))
+document.getElementById('clear-archives')?.addEventListener('click', () => {
+  void confirmModal('Limpar perfis arquivados?', CLEAR_DETAIL, 'Limpar').then((ok) => {
+    if (ok) run(() => window.helloweb.clearArchives())
+  })
+})
 
 // The "i" next to the password hint toggles the risk disclaimer.
 document.getElementById('hint-toggle')?.addEventListener('click', () => {

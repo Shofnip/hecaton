@@ -11,7 +11,7 @@
  * exposes checkLiveness() as an explicit call precisely so crash handling stays
  * testable without waiting for wall-clock time.
  */
-import { BrowserWindow, app, dialog, ipcMain, screen, session, shell } from 'electron'
+import { BrowserWindow, app, ipcMain, screen, session, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -170,31 +170,6 @@ function lockDownWindow(window: BrowserWindow): void {
   window.webContents.on('will-attach-webview', (event) => event.preventDefault())
 }
 
-const REMOVE_DETAIL =
-  'O perfil deste slot será arquivado: o cache, os cookies e as senhas salvas nele deixam de ser usados. ' +
-  'Use "Limpar arquivados" para apagá-los de vez.'
-
-const CLEAR_DETAIL =
-  'Os dados dos slots removidos serão apagados definitivamente do computador. Esta ação não pode ser desfeita.'
-
-/**
- * A native yes/no dialog, parented to the panel. Returns true only if the user
- * picks the confirming button. The confirming button is never the default, so
- * a stray Enter cancels.
- */
-async function confirm(message: string, detail: string, confirmLabel: string): Promise<boolean> {
-  if (!panel) return false
-  const result = await dialog.showMessageBox(panel, {
-    type: 'warning',
-    buttons: ['Cancelar', confirmLabel],
-    defaultId: 0,
-    cancelId: 0,
-    message,
-    detail,
-  })
-  return result.response === 1
-}
-
 /**
  * One handler per channel, each validating its own payload.
  *
@@ -236,12 +211,11 @@ function registerIpc(): void {
     },
 
     'slot:remove': async (payload) => {
-      const id = parseSlotId(payload)
-      // Removing archives the slot's profile, so it is destructive from the
-      // user's side (the slot loses its saved session). Confirm in a native
-      // dialog, which the renderer cannot skip.
-      if (!(await confirm('Remover este slot?', REMOVE_DETAIL, 'Remover'))) return
-      await orchestrator.removeSlot(id)
+      // The panel confirms with the user before calling this. The confirmation
+      // is UX, not the safeguard: removeSlot archives the profile rather than
+      // deleting it, so a skipped confirmation costs an archived (recoverable)
+      // session at worst, never a destroyed one.
+      await orchestrator.removeSlot(parseSlotId(payload))
       await saveConfiguration()
       pushState()
     },
@@ -277,10 +251,10 @@ function registerIpc(): void {
     },
 
     'profiles:clearArchives': async (payload) => {
-      parseNoPayload(payload)
       // The one permanent deletion in the app: it removes the archived profiles
-      // of slots removed earlier. Confirm, because it cannot be undone.
-      if (!(await confirm('Limpar perfis arquivados?', CLEAR_DETAIL, 'Limpar'))) return
+      // of slots removed earlier. The panel confirms before calling; only the
+      // .old- archives are ever touched, never a live profile.
+      parseNoPayload(payload)
       await profiles.clearArchives()
     },
   }
