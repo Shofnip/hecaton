@@ -42,8 +42,11 @@ export interface ResolvedSlotConfig {
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   schemaVersion: SCHEMA_VERSION,
   maxSlots: 4,
-  // Persistent by default: Turnstile is interactive, so a slot that lost its
-  // session on every restart would demand a human before it could play again.
+  // Persistent by default. Not because it avoids re-login - the target game
+  // binds its session to the tab, so a restart always re-logs in regardless
+  // (ADR-0009) - but because it keeps what can be kept: a Cloudflare
+  // device-trust cookie and a saved password, which make the re-login faster.
+  // A clean session loses those every launch, so persistent is never worse.
   persistProfile: true,
   // Audio on by default. Muting is the game's own setting, which persists in
   // the profile; --mute-audio is offered per slot as a fallback.

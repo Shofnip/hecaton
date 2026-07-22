@@ -155,8 +155,9 @@ makes strict TDD practical rather than theatre.
 - **`userDataDir` path resolution** per slot — pure string work, no disk access.
 
 Adapters get integration tests, never unit tests, and each sits behind a narrow interface
-(`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `Storage`) with a fake for
-core tests. Auto-restart-on-crash is testable against the fake without launching a browser.
+(`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `Storage`, `ProfileArchive`)
+with a fake for core tests. Auto-restart-on-crash is testable against the fake without launching
+a browser.
 
 That narrowness is what absorbed the Playwright→spawn switch without the core noticing. Keep
 it that way.
@@ -179,7 +180,7 @@ const game: GameDefinition = {
 there is no way to implement them. They return if the extension path is taken later.
 
 **Keep the common layer tiny.** With one game the contract is a guess; promote a field only
-when a second game proves the need. A `label` is UI text, therefore Portuguese.
+when a second game proves the need. The `name` field is UI text, therefore Portuguese.
 
 **Custom slot:** URL plus generic options only. No game-specific anything.
 
@@ -198,11 +199,13 @@ is **declarative actions** (`{ selector, op: 'click' }`) interpreted by the core
 
 Everything the app **persists** goes to `%APPDATA%/helloweb`, **always, including development**:
 
-|                   |                                                        |
-| ----------------- | ------------------------------------------------------ |
-| `config.json`     | global config and slot overrides, with `schemaVersion` |
-| `logs/`           | rotated structured logs                                |
-| `profiles/slot-N` | per-slot browser profile — the isolation mechanism     |
+|                         |                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------- |
+| `config.json`           | global config and slot overrides, with `schemaVersion`                                  |
+| `logs/`                 | rotated structured logs (one JSONL file per day)                                        |
+| `profiles/slot-N`       | per-slot browser profile — the isolation mechanism                                      |
+| `profiles/slot-N.old-*` | an archived profile from a removed slot (see ADR-0008)                                  |
+| `shell/`                | Electron's own userData/cache, kept here rather than in the shared `%APPDATA%/Electron` |
 
 Writing any of it into the repo directory would make `.gitignore` the only line of defense
 against committing real state. Logs can carry page URLs with session tokens in query strings,
@@ -241,10 +244,25 @@ A long-running orchestrator with child processes fails silently by default. Acti
 
 ## Electron security (mandatory, because it is distributed)
 
-`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` in the renderer;
-communication only through `contextBridge` with a minimal API; every IPC message validated in
-the main process — never trust the renderer; restrictive CSP; block navigation and
-`window.open` to destinations the panel does not expect.
+The full posture, and why each part was chosen, is [ADR-0007](adr/0007-electron-security-posture.md);
+the five decisions were taken together at the phase-1.5 security gate. In short:
+
+- `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` in the renderer;
+  communication only through `contextBridge` with a fixed set of named methods.
+- **Enumerated IPC channels**, every payload validated in the main process by calling the core's
+  pure validators — never trust the renderer, whose input arrives as `unknown`.
+- **Restrictive CSP** (`default-src 'none'`, no `unsafe-inline`, `connect-src 'none'` so the app
+  makes no network request in v1), delivered by **header from the `file://` renderer**. The
+  header is _merged_ with the headers `file://` already returns, never replaced — replacing drops
+  the implicit `Content-Type` and fails the load. (A custom `app://` scheme was chosen first and
+  reversed by measurement; see the ADR.)
+- **All navigation and all permissions denied**: `will-navigate`/`will-redirect` prevented,
+  `window.open` denied, and all three permission handlers deny. A game url opens in the user's
+  Chrome, never inside Electron.
+- **Single-instance lock**: a second launch quits and surfaces the existing panel, so two
+  panels cannot orchestrate the same slots or race the config and profiles.
+- **Electron's own userData/cache** is set under `%APPDATA%/helloweb/shell`, not the shared
+  `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.
 
 ## Privacy
 
@@ -256,37 +274,35 @@ No profile data leaves the machine. No telemetry (if ever, explicit opt-in).
 **Phase 0 — feasibility spike.** Done. Overturned the browser control decision; validated the
 replacement. Code discarded, findings recorded above.
 
-**Phase 1 — v1**, all under TDD, core before adapters:
+**Phase 1 — v1. Done**, all under TDD, core before adapters:
 
 1. Monorepo + Vitest, validated by a trivial red→green test.
 2. `core`: grid math · slot state machine · config merge · registry validation · mute policy.
 3. Interfaces + fakes, with the orchestrator tested entirely against fakes, auto-restart included.
 4. Real adapters (spawn, node-window-manager, disk) with integration tests.
-5. Electron UI wiring it together · registry with Poke IdleWorld · custom slot.
+5. Electron UI wiring it together · registry with Poke IdleWorld · custom slot · dynamic
+   add/remove/edit of slots · profile archiving · structured logging. See
+   [ADR-0007](adr/0007-electron-security-posture.md) for the security posture and
+   [ADR-0008](adr/0008-archive-a-removed-slot-profile.md)/[ADR-0009](adr/0009-login-is-bound-to-the-tab.md)
+   for the profile and session decisions.
 
 **Phase 2** — revisit automation with the extension path · per-slot proxy · possibly
-declarative actions · **profile cache clearing and profile reset** (see below).
+declarative actions.
 
-### Deferred: clearing and resetting a slot profile
+### Resetting a slot profile — implemented by archiving
 
-The app currently has no way to clear a slot's profile, by design — no code path can delete
-`profiles/slot-N`, so no bug can destroy a logged-in session. That leaves two real gaps,
-both of them risks this document already lists:
+Removing a slot resets its profile, in the archive-by-renaming shape ADR-0005 recommended:
+`removeSlot` renames `profiles/slot-N` to `profiles/slot-N.old-<timestamp>` after stopping the
+browser, so the removed slot's session stops being used but stays recoverable, and no code path
+deletes a live profile. **Clear archives** then permanently deletes the `.old-` archives — the
+one deletion of session data in the app, guarded to touch only archives and gated behind an
+in-app confirmation. See [ADR-0008](adr/0008-archive-a-removed-slot-profile.md); the property
+that still holds is that no live profile is ever deleted, only an archived one, and only by an
+explicit user action.
 
-- **Corrupt profile.** The panel reports it but offers no recovery; the user must delete the
-  directory by hand. Poor for a distributed app.
-- **Disk.** Persistent profiles accumulate cache, once per slot, with no way to reclaim it.
-
-These are two different needs, and only one is dangerous. **Clearing the cache**
-(`Default/Cache`, `Default/Code Cache`, `GPUCache`) frees disk without logging anyone out —
-cookies and localStorage are untouched. **Resetting a profile** discards the session, and
-recovering it means passing an interactive Turnstile again.
-
-If reset is wanted, the shape that preserves the current guarantee is **archiving rather than
-deleting**: rename `slot-N` to `slot-N.old-<timestamp>`. The app gets a fresh profile, the old
-one stays on disk, a wrong click is undoable, and no deletion code enters the app.
-
-Deferred deliberately: none of it blocks v1.
+A separate **cache clear** (`Default/Cache`, `Default/Code Cache`, `GPUCache` — freeing disk
+without logging anyone out) is not built; it remains a phase-2 nicety, distinct from the
+session-discarding reset above.
 
 **Phase 3 — distribution** — `electron-builder` · Windows installer · code signing decision ·
 auto-update · license · Electron security review before the first public release.
@@ -303,9 +319,14 @@ auto-update · license · Electron security review before the first public relea
 
 ## Open risks
 
-- **Re-login after restart.** Turnstile is interactive, so an auto-restarted slot may need a
-  human. Persistent profiles keep the session cookie and mostly avoid this — a reason to
-  default to persistent.
+- **Re-login after restart — confirmed, not mitigable, for the target game.** Measurement
+  showed Poke IdleWorld binds its login to the browser tab (closing the tab logs out, even with
+  the browser still open), so a restarted slot always returns to the login page: no profile
+  persistence can preserve a session that lives in the tab, not on disk. Auto-restart brings the
+  window back but a human must pass Turnstile and sign in again. See
+  [ADR-0009](adr/0009-login-is-bound-to-the-tab.md). Persistent profiles stay the default not to
+  avoid re-login (nothing can) but to make it faster — a persistent Cloudflare device-trust
+  cookie and a password saved in Chrome survive, which a clean session loses every launch.
 - **Chrome dependency.** The app now requires installed Chrome rather than shipping a browser.
   A Chrome update could change flag behaviour, as it already did with `--load-extension`.
 - **Terms of service.** Anything injected runs in the user's logged-in session; a ban lands on
