@@ -301,10 +301,11 @@ Removing a slot resets its profile, in the archive-by-renaming shape ADR-0005 re
 `removeSlot` renames `profiles/slot-N` to `profiles/slot-N.old-<timestamp>` after stopping the
 browser, so the removed slot's session stops being used but stays recoverable, and no code path
 deletes a live profile. **Clear archives** then permanently deletes the `.old-` archives — the
-one deletion of session data in the app, guarded to touch only archives and gated behind an
-in-app confirmation. See [ADR-0008](adr/0008-archive-a-removed-slot-profile.md); the property
-that still holds is that no live profile is ever deleted, only an archived one, and only by an
-explicit user action.
+one deletion of a **persistent** session's data in the app (the browser adapter also deletes
+throwaway clean-session profiles on `stop()`, but never a persistent one), guarded to touch only
+archives and gated behind an in-app confirmation. See
+[ADR-0008](adr/0008-archive-a-removed-slot-profile.md); the property that still holds is that no
+live profile is ever deleted, only an archived one, and only by an explicit user action.
 
 A separate **cache clear** (`Default/Cache`, `Default/Code Cache`, `GPUCache` — freeing disk
 without logging anyone out) is not built; it remains a phase-2 nicety, distinct from the
