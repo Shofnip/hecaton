@@ -81,10 +81,20 @@ setting sticks.** Mute inside the game once per slot and it survives closing and
 The app additionally offers `--mute-audio` per slot as a fallback for games with no audio
 control of their own.
 
-Making audio follow focus would mean silencing per PID through the Windows audio session API —
-another native module, deferred to phase 2. Writing the game's preference straight into the
-profile's LevelDB was considered and rejected: undocumented format, and a bad write loses the
-login rather than just the volume setting.
+Phase 2 makes audio **follow focus**: only the game whose window is in the OS foreground is
+audible, every other running slot muted and unmuted as focus moves. It is silenced per process
+through the Windows audio session API (WASAPI), reaching a slot's sound through the
+_audio-service_ child Chrome renders it in — mapped back from the slot's main pid — and it adds
+**no dependency**: the Core Audio interfaces are declared inline as C# and driven through
+PowerShell, the same shape the window adapter uses for DWM, at ~270ms per focus change. The
+off-the-shelf native module was rejected because it identifies sessions by window title, not pid,
+so it cannot tell two Chrome slots apart; the full trade-off is
+[ADR-0010](adr/0010-audio-follows-focus-without-a-dependency.md). A global `audioFollowsFocus`
+setting (on by default) turns it off for someone who wants every slot audible at once. The mute
+policy lives in the core behind an `AudioController` port, so a later move to an in-process addon
+would be a one-adapter change. Writing the game's preference straight into the profile's LevelDB
+was considered and rejected: undocumented format, and a bad write loses the login rather than
+just the volume setting.
 
 **Anti-detection is out of scope.** The plan excluded fingerprint evasion from the start, and
 since the app is distributed, a terms-of-service ban would land on the end user, not the

@@ -55,17 +55,18 @@ ADR-0004 and ADR-0006 carry corrections and show the shape.
 
 ## Index
 
-| ADR                                               | Decision                             | Status   |
-| ------------------------------------------------- | ------------------------------------ | -------- |
-| [0001](0001-electron-over-tauri.md)               | Electron for the shell               | Accepted |
-| [0002](0002-real-windows-over-thumbnails.md)      | Real OS windows, not a video wall    | Accepted |
-| [0003](0003-spawn-over-cdp.md)                    | Spawn Chrome instead of using CDP    | Accepted |
-| [0004](0004-appdata-over-repo-dir.md)             | All app state in `%APPDATA%`         | Accepted |
-| [0005](0005-never-delete-a-persistent-profile.md) | The app never deletes a profile      | Accepted |
-| [0006](0006-games-ship-only-in-the-repository.md) | No user-supplied game definitions    | Accepted |
-| [0007](0007-electron-security-posture.md)         | The Electron security posture        | Accepted |
-| [0008](0008-archive-a-removed-slot-profile.md)    | Archive a removed slot's profile     | Accepted |
-| [0009](0009-login-is-bound-to-the-tab.md)         | The game's login is bound to the tab | Accepted |
+| ADR                                                      | Decision                                 | Status   |
+| -------------------------------------------------------- | ---------------------------------------- | -------- |
+| [0001](0001-electron-over-tauri.md)                      | Electron for the shell                   | Accepted |
+| [0002](0002-real-windows-over-thumbnails.md)             | Real OS windows, not a video wall        | Accepted |
+| [0003](0003-spawn-over-cdp.md)                           | Spawn Chrome instead of using CDP        | Accepted |
+| [0004](0004-appdata-over-repo-dir.md)                    | All app state in `%APPDATA%`             | Accepted |
+| [0005](0005-never-delete-a-persistent-profile.md)        | The app never deletes a profile          | Accepted |
+| [0006](0006-games-ship-only-in-the-repository.md)        | No user-supplied game definitions        | Accepted |
+| [0007](0007-electron-security-posture.md)                | The Electron security posture            | Accepted |
+| [0008](0008-archive-a-removed-slot-profile.md)           | Archive a removed slot's profile         | Accepted |
+| [0009](0009-login-is-bound-to-the-tab.md)                | The game's login is bound to the tab     | Accepted |
+| [0010](0010-audio-follows-focus-without-a-dependency.md) | Audio follows focus via WASAPI shell-out | Accepted |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the

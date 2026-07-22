@@ -26,7 +26,7 @@ import {
 } from '@helloweb/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@helloweb/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot } from '@helloweb/core'
-import { ChromeLauncher, FileProfileArchive } from '@helloweb/browser-engine'
+import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@helloweb/browser-engine'
 import { NativeWindowManager } from '@helloweb/window-manager'
 import {
   FileLogger,
@@ -55,6 +55,12 @@ app.setPath('userData', join(appDataDir(), 'shell'))
 
 /** How often the shell asks the orchestrator to look for dead browsers. */
 const LIVENESS_INTERVAL_MS = 2000
+
+// How often the shell tells the orchestrator to make audio follow focus. Faster
+// than liveness because this is what the user hears the moment they switch
+// windows: the foreground lookup is cheap and only a real focus change shells
+// out to mute anything, so a short interval costs little.
+const AUDIO_FOCUS_INTERVAL_MS = 300
 
 interface PersistedConfig extends GlobalConfig {
   slots: SlotOverrides[]
@@ -100,6 +106,7 @@ async function loadConfiguration(): Promise<void> {
     autoRestart: true,
     logger,
     profiles,
+    audio: new WasapiAudioController(),
   })
 }
 
@@ -331,6 +338,18 @@ if (!app.requestSingleInstanceLock()) {
       setInterval(() => {
         void orchestrator.checkLiveness().then(pushState)
       }, LIVENESS_INTERVAL_MS)
+
+      // Make audio follow focus on its own faster timer. A tick can shell out to
+      // mute a slot (~270ms), so a busy flag keeps ticks from overlapping rather
+      // than stacking PowerShell calls when the interval is shorter than the work.
+      let audioBusy = false
+      setInterval(() => {
+        if (audioBusy) return
+        audioBusy = true
+        void orchestrator.updateAudioFocus().finally(() => {
+          audioBusy = false
+        })
+      }, AUDIO_FOCUS_INTERVAL_MS)
     }
   })
 
