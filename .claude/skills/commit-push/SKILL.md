@@ -73,9 +73,20 @@ paragraph to explain its own shape.
 
 ## 4. Write a message that explains why
 
-Conventional Commits for the subject. In the body, explain **why**, not what — the diff
-already says what. If the change encodes a decision or a trade-off, say which and why the
-alternative was rejected. If it fixes something subtle, describe the failure it prevents.
+Conventional Commits for the subject. The subject describes the change itself, so it reads
+the same to someone who has never seen the plan: name what the commit does, not which phase
+or step of the project it belongs to. `feat(core): retire grid tiling from the orchestrator`,
+never `feat(core): Step 3c — retire grid tiling`. Milestone numbers are scaffolding for the
+working session; they mean nothing in the permanent log and date badly.
+
+In the body, explain **why**, not what — the diff already says what. If the change encodes a
+decision or a trade-off, say which and why the alternative was rejected. If it fixes something
+subtle, describe the failure it prevents.
+
+The same restraint governs the code being committed: a comment earns its place only when it
+says something the code cannot. Explain a decision, a non-obvious constraint, or a failure the
+shape guards against — never narrate what the next line plainly does. A comment that restates
+the code is noise that later has to be kept true; leave it out.
 
 Pass the message with a heredoc, which is shell syntax:
 
