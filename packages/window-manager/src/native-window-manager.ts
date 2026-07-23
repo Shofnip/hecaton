@@ -1,17 +1,27 @@
 /**
- * Window adapter, over node-window-manager plus a few raw Win32 calls.
+ * Window adapter, over node-window-manager plus a persistent Win32 worker.
  *
  * Needed because the browsers run in processes this app did not create:
  * --window-position only sets the initial state, so placing a slot in the grid,
- * embedding it into the panel, hiding it in focus mode or reloading it
- * afterwards all mean driving a foreign window.
+ * embedding it into the panel, hiding it in focus mode, moving it as the panel
+ * resizes or reloading it afterwards all mean driving a foreign window.
  *
- * node-window-manager covers moving and reading top-level windows; the embed,
- * hide/show and in-place reload it has no API for are in win32-ops.ts. Once a
- * window is embedded (SetParent makes it a WS_CHILD) node-window-manager can no
- * longer find it — EnumWindows lists only top-level windows — so this adapter
- * remembers each embedded window's handle by pid and drives it directly from
- * then on.
+ * node-window-manager covers reading and moving top-level windows; the embed,
+ * the child-window move, hide/show and in-place reload it has no API for are in
+ * the Win32 worker (win32-worker.ts). Those go through a persistent PowerShell
+ * process rather than a per-call shell-out because a video-wall screen has to
+ * follow a panel resize or a focus-divider drag live — dozens of moves a second,
+ * which a ~270 ms shell-out could never keep up with.
+ *
+ * Once a window is embedded (SetParent makes it a WS_CHILD) node-window-manager
+ * can no longer find it — EnumWindows lists only top-level windows — so this
+ * adapter remembers each embedded window's handle by pid and drives it from the
+ * worker directly from then on.
+ *
+ * The port is synchronous, so the worker is driven fire-and-forget: a call
+ * resolves the window's handle synchronously (returning false when there is
+ * none yet) and queues the Win32 op without waiting. The worker's queue is FIFO,
+ * so a reparent is always carried out before the moves that follow it.
  *
  * Holds no business rules. Where each window goes, and when it is embedded,
  * hidden or reloaded, is the core's decision; the invisible-border arithmetic
@@ -21,7 +31,7 @@ import { createRequire } from 'node:module'
 import type { GridCell, WindowManager } from '@helloweb/core'
 import { measureInsets } from './dwm-insets.js'
 import type { Insets } from './dwm-insets.js'
-import { hideWindow, reloadWindow, reparentWindow, showWindow } from './win32-ops.js'
+import { Win32Worker } from './win32-worker.js'
 
 // node-window-manager is CommonJS with a native addon; createRequire loads it
 // from an ES module without pulling in an interop shim.
@@ -52,22 +62,41 @@ const { windowManager } = require('node-window-manager') as { windowManager: Nat
 const EMBED_RETRY_MS = 250
 const EMBED_MAX_ATTEMPTS = 80 // ~20s, matching the launcher's own pid wait
 
+/** ShowWindow commands. */
+const SW_HIDE = 0
+const SW_SHOW = 5
+
 export class NativeWindowManager implements WindowManager {
+  private readonly worker = new Win32Worker()
+
   /**
    * How the adapter finds the panel to embed into.
    *
    * Injected because the panel is the Electron shell window, which only the main
    * process knows; the core speaks pids, never handles. Left undefined (as the
-   * integration suite and Step 2's not-yet-wired main both do) reparent is a
-   * no-op — nothing to embed into.
+   * integration suite's non-embedding cases do) reparent is a no-op — nothing to
+   * embed into.
    */
-  constructor(private readonly parentHwnd?: () => number | undefined) {}
+  constructor(private readonly parentHwnd?: () => number | undefined) {
+    // Warm the worker while the app is still starting, so the first embed does
+    // not pay the compile. Harmless if it fails: the first op starts it instead.
+    void this.worker.start().catch(() => {})
+  }
 
   /** Embedded windows by pid: their handles, since node-window-manager loses them. */
   private readonly embedded = new Map<number, number>()
 
   /** Pids whose window is still being waited for, so retries do not stack. */
   private readonly pendingEmbeds = new Set<number>()
+
+  /** Queues one worker command without waiting; the port is synchronous. */
+  private fire(command: string): void {
+    void this.worker.send(command).catch(() => {
+      // Best effort: a worker that just died re-spawns on the next call, and a
+      // window that vanished mid-op is the core's problem to notice via
+      // liveness, not this adapter's to crash on.
+    })
+  }
 
   /**
    * The visible, titled top-level window belonging to a process.
@@ -111,19 +140,32 @@ export class NativeWindowManager implements WindowManager {
   }
 
   /**
-   * Places a window by the rectangle the user sees.
+   * Places a slot's window at `bounds`.
    *
-   * The stored rect includes an invisible resize border, so it is inflated by
-   * the measured insets to make the painted rect land where the grid says - a
-   * Windows detail, not a decision, so the core never learns it. This drives the
-   * top-level window before it is embedded (a slot launches into its cell); once
-   * embedded, positioning a child within the panel's client area needs bounds
-   * the renderer supplies, which is Step 3's job.
+   * Two coordinate worlds, one per lifecycle stage:
+   *
+   * - **Embedded** (the video-wall norm): `bounds` is the screen's rectangle in
+   *   the panel's client area, and the child is moved there with MoveWindow,
+   *   re-asserting HWND_TOP so Electron's own input hwnd cannot cover it. This is
+   *   the path the renderer's layout drives, live, on every resize.
+   * - **Top-level** (before the embed, e.g. the integration suite placing a bare
+   *   window): `bounds` is a screen rectangle, inflated by the measured invisible
+   *   border so the painted rect lands where asked — a Windows detail, not a
+   *   decision, so the core never learns it.
+   *
+   * False when the window is not found yet (the browser may still be starting).
    */
   setBounds(pid: number, bounds: GridCell): boolean {
+    const embeddedHwnd = this.embedded.get(pid)
+    if (embeddedHwnd !== undefined) {
+      this.fire(
+        `movechild ${embeddedHwnd} ${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`,
+      )
+      return true
+    }
+
     const window = this.windowFor(pid)
     if (!window) return false
-
     const insets = this.insetsFor(window)
     window.setBounds({
       x: bounds.x - insets.left,
@@ -153,9 +195,9 @@ export class NativeWindowManager implements WindowManager {
     return false
   }
 
-  /** SetParent the child into the panel and remember its handle on success. */
+  /** SetParent the child into the panel and remember its handle. */
   private embed(pid: number, hwnd: number, parent: number): boolean {
-    if (!reparentWindow(hwnd, parent)) return false
+    this.fire(`reparent ${hwnd} ${parent}`)
     this.embedded.set(pid, hwnd)
     return true
   }
@@ -189,13 +231,17 @@ export class NativeWindowManager implements WindowManager {
   /** Hides an embedded window (SW_HIDE) — focus mode, or under a panel modal. */
   hide(pid: number): boolean {
     const hwnd = this.hwndFor(pid)
-    return hwnd !== undefined && hideWindow(hwnd)
+    if (hwnd === undefined) return false
+    this.fire(`show ${hwnd} ${SW_HIDE}`)
+    return true
   }
 
   /** Shows a hidden embedded window again (SW_SHOW). */
   show(pid: number): boolean {
     const hwnd = this.hwndFor(pid)
-    return hwnd !== undefined && showWindow(hwnd)
+    if (hwnd === undefined) return false
+    this.fire(`show ${hwnd} ${SW_SHOW}`)
+    return true
   }
 
   /**
@@ -204,10 +250,12 @@ export class NativeWindowManager implements WindowManager {
    */
   reload(pid: number): boolean {
     const hwnd = this.hwndFor(pid)
-    return hwnd !== undefined && reloadWindow(hwnd)
+    if (hwnd === undefined) return false
+    this.fire(`reload ${hwnd}`)
+    return true
   }
 
-  /** The rectangle the user sees — the same coordinates setBounds accepts. */
+  /** The rectangle the user sees — the same coordinates a top-level setBounds accepts. */
   boundsOf(pid: number): GridCell | undefined {
     const window = this.windowFor(pid)
     if (!window) return undefined
@@ -232,5 +280,10 @@ export class NativeWindowManager implements WindowManager {
   /** The native window handle. Diagnostics and tests only. */
   windowIdOf(pid: number): number | undefined {
     return this.hwndFor(pid)
+  }
+
+  /** Stops the persistent worker. Call on shutdown; the adapter is done after. */
+  async dispose(): Promise<void> {
+    await this.worker.dispose()
   }
 }

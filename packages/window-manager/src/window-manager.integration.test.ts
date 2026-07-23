@@ -68,6 +68,9 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
   }, 90_000)
 
   afterAll(async () => {
+    // The adapter now holds a persistent worker; without closing it the test
+    // process would not exit.
+    await manager?.dispose()
     try {
       execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
     } catch {
@@ -219,6 +222,7 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
     }, 90_000)
 
     afterAll(async () => {
+      await embedManager?.dispose()
       try {
         execFileSync('taskkill', ['/PID', String(parentPid), '/F', '/T'], { stdio: 'ignore' })
       } catch {
@@ -234,16 +238,17 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
       }
     })
 
-    it('embeds a spawned window into the panel window', () => {
+    it('embeds a spawned window into the panel window', async () => {
+      // The port is synchronous but the worker is driven fire-and-forget, so the
+      // adapter returns true at once and the SetParent lands a moment later —
+      // confirmed independently, through user32, not the adapter's bookkeeping.
       expect(embedManager.reparent(pid)).toBe(true)
-      // Confirm the embed independently, through DWM/user32 rather than the
-      // adapter's own bookkeeping: the child's parent is now the panel.
-      expect(parentOf(childHwnd)).toBe(parentHwnd)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
     })
 
-    it('is idempotent, so the core may call it whenever it places a slot', () => {
+    it('is idempotent, so the core may call it whenever it places a slot', async () => {
       expect(embedManager.reparent(pid)).toBe(true)
-      expect(parentOf(childHwnd)).toBe(parentHwnd)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
     })
 
     it('still finds the embedded window by pid, which node-window-manager cannot', () => {
@@ -253,23 +258,71 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
       expect(new NativeWindowManager().windowIdOf(pid)).toBeUndefined()
     })
 
-    it('hides and shows the embedded window', () => {
-      expect(embedManager.hide(pid)).toBe(true)
-      expect(isVisibleWindow(childHwnd)).toBe(false)
-      expect(embedManager.show(pid)).toBe(true)
-      expect(isVisibleWindow(childHwnd)).toBe(true)
+    it('moves the embedded child by the panel-client delta it is given', async () => {
+      // The live path: setBounds on an embedded window is a MoveWindow in the
+      // parent's client area. The parent-client origin is constant, so moving the
+      // child by (100,100) in client coords must shift its screen rect by exactly
+      // that, and the size must be what was asked — verified through GetWindowRect,
+      // independent of the adapter.
+      embedManager.setBounds(pid, { x: 50, y: 60, width: 420, height: 320 })
+      const first = await waitForRect(childHwnd, (r) => r.width === 420 && r.height === 320)
+      embedManager.setBounds(pid, { x: 150, y: 160, width: 420, height: 320 })
+      const second = await waitForRect(
+        childHwnd,
+        (r) => r.x === first.x + 100 && r.y === first.y + 100,
+      )
+      expect(second.width).toBe(420)
+      expect(second.height).toBe(320)
     })
 
-    it('reloads the embedded window in place', () => {
+    it('hides and shows the embedded window', async () => {
+      expect(embedManager.hide(pid)).toBe(true)
+      expect(await waitFor(() => !isVisibleWindow(childHwnd))).toBe(true)
+      expect(embedManager.show(pid)).toBe(true)
+      expect(await waitFor(() => isVisibleWindow(childHwnd))).toBe(true)
+    })
+
+    it('reloads the embedded window in place', async () => {
       // WM_APPCOMMAND returns whether the message was delivered, not what the
       // page did; that the login survives a reload is ADR-0009's field test, not
       // something an about:blank window can show. Here: it does not throw and the
       // window stays alive and embedded.
       expect(embedManager.reload(pid)).toBe(true)
-      expect(parentOf(childHwnd)).toBe(parentHwnd)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
     })
   })
 })
+
+/** Polls a predicate until true or a short timeout — for the worker's async effects. */
+async function waitFor(pred: () => boolean, timeoutMs = 4000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (pred()) return true
+    if (Date.now() >= deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}
+
+/** Polls GetWindowRect until it satisfies `pred`, returning the rectangle. */
+async function waitForRect(
+  hwnd: number,
+  pred: (rect: { x: number; y: number; width: number; height: number }) => boolean,
+  timeoutMs = 4000,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const rect = windowRect(hwnd)
+    if (pred(rect)) return rect
+    if (Date.now() >= deadline) return rect
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}
+
+/** A window's screen rectangle (GetWindowRect), straight from user32. */
+function windowRect(hwnd: number): { x: number; y: number; width: number; height: number } {
+  const [left, top, right, bottom] = win32Query(`Rect([IntPtr]${hwnd})`).split(' ').map(Number)
+  return { x: left!, y: top!, width: right! - left!, height: bottom! - top! }
+}
 
 /** The direct parent of a window (GetAncestor GA_PARENT), straight from user32. */
 function parentOf(hwnd: number): number {
@@ -288,8 +341,11 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class ProbeUser32 {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint f);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  public static string Rect(IntPtr h) { RECT r; GetWindowRect(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
 }
 '@
 [ProbeUser32]::${expression}
