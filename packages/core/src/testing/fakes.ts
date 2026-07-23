@@ -96,13 +96,13 @@ export class FakeBrowserLauncher implements BrowserLauncher {
 
 export class FakeWindowManager implements WindowManager {
   readonly bounds = new Map<number, GridCell>()
-  readonly focused: number[] = []
+  readonly reparented: number[] = []
+  readonly hidden: number[] = []
+  readonly shown: number[] = []
+  readonly reloaded: number[] = []
 
   /** Pids whose window is "not found yet", as when the browser is still starting. */
   readonly missing = new Set<number>()
-
-  /** The pid the test declares to be in the OS foreground. */
-  foreground: number | undefined
 
   setBounds(pid: number, bounds: GridCell): boolean {
     if (this.missing.has(pid)) return false
@@ -110,31 +110,59 @@ export class FakeWindowManager implements WindowManager {
     return true
   }
 
-  focus(pid: number): boolean {
+  reparent(pid: number): boolean {
     if (this.missing.has(pid)) return false
-    this.focused.push(pid)
+    this.reparented.push(pid)
     return true
   }
 
-  foregroundPid(): number | undefined {
-    return this.foreground
+  hide(pid: number): boolean {
+    if (this.missing.has(pid)) return false
+    this.hidden.push(pid)
+    return true
+  }
+
+  show(pid: number): boolean {
+    if (this.missing.has(pid)) return false
+    this.shown.push(pid)
+    return true
+  }
+
+  reload(pid: number): boolean {
+    if (this.missing.has(pid)) return false
+    this.reloaded.push(pid)
+    return true
   }
 }
 
 export class FakeAudioController implements AudioController {
-  /** Every call, in order, so a test can assert what changed and how often. */
-  readonly calls: { pid: number; muted: boolean }[] = []
+  /** Every mute call, in order, so a test can assert what changed and how often. */
+  readonly muteCalls: { pid: number; muted: boolean }[] = []
+  /** Every volume call, in order. */
+  readonly volumeCalls: { pid: number; volume: number }[] = []
 
   setMuted(pid: number, muted: boolean): Promise<void> {
-    this.calls.push({ pid, muted })
+    this.muteCalls.push({ pid, muted })
+    return Promise.resolve()
+  }
+
+  setVolume(pid: number, volume: number): Promise<void> {
+    this.volumeCalls.push({ pid, volume })
     return Promise.resolve()
   }
 
   /** The last mute state applied to a pid, or false if it was never touched. */
   isMuted(pid: number): boolean {
     let state = false
-    for (const call of this.calls) if (call.pid === pid) state = call.muted
+    for (const call of this.muteCalls) if (call.pid === pid) state = call.muted
     return state
+  }
+
+  /** The last volume applied to a pid, or undefined if it was never touched. */
+  volumeOf(pid: number): number | undefined {
+    let volume: number | undefined
+    for (const call of this.volumeCalls) if (call.pid === pid) volume = call.volume
+    return volume
   }
 }
 

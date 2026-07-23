@@ -34,7 +34,6 @@ export const IPC_CHANNELS = [
   'slot:focus',
   'slot:add',
   'slot:remove',
-  'layout:apply',
   'config:read',
   'config:updateSlot',
   'config:setAudioFollowsFocus',

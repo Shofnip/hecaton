@@ -10,6 +10,7 @@ import {
   FakeWindowManager,
 } from './testing/fakes.js'
 import type { ScreenBounds } from './grid.js'
+import type { SlotOverrides } from './config.js'
 
 const SCREEN: ScreenBounds = { x: 0, y: 0, width: 1920, height: 1080 }
 const REGISTRY = buildRegistry([
@@ -72,6 +73,26 @@ describe('starting a slot', () => {
       persistProfile: true,
       mute: false,
     })
+  })
+
+  it('launches with background throttling off by default, keeping a hidden farm running', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    expect(launcher.launched[0]?.backgroundThrottling).toBe(false)
+  })
+
+  it('honours a slot that re-enables background throttling', async () => {
+    const app = new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [{ id: 1, gameId: 'poke-idleworld', backgroundThrottling: true }],
+      autoRestart: false,
+    })
+    await app.start(1)
+    expect(launcher.launched[0]?.backgroundThrottling).toBe(true)
   })
 
   it('launches the only running slot filling the screen', async () => {
@@ -242,45 +263,100 @@ describe('stopping', () => {
   })
 })
 
-describe('window control', () => {
-  it('focuses a running slot', async () => {
+describe('embedding a screen', () => {
+  it('reparents a slot window into the panel when it starts', async () => {
+    // The window becomes a video-wall cell rather than a free desktop window.
     const app = makeOrchestrator()
     await app.start(1)
-    expect(app.focus(1)).toBe(true)
-    expect(windows.focused).toEqual([launcher.pidForSlot(1)])
+    expect(windows.reparented).toEqual([launcher.pidForSlot(1)])
   })
 
-  it('cannot focus a slot that is not running', () => {
-    expect(makeOrchestrator().focus(1)).toBe(false)
+  it('reloads a running slot in place, preserving its login', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    expect(app.reload(1)).toBe(true)
+    expect(windows.reloaded).toEqual([launcher.pidForSlot(1)])
   })
 
-  it('reapplies the grid to every live slot', async () => {
+  it('does not reload a slot that is not running', () => {
+    const app = makeOrchestrator()
+    expect(app.reload(1)).toBe(false)
+    expect(windows.reloaded).toEqual([])
+  })
+})
+
+describe('focus mode', () => {
+  it('enters focus mode, hiding the other running screens and showing the focused one', async () => {
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)
+    const pid1 = launcher.pidForSlot(1)!
+    const pid2 = launcher.pidForSlot(2)!
 
-    app.applyLayout()
-    expect(windows.bounds.get(launcher.pidForSlot(1)!)).toEqual({
-      x: 0,
-      y: 0,
-      width: 960,
-      height: 1080,
-    })
-    expect(windows.bounds.get(launcher.pidForSlot(2)!)).toEqual({
-      x: 960,
-      y: 0,
-      width: 960,
-      height: 1080,
-    })
+    expect(app.focus(1)).toBe(true)
+    expect(windows.hidden).toEqual([pid2])
+    expect(windows.shown).toEqual([pid1])
   })
 
-  it('skips slots that are not running when reapplying the grid', async () => {
+  it('reports focus in the snapshot so the renderer can follow', async () => {
     const app = makeOrchestrator()
     await app.start(1)
-    app.applyLayout()
-    expect(windows.bounds.size).toBe(1)
+    app.focus(1)
+    expect(app.snapshot().find((s) => s.id === 1)?.focused).toBe(true)
+    expect(app.snapshot().find((s) => s.id === 2)?.focused).toBe(false)
   })
 
+  it('leaving focus mode shows every screen again and restores the grid', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    const pid1 = launcher.pidForSlot(1)!
+    const pid2 = launcher.pidForSlot(2)!
+
+    app.focus(1) // enter
+    windows.shown.length = 0
+    expect(app.focus(1)).toBe(false) // toggle off
+    // Both windows are shown again and re-tiled into the two-up grid.
+    expect(windows.shown).toEqual(expect.arrayContaining([pid1, pid2]))
+    expect(windows.bounds.get(pid1)).toEqual({ x: 0, y: 0, width: 960, height: 1080 })
+    expect(windows.bounds.get(pid2)).toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+  })
+
+  it('switching focus hides the previously focused screen', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    const pid1 = launcher.pidForSlot(1)!
+    const pid2 = launcher.pidForSlot(2)!
+
+    app.focus(1)
+    windows.hidden.length = 0
+    windows.shown.length = 0
+    app.focus(2)
+    expect(windows.hidden).toEqual([pid1])
+    expect(windows.shown).toEqual([pid2])
+  })
+
+  it('returns to grid mode when the focused screen is removed', async () => {
+    // Design §7: deleting the focused screen returns to grid. Otherwise focus
+    // would point at a gone slot, leaving the rest hidden and muted.
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    const pid1 = launcher.pidForSlot(1)!
+    app.focus(2) // hides pid1
+    windows.shown.length = 0
+    await app.removeSlot(2)
+    expect(app.snapshot().find((s) => s.id === 1)?.focused).toBe(false)
+    expect(windows.shown).toContain(pid1)
+  })
+
+  it('rejects focusing a slot that was never configured', () => {
+    expect(() => makeOrchestrator().focus(99)).toThrow(/slot 99/i)
+  })
+})
+
+describe('re-tiling the running grid', () => {
   it('gives the survivor the whole screen when its neighbour stops', async () => {
     const app = makeOrchestrator()
     await app.start(1)
@@ -326,10 +402,52 @@ describe('unknown slots', () => {
 
 describe('snapshot for the panel', () => {
   it('lists every configured slot with its state and what it points at', () => {
+    const base = {
+      state: 'stopped' as const,
+      gameId: 'poke-idleworld',
+      persistProfile: true,
+      mute: false,
+      volume: 100,
+      muted: false,
+      backgroundThrottling: false,
+      focused: false,
+    }
     expect(makeOrchestrator().snapshot()).toEqual([
-      { id: 1, state: 'stopped', gameId: 'poke-idleworld', persistProfile: true, mute: false },
-      { id: 2, state: 'stopped', gameId: 'poke-idleworld', persistProfile: true, mute: false },
+      { id: 1, ...base },
+      { id: 2, ...base },
     ])
+  })
+
+  it('carries the display name only when the slot has one', () => {
+    const app = new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [
+        { id: 1, gameId: 'poke-idleworld', name: 'Principal' },
+        { id: 2, gameId: 'poke-idleworld' },
+      ],
+      autoRestart: false,
+    })
+    expect(app.snapshot()[0]).toMatchObject({ name: 'Principal' })
+    expect(app.snapshot()[1]).not.toHaveProperty('name')
+  })
+
+  it('carries per-screen volume, muted and throttling for the panel', () => {
+    const app = new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [
+        { id: 1, gameId: 'poke-idleworld', volume: 25, muted: true, backgroundThrottling: true },
+      ],
+      autoRestart: false,
+    })
+    expect(app.snapshot()[0]).toMatchObject({ volume: 25, muted: true, backgroundThrottling: true })
   })
 
   it('carries neither the pid nor the profile directory', () => {
@@ -694,75 +812,127 @@ describe('clearing a slot cache', () => {
   })
 })
 
-describe('audio following focus', () => {
-  async function twoRunning(audio: FakeAudioController, audioFollowsFocus = true) {
-    const app = makeOrchestrator({ audio, audioFollowsFocus })
+describe('audio following the app focus mode', () => {
+  // The new semantics (decision 2): audio follows the app's own focus mode, not
+  // the OS foreground window. Toggle on with no screen focused = every screen
+  // audible; focusing one mutes the rest; leaving focus restores all. Per-screen
+  // volume and a per-screen mute compose on top.
+  function audioApp(
+    audio: FakeAudioController,
+    opts: { audioFollowsFocus?: boolean; slots?: SlotOverrides[] } = {},
+  ) {
+    return new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: { ...DEFAULT_GLOBAL_CONFIG, audioFollowsFocus: opts.audioFollowsFocus ?? true },
+      registry: REGISTRY,
+      slots: opts.slots ?? [
+        { id: 1, gameId: 'poke-idleworld' },
+        { id: 2, gameId: 'poke-idleworld' },
+      ],
+      autoRestart: false,
+      audio,
+    })
+  }
+
+  async function twoRunning(
+    audio: FakeAudioController,
+    opts: { audioFollowsFocus?: boolean; slots?: SlotOverrides[] } = {},
+  ) {
+    const app = audioApp(audio, opts)
     await app.start(1)
     await app.start(2)
     return app
   }
+
+  it('leaves every running slot audible when no screen is focused', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    await app.applyAudio()
+    expect(audio.isMuted(launcher.pidForSlot(1)!)).toBe(false)
+    expect(audio.isMuted(launcher.pidForSlot(2)!)).toBe(false)
+  })
 
   it('mutes every running slot but the focused one', async () => {
     const audio = new FakeAudioController()
     const app = await twoRunning(audio)
     const pid1 = launcher.pidForSlot(1)!
     const pid2 = launcher.pidForSlot(2)!
-    windows.foreground = pid1
-    await app.updateAudioFocus()
+    app.focus(1)
+    await app.applyAudio()
     expect(audio.isMuted(pid1)).toBe(false)
     expect(audio.isMuted(pid2)).toBe(true)
   })
 
-  it('mutes all running slots when the foreground is not a slot', async () => {
-    // Focus on the panel, the user's own browser, or any non-slot window: no
-    // slot matches, so by the one rule every slot is muted.
-    const audio = new FakeAudioController()
-    const app = await twoRunning(audio)
-    windows.foreground = 999_999
-    await app.updateAudioFocus()
-    expect(audio.isMuted(launcher.pidForSlot(1)!)).toBe(true)
-    expect(audio.isMuted(launcher.pidForSlot(2)!)).toBe(true)
-  })
-
-  it('moves the audio when focus moves', async () => {
+  it('moves the mute when focus moves', async () => {
     const audio = new FakeAudioController()
     const app = await twoRunning(audio)
     const pid1 = launcher.pidForSlot(1)!
     const pid2 = launcher.pidForSlot(2)!
-    windows.foreground = pid1
-    await app.updateAudioFocus()
-    windows.foreground = pid2
-    await app.updateAudioFocus()
+    app.focus(1)
+    await app.applyAudio()
+    app.focus(2)
+    await app.applyAudio()
     expect(audio.isMuted(pid1)).toBe(true)
     expect(audio.isMuted(pid2)).toBe(false)
   })
 
-  it('touches a slot only when its mute state changes', async () => {
+  it('unmutes everything when focus mode is left', async () => {
     const audio = new FakeAudioController()
     const app = await twoRunning(audio)
-    windows.foreground = launcher.pidForSlot(1)!
-    await app.updateAudioFocus()
-    const afterFirst = audio.calls.length
-    await app.updateAudioFocus()
-    expect(audio.calls.length).toBe(afterFirst)
+    const pid2 = launcher.pidForSlot(2)!
+    app.focus(1)
+    await app.applyAudio()
+    expect(audio.isMuted(pid2)).toBe(true)
+    app.focus(1) // leave focus mode
+    await app.applyAudio()
+    expect(audio.isMuted(pid2)).toBe(false)
   })
 
-  it('does not touch the focused slot at all when nothing needs muting', async () => {
-    // A freshly launched slot is not muted by us, so focusing it needs no call:
-    // only the slots that must go silent are touched.
+  it('keeps a user-muted screen silent even when it is the focused one', async () => {
+    // The per-screen mute (the volume popover) wins over focus: focusing a slot
+    // the user muted does not make it audible.
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio, {
+      slots: [
+        { id: 1, gameId: 'poke-idleworld' },
+        { id: 2, gameId: 'poke-idleworld', muted: true },
+      ],
+    })
+    const pid2 = launcher.pidForSlot(2)!
+    app.focus(2)
+    await app.applyAudio()
+    expect(audio.isMuted(pid2)).toBe(true)
+  })
+
+  it("applies each running slot's configured volume", async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio, {
+      slots: [
+        { id: 1, gameId: 'poke-idleworld', volume: 40 },
+        { id: 2, gameId: 'poke-idleworld', volume: 70 },
+      ],
+    })
+    await app.applyAudio()
+    expect(audio.volumeOf(launcher.pidForSlot(1)!)).toBe(40)
+    expect(audio.volumeOf(launcher.pidForSlot(2)!)).toBe(70)
+  })
+
+  it('does not touch the volume of a slot already at full volume', async () => {
+    // Full volume is the WASAPI session default, so a slot that wants it needs
+    // no call — a quiet tick shells out to nothing.
     const audio = new FakeAudioController()
     const app = await twoRunning(audio)
-    const pid1 = launcher.pidForSlot(1)!
-    windows.foreground = pid1
-    await app.updateAudioFocus()
-    expect(audio.calls.some((c) => c.pid === pid1)).toBe(false)
+    await app.applyAudio()
+    expect(audio.volumeCalls).toEqual([])
   })
 
-  it('unmutes everything and ignores focus when the toggle is off', async () => {
+  it('ignores focus and mutes nothing when the toggle is off', async () => {
     const audio = new FakeAudioController()
-    const app = await twoRunning(audio, false)
-    windows.foreground = launcher.pidForSlot(1)!
-    await app.updateAudioFocus()
+    const app = await twoRunning(audio, { audioFollowsFocus: false })
+    app.focus(1)
+    await app.applyAudio()
     expect(audio.isMuted(launcher.pidForSlot(1)!)).toBe(false)
     expect(audio.isMuted(launcher.pidForSlot(2)!)).toBe(false)
   })
@@ -771,12 +941,24 @@ describe('audio following focus', () => {
     const audio = new FakeAudioController()
     const app = await twoRunning(audio)
     const pid2 = launcher.pidForSlot(2)!
-    windows.foreground = launcher.pidForSlot(1)!
-    await app.updateAudioFocus()
+    app.focus(1)
+    await app.applyAudio()
     expect(audio.isMuted(pid2)).toBe(true)
     app.setAudioFollowsFocus(false)
-    await app.updateAudioFocus()
+    await app.applyAudio()
     expect(audio.isMuted(pid2)).toBe(false)
+  })
+
+  it('touches a slot only when its state changes', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    app.focus(1)
+    await app.applyAudio()
+    const mutes = audio.muteCalls.length
+    const volumes = audio.volumeCalls.length
+    await app.applyAudio()
+    expect(audio.muteCalls.length).toBe(mutes)
+    expect(audio.volumeCalls.length).toBe(volumes)
   })
 
   it('never mutes a stopped slot', async () => {
@@ -784,15 +966,27 @@ describe('audio following focus', () => {
     const app = await twoRunning(audio)
     const pid2 = launcher.pidForSlot(2)!
     await app.stop(2)
-    windows.foreground = launcher.pidForSlot(1)!
-    await app.updateAudioFocus()
-    expect(audio.calls.some((c) => c.pid === pid2 && c.muted)).toBe(false)
+    app.focus(1)
+    await app.applyAudio()
+    expect(audio.muteCalls.some((c) => c.pid === pid2 && c.muted)).toBe(false)
+  })
+
+  it('unmutes the survivors when the focused screen is removed', async () => {
+    const audio = new FakeAudioController()
+    const app = await twoRunning(audio)
+    const pid1 = launcher.pidForSlot(1)!
+    app.focus(2)
+    await app.applyAudio()
+    expect(audio.isMuted(pid1)).toBe(true)
+    await app.removeSlot(2)
+    await app.applyAudio()
+    expect(audio.isMuted(pid1)).toBe(false)
   })
 
   it('is a no-op without an audio controller', async () => {
     const app = makeOrchestrator()
     await app.start(1)
-    windows.foreground = launcher.pidForSlot(1)!
-    await expect(app.updateAudioFocus()).resolves.toBeUndefined()
+    app.focus(1)
+    await expect(app.applyAudio()).resolves.toBeUndefined()
   })
 })

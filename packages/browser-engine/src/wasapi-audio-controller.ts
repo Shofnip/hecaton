@@ -204,6 +204,18 @@ export class WasapiAudioController implements AudioController {
   }
 
   /**
+   * Per-screen volume, 0-100, via ISimpleAudioVolume.SetMasterVolume.
+   *
+   * The reparenting spike validated a persistent PowerShell worker (~12 ms per
+   * change) for the slider drag; promoting this per-call shell-out to that
+   * worker is Step 2's job, with its integration test. Until then this satisfies
+   * the port without a working implementation.
+   */
+  setVolume(_pid: number, _volume: number): Promise<void> {
+    throw new Error('setVolume is implemented in Step 2 (adapters)')
+  }
+
+  /**
    * The mute state of the slot's audio session, or undefined when it has none.
    * Diagnostics and the integration suite only — the core never reads state, it
    * only sets it.

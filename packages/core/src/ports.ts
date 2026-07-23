@@ -24,6 +24,13 @@ export interface LaunchRequest {
   mute: boolean
   /** When false the adapter discards the profile on stop, giving a clean session. */
   persistProfile: boolean
+  /**
+   * When false (the default), the adapter passes the flags that stop Chrome from
+   * throttling a hidden window, so the farm keeps running in the background.
+   * When true, the flags are omitted and Chrome throttles the screen to save
+   * resources. Applies on the screen's next launch, like --mute-audio.
+   */
+  backgroundThrottling: boolean
 }
 
 export interface BrowserLauncher {
@@ -37,13 +44,23 @@ export interface BrowserLauncher {
 export interface WindowManager {
   /** False when the window is not found yet; the browser may still be starting. */
   setBounds(pid: number, bounds: GridCell): boolean
-  focus(pid: number): boolean
   /**
-   * The pid of the process owning the window in the OS foreground, or undefined
-   * when it cannot be determined (nothing focused, or the query failed). Cheap
-   * enough to call on a timer — a single foreground-window lookup, no WMI.
+   * Embeds the browser window into the app's panel (Win32 SetParent), so it
+   * becomes one of the video-wall cells instead of a free desktop window. False
+   * when the window is not found yet. Idempotent: re-parenting an already-child
+   * window is a no-op, so the core may call it whenever it places a slot.
    */
-  foregroundPid(): number | undefined
+  reparent(pid: number): boolean
+  /** Hides an embedded window (SW_HIDE) — a screen in focus mode, or under a modal. */
+  hide(pid: number): boolean
+  /** Shows a hidden embedded window again (SW_SHOW). */
+  show(pid: number): boolean
+  /**
+   * Reloads the page in place, keeping the login: the WM_APPCOMMAND browser
+   * refresh, the one recovery that preserves the tab-bound session (ADR-0009).
+   * False when the window is not found yet.
+   */
+  reload(pid: number): boolean
 }
 
 /**
@@ -61,6 +78,13 @@ export interface AudioController {
    * freely without first checking whether a session exists.
    */
   setMuted(pid: number, muted: boolean): Promise<void>
+  /**
+   * Sets the browser's output volume, 0-100, via the same WASAPI session the
+   * mute drives (`ISimpleAudioVolume.SetMasterVolume`). Independent of the mute
+   * flag: a muted session keeps its volume, so unmuting restores it. A no-op
+   * when the process has no audio session yet, exactly like setMuted.
+   */
+  setVolume(pid: number, volume: number): Promise<void>
 }
 
 export interface Storage<T> {

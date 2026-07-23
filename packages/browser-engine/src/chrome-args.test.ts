@@ -9,6 +9,7 @@ const REQUEST: LaunchRequest = {
   bounds: { x: 0, y: 0, width: 960, height: 1080 },
   mute: false,
   persistProfile: true,
+  backgroundThrottling: false,
 }
 
 const PROFILE_PATH = 'C:\\Users\\x\\AppData\\Roaming\\helloweb\\profiles\\slot-1'

@@ -48,6 +48,23 @@ describe('parseConfig on a valid file', () => {
     expect(parseConfig({ ...valid, slots: [] }).slots).toEqual([])
   })
 
+  it('carries the additive per-slot fields through untouched', () => {
+    // name, volume, muted and backgroundThrottling are additive (no schema
+    // bump). A slot that sets them round-trips exactly; one that omits them
+    // stays minimal, so the resolver applies the shipped defaults later.
+    const slots = [
+      {
+        id: 1,
+        gameId: 'poke-idleworld',
+        name: 'Alt',
+        volume: 30,
+        muted: true,
+        backgroundThrottling: true,
+      },
+    ]
+    expect(parseConfig({ ...valid, slots }).slots).toEqual(slots)
+  })
+
   it('reads an explicit audioFollowsFocus', () => {
     expect(parseConfig({ ...valid, audioFollowsFocus: false }).globals.audioFollowsFocus).toBe(
       false,
@@ -108,8 +125,32 @@ describe('parseConfig refuses a file it cannot fully understand', () => {
     ['a slot with a non-boolean persistProfile', [{ id: 1, gameId: 'g', persistProfile: 'no' }]],
     ['a slot id above maxSlots', [{ id: 9, gameId: 'g' }]],
     ['a slot id that is not a positive integer', [{ id: 0, gameId: 'g' }]],
+    ['a non-string name', [{ id: 1, gameId: 'g', name: 42 }]],
+    ['an empty name', [{ id: 1, gameId: 'g', name: '   ' }]],
+    ['a name longer than 24 characters', [{ id: 1, gameId: 'g', name: 'x'.repeat(25) }]],
+    ['a non-integer volume', [{ id: 1, gameId: 'g', volume: 12.5 }]],
+    ['a volume above 100', [{ id: 1, gameId: 'g', volume: 101 }]],
+    ['a negative volume', [{ id: 1, gameId: 'g', volume: -1 }]],
+    ['a non-number volume', [{ id: 1, gameId: 'g', volume: '50' }]],
+    ['a non-boolean muted', [{ id: 1, gameId: 'g', muted: 1 }]],
+    ['a non-boolean backgroundThrottling', [{ id: 1, gameId: 'g', backgroundThrottling: 'off' }]],
   ])('rejects %s', (_case, slots) => {
     expect(() => parseConfig({ ...valid, slots })).toThrow()
+  })
+
+  it('accepts the volume bounds 0 and 100', () => {
+    expect(() =>
+      parseConfig({ ...valid, slots: [{ id: 1, gameId: 'g', volume: 0 }] }),
+    ).not.toThrow()
+    expect(() =>
+      parseConfig({ ...valid, slots: [{ id: 1, gameId: 'g', volume: 100 }] }),
+    ).not.toThrow()
+  })
+
+  it('accepts a name of exactly 24 characters', () => {
+    expect(() =>
+      parseConfig({ ...valid, slots: [{ id: 1, gameId: 'g', name: 'x'.repeat(24) }] }),
+    ).not.toThrow()
   })
 
   it('rejects duplicate slot ids', () => {

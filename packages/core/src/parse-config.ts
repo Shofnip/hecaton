@@ -33,7 +33,20 @@ const GLOBAL_KEYS = [
   'audioFollowsFocus',
   'slots',
 ] as const
-const SLOT_KEYS = ['id', 'gameId', 'url', 'persistProfile', 'mute'] as const
+const SLOT_KEYS = [
+  'id',
+  'gameId',
+  'url',
+  'persistProfile',
+  'mute',
+  'name',
+  'volume',
+  'muted',
+  'backgroundThrottling',
+] as const
+
+/** The screen name is UI text with a hard cap, mirrored by the slots:rename channel. */
+const MAX_NAME_LENGTH = 24
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -77,6 +90,21 @@ function requireString(value: unknown, field: string, context: string): string {
     throw new Error(`${context}${field} must be a non-empty string, got ${JSON.stringify(value)}`)
   }
   return value
+}
+
+function requireIntegerInRange(
+  value: unknown,
+  field: string,
+  context: string,
+  min: number,
+  max: number,
+): number {
+  if (!Number.isInteger(value) || (value as number) < min || (value as number) > max) {
+    throw new Error(
+      `${context}${field} must be an integer between ${min} and ${max}, got ${JSON.stringify(value)}`,
+    )
+  }
+  return value as number
 }
 
 /**
@@ -132,6 +160,24 @@ function readSlotFields(
     into.persistProfile = requireBoolean(input['persistProfile'], 'persistProfile', context)
   }
   if (input['mute'] !== undefined) into.mute = requireBoolean(input['mute'], 'mute', context)
+  if (input['name'] !== undefined) {
+    const name = requireString(input['name'], 'name', context)
+    if (name.length > MAX_NAME_LENGTH) {
+      throw new Error(`${context}name must be at most ${MAX_NAME_LENGTH} characters`)
+    }
+    into.name = name
+  }
+  if (input['volume'] !== undefined) {
+    into.volume = requireIntegerInRange(input['volume'], 'volume', context, 0, 100)
+  }
+  if (input['muted'] !== undefined) into.muted = requireBoolean(input['muted'], 'muted', context)
+  if (input['backgroundThrottling'] !== undefined) {
+    into.backgroundThrottling = requireBoolean(
+      input['backgroundThrottling'],
+      'backgroundThrottling',
+      context,
+    )
+  }
 }
 
 /** The keys an addition may carry — the slot keys minus the id it does not choose. */
@@ -168,6 +214,12 @@ export function parseSlotAddition(
     fields.persistProfile = withPlaceholder.persistProfile
   }
   if (withPlaceholder.mute !== undefined) fields.mute = withPlaceholder.mute
+  if (withPlaceholder.name !== undefined) fields.name = withPlaceholder.name
+  if (withPlaceholder.volume !== undefined) fields.volume = withPlaceholder.volume
+  if (withPlaceholder.muted !== undefined) fields.muted = withPlaceholder.muted
+  if (withPlaceholder.backgroundThrottling !== undefined) {
+    fields.backgroundThrottling = withPlaceholder.backgroundThrottling
+  }
   return fields
 }
 

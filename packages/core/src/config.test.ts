@@ -37,6 +37,44 @@ describe('resolveSlotConfig', () => {
       mute: false,
       persistProfile: true,
       profileDir: 'slot-1',
+      // Additive per-slot fields for the UI rework. Absent means the shipped
+      // default: full volume, not muted, and background throttling OFF (the
+      // farm must keep running while a screen is hidden - decision 6).
+      volume: 100,
+      muted: false,
+      backgroundThrottling: false,
+    })
+  })
+
+  it('defaults an unnamed slot to no name, leaving the label to the UI', () => {
+    // The UI default is "Tela {N}" where N is the on-screen position, which the
+    // core does not know (position is not id). So an unnamed slot carries no
+    // name at all and the renderer fills in the placeholder.
+    expect(resolveSlotConfig(globals, { id: 1 })).not.toHaveProperty('name')
+  })
+
+  it('carries a per-slot name through', () => {
+    expect(resolveSlotConfig(globals, { id: 1, name: 'Conta principal' })).toMatchObject({
+      name: 'Conta principal',
+    })
+  })
+
+  it('carries a per-slot volume through', () => {
+    expect(resolveSlotConfig(globals, { id: 1, volume: 40 })).toMatchObject({ volume: 40 })
+  })
+
+  it('lets a slot start muted at the WASAPI level, distinct from the launch flag', () => {
+    // `muted` is the runtime per-screen mute the volume popover drives (WASAPI);
+    // `mute` is the --mute-audio launch flag. They are independent layers.
+    expect(resolveSlotConfig(globals, { id: 1, muted: true, mute: false })).toMatchObject({
+      muted: true,
+      mute: false,
+    })
+  })
+
+  it('lets a slot re-enable background throttling to save resources', () => {
+    expect(resolveSlotConfig(globals, { id: 1, backgroundThrottling: true })).toMatchObject({
+      backgroundThrottling: true,
     })
   })
 

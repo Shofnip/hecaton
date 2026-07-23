@@ -63,6 +63,13 @@ export interface SlotSnapshot {
   url?: string
   persistProfile: boolean
   mute: boolean
+  /** The display name, when set. Absent means the UI's "Tela {N}" placeholder. */
+  name?: string
+  volume: number
+  muted: boolean
+  backgroundThrottling: boolean
+  /** Whether this slot is the one in focus mode. Exactly one slot at most. */
+  focused: boolean
   /** Why the slot is not running, when that is known. Cleared once it starts. */
   lastError?: string
 }
@@ -80,14 +87,21 @@ export class Orchestrator {
   private readonly globals: GlobalConfig
   private readonly slots = new Map<number, SlotRuntime>()
 
-  /** Whether exactly one slot — the focused one — should be audible at a time. */
+  /** When on, focus mode silences the screens that are not focused. */
   private audioFollowsFocus: boolean
   /**
-   * The mute state we have applied per pid, so a focus tick touches only what
-   * changed. Keyed by pid rather than slot id: a restarted slot gets a new pid,
-   * so it is treated as freshly unmuted with no stale entry to clear.
+   * The slot in focus mode, or undefined for the normal grid. The audio policy
+   * reads this (not the OS foreground, as it once did): the app's own focus mode
+   * is the source of truth now (decision 2).
    */
-  private readonly appliedMute = new Map<number, boolean>()
+  private focusedSlotId: number | undefined
+  /**
+   * The mute and volume we have applied per pid, so an audio tick touches only
+   * what changed. Keyed by pid rather than slot id: a restarted slot gets a new
+   * pid, so it is treated as fresh — unmuted, full volume — with no stale entry.
+   */
+  private readonly appliedMuted = new Map<number, boolean>()
+  private readonly appliedVolume = new Map<number, number>()
 
   constructor(deps: OrchestratorDeps) {
     this.launcher = deps.launcher
@@ -203,8 +217,11 @@ export class Orchestrator {
 
     this.slots.delete(slotId)
     this.emit({ level: 'info', event: 'slot.remove', slotId })
-    // The removed window is gone; re-tile whatever is still running.
-    this.applyLayout()
+    // Removing the focused screen returns to grid mode (design §7): otherwise
+    // focus would point at a gone slot, leaving the rest muted and hidden. When
+    // it was not focused, just re-tile the survivors.
+    if (this.focusedSlotId === slotId) this.exitFocusToGrid()
+    else this.retile()
   }
 
   /**
@@ -290,7 +307,7 @@ export class Orchestrator {
     // Re-tile every running window: the slot just added and started is what
     // turns one fullscreen window into a two-up split, and its neighbours have
     // to move to their new cells at that moment, not before.
-    this.applyLayout()
+    this.retile()
   }
 
   /**
@@ -318,9 +335,14 @@ export class Orchestrator {
         bounds: this.cellOf(slot.config.id),
         mute: slot.config.mute,
         persistProfile: slot.config.persistProfile,
+        backgroundThrottling: slot.config.backgroundThrottling,
       })
       slot.state = transition(slot.state, 'ready')
       slot.lastError = undefined
+      // Embed the freshly launched window into the panel. Idempotent, so it is
+      // safe here even though the real window may resolve a moment later — the
+      // adapter owns that timing, as it does for setBounds.
+      this.windows.reparent(slot.pid)
       this.emit({ level: 'info', event: 'slot.ready', ...this.slotFields(slot), pid: slot.pid })
     } catch (error) {
       slot.pid = undefined
@@ -357,50 +379,110 @@ export class Orchestrator {
     this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
     if (pid !== undefined) await this.launcher.stop(pid)
     // The slot left the grid; the survivors expand to fill it.
-    this.applyLayout()
+    this.retile()
   }
 
+  /**
+   * Toggles focus mode for a slot, and returns whether that slot is now focused.
+   *
+   * Focus mode is an app-layout concept in the single-window video wall: the
+   * focused screen takes the main area and the others become hidden windows
+   * behind DOM thumbnails (their exact main-area bounds are the renderer's to
+   * supply — Step 3). Here the core tracks which slot is focused and shows/hides
+   * the running windows to match; leaving focus mode shows them all and re-tiles
+   * the grid. The audio policy reads the focus state on its next tick.
+   */
   focus(slotId: number): boolean {
+    this.slot(slotId) // throws for an unknown slot
+    if (this.focusedSlotId === slotId) {
+      this.exitFocusToGrid()
+      return false
+    }
+
+    this.focusedSlotId = slotId
+    for (const slot of this.slots.values()) {
+      if (slot.state !== 'running' || slot.pid === undefined) continue
+      if (slot.config.id === slotId) this.windows.show(slot.pid)
+      else this.windows.hide(slot.pid)
+    }
+    return true
+  }
+
+  /**
+   * Leaves focus mode: every running window is shown again and the grid is
+   * re-tiled. Shared by the focus toggle and by removing the focused screen,
+   * which returns to the grid (design §7).
+   */
+  private exitFocusToGrid(): void {
+    this.focusedSlotId = undefined
+    for (const slot of this.slots.values()) {
+      if (slot.state === 'running' && slot.pid !== undefined) this.windows.show(slot.pid)
+    }
+    this.retile()
+  }
+
+  /**
+   * Reloads a running slot in place, keeping its login. Returns false for a slot
+   * that is not running. The one session-safe recovery the shell has (ADR-0009).
+   */
+  reload(slotId: number): boolean {
     const slot = this.slot(slotId)
     if (slot.state !== 'running' || slot.pid === undefined) return false
-    return this.windows.focus(slot.pid)
+    return this.windows.reload(slot.pid)
   }
 
-  /** Flips the audio-follows-focus toggle. Takes effect on the next focus tick. */
+  /** Flips the audio-follows-focus toggle. Takes effect on the next audio tick. */
   setAudioFollowsFocus(enabled: boolean): void {
     this.audioFollowsFocus = enabled
   }
 
   /**
-   * Makes the audio match the focused window: the running slot in the OS
-   * foreground stays audible, every other running slot is muted.
+   * Applies the audio policy: each running slot gets its configured volume, and
+   * is muted when the user muted it or when focus mode silences it.
    *
-   * One rule, no special cases. When the toggle is off, or the foreground is a
-   * window that is no slot (the panel, the user's own browser), no running slot
-   * equals the foreground pid, so they are all muted — or, with the toggle off,
-   * all unmuted. Called on a timer by the shell, like checkLiveness; a slot is
-   * touched only when its mute state actually changes, so a quiet tick shells
-   * out to nothing.
+   * A slot is silenced by focus when the toggle is on, some screen is focused,
+   * and this is not that screen. With no screen focused, or the toggle off,
+   * nothing is silenced by focus — every screen plays at its volume, and only a
+   * user-muted screen stays quiet. Called on a timer by the shell, like
+   * checkLiveness; a slot is touched only when its volume or mute actually
+   * changes, so a quiet tick shells out to nothing.
    */
-  async updateAudioFocus(): Promise<void> {
+  async applyAudio(): Promise<void> {
     if (!this.audio) return
-    const foreground = this.windows.foregroundPid()
 
     const running = new Set<number>()
     for (const slot of this.slots.values()) {
       if (slot.state !== 'running' || slot.pid === undefined) continue
-      running.add(slot.pid)
-      const desired = this.audioFollowsFocus ? slot.pid !== foreground : false
-      if ((this.appliedMute.get(slot.pid) ?? false) === desired) continue
-      await this.audio.setMuted(slot.pid, desired)
-      this.appliedMute.set(slot.pid, desired)
+      const pid = slot.pid
+      running.add(pid)
+
+      const silencedByFocus =
+        this.audioFollowsFocus &&
+        this.focusedSlotId !== undefined &&
+        slot.config.id !== this.focusedSlotId
+      const desiredMuted = slot.config.muted || silencedByFocus
+      const desiredVolume = slot.config.volume
+
+      if ((this.appliedMuted.get(pid) ?? false) !== desiredMuted) {
+        await this.audio.setMuted(pid, desiredMuted)
+        this.appliedMuted.set(pid, desiredMuted)
+      }
+      // 100 is the WASAPI session default, so a slot that wants full volume
+      // needs no call the first time it is seen.
+      if ((this.appliedVolume.get(pid) ?? 100) !== desiredVolume) {
+        await this.audio.setVolume(pid, desiredVolume)
+        this.appliedVolume.set(pid, desiredVolume)
+      }
     }
 
     // Forget pids that are no longer running, so a long session of restarts does
-    // not grow the map without bound. A stopped slot's process is already gone,
-    // so there is nothing to unmute — only tracking to drop.
-    for (const pid of [...this.appliedMute.keys()]) {
-      if (!running.has(pid)) this.appliedMute.delete(pid)
+    // not grow the maps without bound. A stopped slot's process is already gone,
+    // so there is nothing to restore — only tracking to drop.
+    for (const pid of [...this.appliedMuted.keys()]) {
+      if (!running.has(pid)) this.appliedMuted.delete(pid)
+    }
+    for (const pid of [...this.appliedVolume.keys()]) {
+      if (!running.has(pid)) this.appliedVolume.delete(pid)
     }
   }
 
@@ -440,7 +522,7 @@ export class Orchestrator {
     // The running set changed - a slot left the grid, or came back - so the
     // survivors re-tile to match. Only when something actually changed, so a
     // quiet liveness tick moves no windows.
-    if (changed) this.applyLayout()
+    if (changed) this.retile()
   }
 
   /**
@@ -456,9 +538,14 @@ export class Orchestrator {
         state: slot.state,
         persistProfile: slot.config.persistProfile,
         mute: slot.config.mute,
+        volume: slot.config.volume,
+        muted: slot.config.muted,
+        backgroundThrottling: slot.config.backgroundThrottling,
+        focused: this.focusedSlotId === slot.config.id,
       }
       if (slot.config.gameId !== undefined) view.gameId = slot.config.gameId
       if (slot.config.url !== undefined) view.url = slot.config.url
+      if (slot.config.name !== undefined) view.name = slot.config.name
       if (slot.lastError !== undefined) view.lastError = slot.lastError
       return view
     })
@@ -467,11 +554,14 @@ export class Orchestrator {
   /**
    * Re-tiles the running slots into the grid for their current count.
    *
-   * Called after anything that changes the running set, and on demand after a
-   * slot was focused and maximised. Windows are placed by the same order the
-   * grid is computed in, so slot ids map to cells left-to-right, top-to-bottom.
+   * Internal only: it runs after anything that changes the running set (start,
+   * stop, crash) and when focus mode is left. There is no manual "restore the
+   * grid" any more — a single window cannot have its cells dragged out of place,
+   * so the concept, and its IPC channel, are gone with the video-wall rework.
+   * Windows are placed by the same order the grid is computed in, so slot ids
+   * map to cells left-to-right, top-to-bottom.
    */
-  applyLayout(): void {
+  private retile(): void {
     const ids = this.layoutIds()
     if (ids.length === 0) return
     const cells = computeGrid(ids.length, this.screen)

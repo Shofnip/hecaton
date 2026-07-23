@@ -28,7 +28,6 @@ describe('the channel list', () => {
       'slot:focus',
       'slot:add',
       'slot:remove',
-      'layout:apply',
       'config:read',
       'config:updateSlot',
       'config:setAudioFollowsFocus',

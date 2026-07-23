@@ -33,7 +33,21 @@ export interface SlotOverrides {
   gameId?: string
   url?: string
   persistProfile?: boolean
+  /** The --mute-audio launch flag: a fallback for games with no audio control. */
   mute?: boolean
+  /** The screen's display name (UI text). Absent means the UI's "Tela {N}" default. */
+  name?: string
+  /** Runtime WASAPI volume, 0-100. Distinct from `mute` (a launch flag). */
+  volume?: number
+  /** Runtime WASAPI mute the volume popover drives. Distinct from `mute`. */
+  muted?: boolean
+  /**
+   * When true, Chrome may throttle this screen while it is hidden. Default off
+   * (decision 6): the farm keeps running in the background, at a resource cost
+   * the owner accepted. The launch flags that disable throttling are applied
+   * only while this is false.
+   */
+  backgroundThrottling?: boolean
 }
 
 export interface ResolvedSlotConfig {
@@ -42,6 +56,10 @@ export interface ResolvedSlotConfig {
   url?: string
   persistProfile: boolean
   mute: boolean
+  name?: string
+  volume: number
+  muted: boolean
+  backgroundThrottling: boolean
   profileDir: string
 }
 
@@ -89,9 +107,15 @@ export function resolveSlotConfig(globals: GlobalConfig, slot: SlotOverrides): R
     id: slot.id,
     persistProfile: slot.persistProfile ?? globals.persistProfile,
     mute: slot.mute ?? globals.mute,
+    // Additive per-slot fields (no global counterpart): the shipped default is
+    // full volume, not muted, and background throttling off.
+    volume: slot.volume ?? 100,
+    muted: slot.muted ?? false,
+    backgroundThrottling: slot.backgroundThrottling ?? false,
     profileDir: slotProfileDirName(slot.id),
   }
   if (slot.gameId !== undefined) resolved.gameId = slot.gameId
   if (slot.url !== undefined) resolved.url = slot.url
+  if (slot.name !== undefined) resolved.name = slot.name
   return resolved
 }

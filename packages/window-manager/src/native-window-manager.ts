@@ -126,6 +126,28 @@ export class NativeWindowManager implements WindowManager {
     return true
   }
 
+  // Reparenting, hide/show and in-place reload are Win32 operations the core now
+  // depends on for the embedded video wall (UI rework, Step 1). The real
+  // implementations — SetParent + style stripping, ShowWindow, and the
+  // WM_APPCOMMAND browser-refresh validated in the reparenting spike — land in
+  // Step 2 with their integration tests, using the recipes in spike/. Until
+  // then these satisfy the port without pretending to work.
+  reparent(_pid: number): boolean {
+    throw new Error('reparent is implemented in Step 2 (adapters)')
+  }
+
+  hide(_pid: number): boolean {
+    throw new Error('hide is implemented in Step 2 (adapters)')
+  }
+
+  show(_pid: number): boolean {
+    throw new Error('show is implemented in Step 2 (adapters)')
+  }
+
+  reload(_pid: number): boolean {
+    throw new Error('reload is implemented in Step 2 (adapters)')
+  }
+
   /**
    * The pid of the process owning the foreground window.
    *

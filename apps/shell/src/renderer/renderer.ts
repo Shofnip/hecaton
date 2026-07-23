@@ -48,7 +48,6 @@ interface HellowebApi {
   focusSlot(id: number): Promise<boolean>
   addSlot(slot: SlotAddition): Promise<void>
   removeSlot(id: number): Promise<void>
-  applyLayout(): Promise<void>
   readConfig(): Promise<PanelState>
   updateSlot(update: SlotAddition & { id: number }): Promise<void>
   revealLogs(): Promise<void>
@@ -323,9 +322,6 @@ addButton.addEventListener('click', () => {
   const firstGame = lastState.games[0]
   if (firstGame) run(() => window.helloweb.addSlot({ gameId: firstGame.id }))
 })
-document
-  .getElementById('apply-layout')
-  ?.addEventListener('click', () => run(() => window.helloweb.applyLayout()))
 document
   .getElementById('reveal-logs')
   ?.addEventListener('click', () => run(() => window.helloweb.revealLogs()))

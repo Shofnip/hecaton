@@ -31,7 +31,6 @@ const api = {
   focusSlot: (id: number) => ipcRenderer.invoke('slot:focus', id),
   addSlot: (slot: unknown) => ipcRenderer.invoke('slot:add', slot),
   removeSlot: (id: number) => ipcRenderer.invoke('slot:remove', id),
-  applyLayout: () => ipcRenderer.invoke('layout:apply'),
   readConfig: () => ipcRenderer.invoke('config:read'),
   updateSlot: (update: unknown) => ipcRenderer.invoke('config:updateSlot', update),
   setAudioFollowsFocus: (enabled: boolean) =>

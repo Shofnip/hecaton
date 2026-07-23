@@ -57,10 +57,10 @@ app.setPath('userData', join(appDataDir(), 'shell'))
 /** How often the shell asks the orchestrator to look for dead browsers. */
 const LIVENESS_INTERVAL_MS = 2000
 
-// How often the shell tells the orchestrator to make audio follow focus. Faster
-// than liveness because this is what the user hears the moment they switch
-// windows: the foreground lookup is cheap and only a real focus change shells
-// out to mute anything, so a short interval costs little.
+// How often the shell asks the orchestrator to apply the audio policy. The
+// policy now follows the app's own focus mode, not the OS foreground, so a tick
+// only shells out when a slot's volume or mute actually changed - a quiet tick
+// costs nothing. Kept faster than liveness so a focus change is heard promptly.
 const AUDIO_FOCUS_INTERVAL_MS = 300
 
 interface PersistedConfig extends GlobalConfig {
@@ -230,11 +230,6 @@ function registerIpc(): void {
       pushState()
     },
 
-    'layout:apply': (payload) => {
-      parseNoPayload(payload)
-      orchestrator.applyLayout()
-    },
-
     'config:read': (payload) => {
       parseNoPayload(payload)
       return currentState()
@@ -360,7 +355,7 @@ if (!app.requestSingleInstanceLock()) {
       setInterval(() => {
         if (audioBusy) return
         audioBusy = true
-        void orchestrator.updateAudioFocus().finally(() => {
+        void orchestrator.applyAudio().finally(() => {
           audioBusy = false
         })
       }, AUDIO_FOCUS_INTERVAL_MS)

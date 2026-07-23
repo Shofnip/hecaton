@@ -22,6 +22,7 @@ function request(slotId: number, overrides: Partial<LaunchRequest> = {}): Launch
     bounds: { x: 0, y: 0, width: 800, height: 600 },
     mute: true,
     persistProfile: true,
+    backgroundThrottling: false,
     ...overrides,
   }
 }
