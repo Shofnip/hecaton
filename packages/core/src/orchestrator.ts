@@ -10,6 +10,7 @@
  */
 import { computeGrid } from './grid.js'
 import type { GridCell, ScreenBounds } from './grid.js'
+import type { ScreenPlacement } from './ipc.js'
 import { resolveSlotConfig } from './config.js'
 import type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
 import type { GameDefinition } from './registry.js'
@@ -102,6 +103,13 @@ export class Orchestrator {
    */
   private readonly appliedMuted = new Map<number, boolean>()
   private readonly appliedVolume = new Map<number, number>()
+  /**
+   * Which running windows are currently shown, so the renderer's per-frame layout
+   * only flips visibility on a real transition — a resize drag must not spam
+   * ShowWindow. Keyed by pid, cleared for pids no longer running, like the audio
+   * maps above.
+   */
+  private readonly shownWindows = new Map<number, boolean>()
 
   constructor(deps: OrchestratorDeps) {
     this.launcher = deps.launcher
@@ -463,6 +471,43 @@ export class Orchestrator {
     const slot = this.slot(slotId)
     if (slot.state !== 'running' || slot.pid === undefined) return false
     return this.windows.reload(slot.pid)
+  }
+
+  /**
+   * Applies the layout the renderer computed: where each embedded screen goes,
+   * or that it is hidden.
+   *
+   * This is the single source of embedded-window geometry in the video wall — the
+   * renderer owns it because the rectangles depend on the card layout and the
+   * focus divider, which only the DOM knows (Option 1, the owner's decision). A
+   * screen with bounds is shown and moved there; a screen with none is hidden
+   * (non-focused in focus mode, or every screen under a modal). Visibility flips
+   * only on a real transition, so a resize drag does not spam ShowWindow, while
+   * the position is re-applied every call — that IS the live drag. Slots the
+   * renderer does not mention, or that are not running, are left alone.
+   */
+  applyScreenLayout(placements: ScreenPlacement[]): void {
+    const wanted = new Map(placements.map((placement) => [placement.id, placement.bounds]))
+    const runningPids = new Set<number>()
+    for (const slot of this.slots.values()) {
+      if (slot.state !== 'running' || slot.pid === undefined) continue
+      const pid = slot.pid
+      runningPids.add(pid)
+      if (!wanted.has(slot.config.id)) continue
+
+      const bounds = wanted.get(slot.config.id)
+      const wantVisible = bounds !== undefined
+      if (this.shownWindows.get(pid) !== wantVisible) {
+        if (wantVisible) this.windows.show(pid)
+        else this.windows.hide(pid)
+        this.shownWindows.set(pid, wantVisible)
+      }
+      if (bounds) this.windows.setBounds(pid, bounds)
+    }
+    // Forget pids no longer running, so restarts do not leave stale entries.
+    for (const pid of [...this.shownWindows.keys()]) {
+      if (!runningPids.has(pid)) this.shownWindows.delete(pid)
+    }
   }
 
   /** Flips the audio-follows-focus toggle. Takes effect on the next audio tick. */

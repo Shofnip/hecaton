@@ -21,6 +21,7 @@ import {
   parseAudioFollowsFocus,
   parseConfig,
   parseNoPayload,
+  parseScreenLayout,
   parseSlotAddition,
   parseSlotId,
   parseSlotMuted,
@@ -344,6 +345,15 @@ function registerIpc(): void {
       globals = { ...globals, theme }
       await saveConfiguration()
       pushState()
+    },
+
+    'screens:layout': (payload) => {
+      // The renderer-owned geometry: where each embedded screen goes, or that it
+      // is hidden. Fires on every resize/drag frame, so it neither persists nor
+      // echoes state — it only drives the windows. The core clamps nothing about
+      // the panel, so main is the right place to do it, but that is deferred with
+      // the renderer wiring; for now the validated client-area rects pass through.
+      orchestrator?.applyScreenLayout(parseScreenLayout(payload))
     },
   }
 

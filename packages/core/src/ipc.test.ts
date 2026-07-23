@@ -5,6 +5,7 @@ import {
   parseAudioFollowsFocus,
   parseNoPayload,
   parseSlotAddition,
+  parseScreenLayout,
   parseSlotId,
   parseSlotMuted,
   parseSlotRename,
@@ -44,7 +45,40 @@ describe('the channel list', () => {
       'slots:setMuted',
       'slots:reload',
       'ui:setTheme',
+      'screens:layout',
     ])
+  })
+})
+
+describe('parseScreenLayout', () => {
+  it('accepts placements with client-area bounds', () => {
+    const input = [
+      { id: 1, bounds: { x: 0, y: 0, width: 960, height: 540 } },
+      { id: 2, bounds: { x: 960, y: 0, width: 960, height: 540 } },
+    ]
+    expect(parseScreenLayout(input)).toEqual(input)
+  })
+
+  it('accepts a placement with no bounds, which means hidden', () => {
+    // A focused screen shows the main area; the others send no bounds and the
+    // orchestrator hides their windows. Modal-open hides everything the same way.
+    expect(parseScreenLayout([{ id: 3 }])).toEqual([{ id: 3 }])
+  })
+
+  it('accepts an empty layout', () => {
+    expect(parseScreenLayout([])).toEqual([])
+  })
+
+  it.each([
+    ['not an array', { id: 1 }],
+    ['a bad id', [{ id: 0, bounds: { x: 0, y: 0, width: 10, height: 10 } }]],
+    ['bounds missing a field', [{ id: 1, bounds: { x: 0, y: 0, width: 10 } }]],
+    ['a non-integer coordinate', [{ id: 1, bounds: { x: 0.5, y: 0, width: 10, height: 10 } }]],
+    ['a zero width', [{ id: 1, bounds: { x: 0, y: 0, width: 0, height: 10 } }]],
+    ['a negative height', [{ id: 1, bounds: { x: 0, y: 0, width: 10, height: -10 } }]],
+    ['a negative coordinate', [{ id: 1, bounds: { x: -1, y: 0, width: 10, height: 10 } }]],
+  ])('rejects %s', (_case, input) => {
+    expect(() => parseScreenLayout(input)).toThrow()
   })
 })
 

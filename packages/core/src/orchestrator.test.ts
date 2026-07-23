@@ -439,6 +439,55 @@ describe('runtime per-screen setters (the approved slots:* channels)', () => {
   })
 })
 
+describe('applyScreenLayout (the renderer-driven geometry)', () => {
+  it('positions a running screen at its client-area bounds and shows it', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    windows.shown.length = 0
+    app.applyScreenLayout([{ id: 1, bounds: { x: 4, y: 4, width: 900, height: 600 } }])
+    expect(windows.bounds.get(pid)).toEqual({ x: 4, y: 4, width: 900, height: 600 })
+    expect(windows.shown).toContain(pid)
+  })
+
+  it('hides a running screen given no bounds (focus mode, or under a modal)', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    const pid2 = launcher.pidForSlot(2)!
+    windows.hidden.length = 0
+    app.applyScreenLayout([{ id: 1, bounds: { x: 0, y: 0, width: 1900, height: 1000 } }, { id: 2 }])
+    expect(windows.hidden).toContain(pid2)
+  })
+
+  it('does not re-show or re-hide a screen already in that visibility', async () => {
+    // The renderer resends the full layout on every resize frame; visibility must
+    // only flip on a real transition, or a drag would spam ShowWindow at the
+    // worker. Position, by contrast, is applied every time — that is the drag.
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    const layout = [{ id: 1, bounds: { x: 0, y: 0, width: 800, height: 600 } }]
+    app.applyScreenLayout(layout)
+    windows.shown.length = 0
+    windows.bounds.delete(pid)
+    app.applyScreenLayout(layout)
+    expect(windows.shown).not.toContain(pid) // already visible, no second show
+    expect(windows.bounds.get(pid)).toBeDefined() // but repositioned again
+  })
+
+  it('ignores a slot that is not running, or unknown', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    // slot 2 is configured but stopped; 99 does not exist.
+    app.applyScreenLayout([
+      { id: 2, bounds: { x: 0, y: 0, width: 10, height: 10 } },
+      { id: 99, bounds: { x: 0, y: 0, width: 10, height: 10 } },
+    ])
+    expect(windows.bounds.get(launcher.pidForSlot(2)!)).toBeUndefined()
+  })
+})
+
 describe('snapshot for the panel', () => {
   it('lists every configured slot with its state and what it points at', () => {
     const base = {

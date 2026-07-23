@@ -19,7 +19,22 @@
  */
 import { MAX_SLOT_NAME_LENGTH } from './config.js'
 import type { GlobalConfig, SlotOverrides, Theme } from './config.js'
+import type { GridCell } from './grid.js'
 import { parseSlotOverrides } from './parse-config.js'
+
+/**
+ * One screen's place in the video wall, as the renderer computes it.
+ *
+ * `bounds` is the screen's rectangle in the panel's client area (the coordinates
+ * MoveWindow wants for an embedded child). Absent bounds means the screen is
+ * hidden — a non-focused screen in focus mode, or every screen while a panel
+ * modal is open. Only the renderer knows these rectangles, since they depend on
+ * the card layout, the focus divider and the DOM.
+ */
+export interface ScreenPlacement {
+  id: number
+  bounds?: GridCell
+}
 
 /**
  * Every channel, in one place, so preload and main cannot drift apart.
@@ -49,6 +64,9 @@ export const IPC_CHANNELS = [
   'slots:setMuted',
   'slots:reload',
   'ui:setTheme',
+  // The renderer-owned geometry channel (UI rework, Option 1, approved by the
+  // owner): the renderer sends where each embedded screen goes, main relays it.
+  'screens:layout',
 ] as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number]
@@ -158,6 +176,47 @@ export function parseTheme(input: unknown): Theme {
     throw new Error(`theme must be "dark" or "light", got ${JSON.stringify(input)}`)
   }
   return input
+}
+
+/** A coordinate or size field of a placement's bounds. */
+function requireBoundsInteger(value: unknown, field: string, min: number): number {
+  // Capped as well as floored: an absurd value is a bug or an attack, not a
+  // window position, and unbounded integers reach the child-move worker.
+  if (!Number.isInteger(value) || (value as number) < min || (value as number) > 100_000) {
+    throw new Error(
+      `screen bounds ${field} must be an integer >= ${min}, got ${JSON.stringify(value)}`,
+    )
+  }
+  return value as number
+}
+
+/**
+ * The full video-wall layout the renderer sends: where each screen goes, or that
+ * it is hidden. Structural validation only — main clamps the rectangles to the
+ * panel's actual content size, which is its to know, not the core's.
+ */
+export function parseScreenLayout(input: unknown): ScreenPlacement[] {
+  if (!Array.isArray(input)) {
+    throw new Error(`screen layout must be an array, got ${JSON.stringify(input)}`)
+  }
+  return input.map((raw) => {
+    const { id, rest } = requireIdObject(raw, 'screen placement')
+    const rawBounds = rest['bounds']
+    if (rawBounds === undefined) return { id }
+    if (typeof rawBounds !== 'object' || rawBounds === null || Array.isArray(rawBounds)) {
+      throw new Error(`screen bounds must be an object, got ${JSON.stringify(rawBounds)}`)
+    }
+    const b = rawBounds as Record<string, unknown>
+    return {
+      id,
+      bounds: {
+        x: requireBoundsInteger(b['x'], 'x', 0),
+        y: requireBoundsInteger(b['y'], 'y', 0),
+        width: requireBoundsInteger(b['width'], 'width', 1),
+        height: requireBoundsInteger(b['height'], 'height', 1),
+      },
+    }
+  })
 }
 
 // A slot the panel wants to add carries no id — the orchestrator assigns it —
