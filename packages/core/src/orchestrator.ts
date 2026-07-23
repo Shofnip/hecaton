@@ -226,10 +226,9 @@ export class Orchestrator {
     this.slots.delete(slotId)
     this.emit({ level: 'info', event: 'slot.remove', slotId })
     // Removing the focused screen returns to grid mode (design §7): otherwise
-    // focus would point at a gone slot, leaving the rest muted and hidden. When
-    // it was not focused, just re-tile the survivors.
-    if (this.focusedSlotId === slotId) this.exitFocusToGrid()
-    else this.retile()
+    // focus would point at a gone slot, leaving the rest muted by the audio
+    // policy. The renderer re-lays-out the wall once it sees the snapshot.
+    if (this.focusedSlotId === slotId) this.focusedSlotId = undefined
   }
 
   /**
@@ -346,10 +345,6 @@ export class Orchestrator {
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.start', ...this.slotFields(slot) })
     await this.spawn(slot)
-    // Re-tile every running window: the slot just added and started is what
-    // turns one fullscreen window into a two-up split, and its neighbours have
-    // to move to their new cells at that moment, not before.
-    this.retile()
   }
 
   /**
@@ -420,47 +415,26 @@ export class Orchestrator {
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
     if (pid !== undefined) await this.launcher.stop(pid)
-    // The slot left the grid; the survivors expand to fill it.
-    this.retile()
   }
 
   /**
    * Toggles focus mode for a slot, and returns whether that slot is now focused.
    *
    * Focus mode is an app-layout concept in the single-window video wall: the
-   * focused screen takes the main area and the others become hidden windows
-   * behind DOM thumbnails (their exact main-area bounds are the renderer's to
-   * supply — Step 3). Here the core tracks which slot is focused and shows/hides
-   * the running windows to match; leaving focus mode shows them all and re-tiles
-   * the grid. The audio policy reads the focus state on its next tick.
+   * focused screen takes the main area and the others shrink to DOM thumbnails.
+   * The core only tracks which slot is focused and exposes it in the snapshot;
+   * the geometry that follows — showing, hiding and sizing the embedded windows —
+   * is the renderer's, which re-sends screens:layout when it sees the flag change
+   * (Option 1). The audio policy reads the focus state on its next tick.
    */
   focus(slotId: number): boolean {
     this.slot(slotId) // throws for an unknown slot
     if (this.focusedSlotId === slotId) {
-      this.exitFocusToGrid()
+      this.focusedSlotId = undefined
       return false
     }
-
     this.focusedSlotId = slotId
-    for (const slot of this.slots.values()) {
-      if (slot.state !== 'running' || slot.pid === undefined) continue
-      if (slot.config.id === slotId) this.windows.show(slot.pid)
-      else this.windows.hide(slot.pid)
-    }
     return true
-  }
-
-  /**
-   * Leaves focus mode: every running window is shown again and the grid is
-   * re-tiled. Shared by the focus toggle and by removing the focused screen,
-   * which returns to the grid (design §7).
-   */
-  private exitFocusToGrid(): void {
-    this.focusedSlotId = undefined
-    for (const slot of this.slots.values()) {
-      if (slot.state === 'running' && slot.pid !== undefined) this.windows.show(slot.pid)
-    }
-    this.retile()
   }
 
   /**
@@ -570,12 +544,10 @@ export class Orchestrator {
    * slot crashing, or failing to come back, never touches its neighbours.
    */
   async checkLiveness(): Promise<void> {
-    let changed = false
     for (const slot of this.slots.values()) {
       if (!isLive(slot.state) || slot.pid === undefined) continue
       if (this.launcher.isAlive(slot.pid)) continue
 
-      changed = true
       slot.pid = undefined
       slot.state = transition(slot.state, 'crash')
       slot.lastError = 'the browser process ended unexpectedly'
@@ -598,10 +570,6 @@ export class Orchestrator {
         // a failed restart must not abort the sweep over the other slots.
       }
     }
-    // The running set changed - a slot left the grid, or came back - so the
-    // survivors re-tile to match. Only when something actually changed, so a
-    // quiet liveness tick moves no windows.
-    if (changed) this.retile()
   }
 
   /**
@@ -627,26 +595,6 @@ export class Orchestrator {
       if (slot.config.name !== undefined) view.name = slot.config.name
       if (slot.lastError !== undefined) view.lastError = slot.lastError
       return view
-    })
-  }
-
-  /**
-   * Re-tiles the running slots into the grid for their current count.
-   *
-   * Internal only: it runs after anything that changes the running set (start,
-   * stop, crash) and when focus mode is left. There is no manual "restore the
-   * grid" any more — a single window cannot have its cells dragged out of place,
-   * so the concept, and its IPC channel, are gone with the video-wall rework.
-   * Windows are placed by the same order the grid is computed in, so slot ids
-   * map to cells left-to-right, top-to-bottom.
-   */
-  private retile(): void {
-    const ids = this.layoutIds()
-    if (ids.length === 0) return
-    const cells = computeGrid(ids.length, this.screen)
-    ids.forEach((id, index) => {
-      const slot = this.slots.get(id)!
-      if (slot.pid !== undefined) this.windows.setBounds(slot.pid, cells[index]!)
     })
   }
 }

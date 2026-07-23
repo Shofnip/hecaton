@@ -286,16 +286,18 @@ describe('embedding a screen', () => {
 })
 
 describe('focus mode', () => {
-  it('enters focus mode, hiding the other running screens and showing the focused one', async () => {
+  it('enters focus mode and reports it, leaving window geometry to the renderer', async () => {
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)
-    const pid1 = launcher.pidForSlot(1)!
-    const pid2 = launcher.pidForSlot(2)!
 
     expect(app.focus(1)).toBe(true)
-    expect(windows.hidden).toEqual([pid2])
-    expect(windows.shown).toEqual([pid1])
+    // The core no longer shows or hides windows for focus. Geometry is the
+    // renderer's: it sees `focused` change in the snapshot and re-sends
+    // screens:layout, which is what actually moves the windows.
+    expect(windows.hidden).toEqual([])
+    expect(windows.shown).toEqual([])
+    expect(app.snapshot().find((s) => s.id === 1)?.focused).toBe(true)
   })
 
   it('reports focus in the snapshot so the renderer can follow', async () => {
@@ -306,49 +308,39 @@ describe('focus mode', () => {
     expect(app.snapshot().find((s) => s.id === 2)?.focused).toBe(false)
   })
 
-  it('leaving focus mode shows every screen again and restores the grid', async () => {
+  it('leaving focus mode clears the focused flag, moving no windows', async () => {
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)
-    const pid1 = launcher.pidForSlot(1)!
-    const pid2 = launcher.pidForSlot(2)!
 
     app.focus(1) // enter
-    windows.shown.length = 0
     expect(app.focus(1)).toBe(false) // toggle off
-    // Both windows are shown again and re-tiled into the two-up grid.
-    expect(windows.shown).toEqual(expect.arrayContaining([pid1, pid2]))
-    expect(windows.bounds.get(pid1)).toEqual({ x: 0, y: 0, width: 960, height: 1080 })
-    expect(windows.bounds.get(pid2)).toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+    expect(app.snapshot().every((s) => !s.focused)).toBe(true)
+    expect(windows.shown).toEqual([])
+    expect(windows.bounds.size).toBe(0)
   })
 
-  it('switching focus hides the previously focused screen', async () => {
+  it('switching focus moves the focused flag to the new screen', async () => {
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)
-    const pid1 = launcher.pidForSlot(1)!
-    const pid2 = launcher.pidForSlot(2)!
 
     app.focus(1)
-    windows.hidden.length = 0
-    windows.shown.length = 0
     app.focus(2)
-    expect(windows.hidden).toEqual([pid1])
-    expect(windows.shown).toEqual([pid2])
+    expect(app.snapshot().find((s) => s.id === 1)?.focused).toBe(false)
+    expect(app.snapshot().find((s) => s.id === 2)?.focused).toBe(true)
+    expect(windows.hidden).toEqual([])
   })
 
-  it('returns to grid mode when the focused screen is removed', async () => {
-    // Design §7: deleting the focused screen returns to grid. Otherwise focus
-    // would point at a gone slot, leaving the rest hidden and muted.
+  it('clears focus when the focused screen is removed', async () => {
+    // Design §7: deleting the focused screen returns to grid. The core only
+    // clears the focus flag; the renderer, seeing that, re-lays-out the wall.
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)
-    const pid1 = launcher.pidForSlot(1)!
-    app.focus(2) // hides pid1
-    windows.shown.length = 0
+    app.focus(2)
     await app.removeSlot(2)
     expect(app.snapshot().find((s) => s.id === 1)?.focused).toBe(false)
-    expect(windows.shown).toContain(pid1)
   })
 
   it('rejects focusing a slot that was never configured', () => {
@@ -356,34 +348,25 @@ describe('focus mode', () => {
   })
 })
 
-describe('re-tiling the running grid', () => {
-  it('gives the survivor the whole screen when its neighbour stops', async () => {
+describe('the core no longer tiles running windows', () => {
+  // Geometry moved to the renderer (Option 1): the core drives no setBounds when
+  // the running set changes. It launches each window at a best-effort cell so it
+  // appears roughly in place, then the renderer corrects it via screens:layout.
+  it('does not reposition a survivor when its neighbour stops', async () => {
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)
-    // Two running: side by side. Then one stops, so the grid is for one again.
     await app.stop(2)
-    expect(windows.bounds.get(launcher.pidForSlot(1)!)).toEqual({
-      x: 0,
-      y: 0,
-      width: 1920,
-      height: 1080,
-    })
+    expect(windows.bounds.size).toBe(0)
   })
 
-  it('re-tiles the survivors when one crashes', async () => {
+  it('does not reposition survivors when one crashes', async () => {
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)
     launcher.killSilently(launcher.pidForSlot(1)!)
     await app.checkLiveness()
-    // Slot 1 is gone; slot 2 should no longer sit in its old half.
-    expect(windows.bounds.get(launcher.pidForSlot(2)!)).toEqual({
-      x: 0,
-      y: 0,
-      width: 1920,
-      height: 1080,
-    })
+    expect(windows.bounds.size).toBe(0)
   })
 })
 
@@ -687,16 +670,12 @@ describe('adding and removing slots', () => {
     })
   }
 
-  it('starts a single slot filling the whole screen', async () => {
+  it('launches a single slot filling the whole screen', async () => {
     const app = oneSlot()
     await app.start(1)
-    // One slot: 1x1 grid, the whole work area.
-    expect(windows.bounds.get(launcher.pidForSlot(1)!)).toEqual({
-      x: 0,
-      y: 0,
-      width: 1920,
-      height: 1080,
-    })
+    // One slot: 1x1 grid, the whole work area — as the launch bounds, since the
+    // core no longer positions the window after it is up.
+    expect(launcher.launched[0]?.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1080 })
   })
 
   it('adds a slot pointed at the given game and returns its id', () => {
@@ -705,48 +684,36 @@ describe('adding and removing slots', () => {
     expect(app.snapshot().map((slot) => slot.id)).toEqual([1, 2])
   })
 
-  it('does not move a running window when a slot is only added', async () => {
+  it('does not touch a running window when a slot is only added', async () => {
     const app = oneSlot()
     await app.start(1)
     app.addSlot({ gameId: 'poke-idleworld' })
-    // The new slot is not running yet, so leaving slot 1 fullscreen avoids a
-    // blank half sitting next to it until the second one launches.
-    expect(windows.bounds.get(launcher.pidForSlot(1)!)?.width).toBe(1920)
+    // The new slot is stopped, so nothing relaunches or repositions slot 1.
+    expect(launcher.launched).toHaveLength(1)
+    expect(windows.bounds.size).toBe(0)
   })
 
-  it('resizes both windows into the two-up layout when the second slot starts', async () => {
+  it('launches the second slot into its half of the two-up grid, without moving the first', async () => {
     const app = oneSlot()
     await app.start(1)
     app.addSlot({ gameId: 'poke-idleworld' })
     await app.start(2)
-    expect(windows.bounds.get(launcher.pidForSlot(1)!)).toEqual({
-      x: 0,
-      y: 0,
-      width: 960,
-      height: 1080,
-    })
-    expect(windows.bounds.get(launcher.pidForSlot(2)!)).toEqual({
-      x: 960,
-      y: 0,
-      width: 960,
-      height: 1080,
-    })
+    // Launch bounds follow the running grid so a window appears roughly in place
+    // before the renderer's first layout; but the core repositions nothing after
+    // launch, so slot 1 is not moved into its new half here.
+    expect(launcher.launched[1]?.bounds).toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+    expect(windows.bounds.size).toBe(0)
   })
 
-  it('uses the 2x2 layout for three slots', async () => {
+  it('uses the 2x2 layout for three slots as launch bounds', async () => {
     const app = oneSlot()
     app.addSlot({ gameId: 'poke-idleworld' })
     app.addSlot({ gameId: 'poke-idleworld' })
     await app.start(1)
     await app.start(2)
     await app.start(3)
-    // 3 slots -> 2x2 grid, three cells filled.
-    expect(windows.bounds.get(launcher.pidForSlot(3)!)).toEqual({
-      x: 0,
-      y: 540,
-      width: 960,
-      height: 540,
-    })
+    // 3 slots -> 2x2 grid, three cells filled; slot 3 takes the bottom-left.
+    expect(launcher.launched[2]?.bounds).toEqual({ x: 0, y: 540, width: 960, height: 540 })
   })
 
   it('refuses to add past the configured maximum', () => {
