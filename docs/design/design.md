@@ -246,10 +246,42 @@ Notificações transitórias (~2,6s) em pílula centralizada na base da área pr
 
 ---
 
-## 13. Notas para a implementação real (Electron)
+## 13. Notas para a implementação real (Chrome reparentado)
 
-- **Estados de tela**: mapear `loading` → `did-start-loading`, `on` → `did-finish-load`, `error` → `did-fail-load` do webview. A simulação de falha aleatória do protótipo (15%) existe apenas para demonstrar o estado de erro e **não deve ser portada**.
-- **Favicon**: usar o evento `page-favicon-updated` do webview em vez do serviço público do Google (mais fiel e funciona offline).
-- **Persistência** (já planejada): configurações por tela (nome, endereço, sessão, volume, mudo), tema, estado do "áudio em foco" e altura das miniaturas.
-- **Atalhos de teclado** (futuro): usar sempre combinações com modificador (Ctrl+1..4 para foco, Ctrl+M para mudo, Esc para sair de foco/tela cheia) e interceptá-las via `before-input-event` no `webContents` de cada webview e da janela principal, chamando `event.preventDefault()` — assim o atalho funciona mesmo com um jogo em foco e a página nunca recebe a tecla. Evitar `globalShortcut` (escopo de sistema).
-- **Áudio em foco**: quando ativo, silenciar programaticamente os webviews fora de foco (`webContents.setAudioMuted(true)`) e restaurar o volume configurado ao receberem foco.
+> Reescrita em 2026-07-22. A versão original assumia webview do Electron; a arquitetura
+> decidida (plano `docs/plans/ui-rework.md`, decisão 1) reparenta janelas de Chrome real via
+> Win32 `SetParent` — as telas **não são `webContents`**, e as APIs do Electron não as
+> alcançam. Cada nota abaixo aponta o equivalente medido no spike da Etapa 0 (findings no
+> plano, a migrar para o ADR-0011).
+
+- **Estados de tela**: não há eventos `did-*` para janelas de outro processo. `loading` =
+  slot lançado e janela ainda não resolvida/embutida; `on` = PID resolvido e janela
+  embutida; `error` = falha de lançamento ou processo morto (detecção de vida por
+  `process.kill(pid, 0)`, como hoje). A simulação de falha aleatória do protótipo (15%)
+  existe apenas para demonstrar o estado de erro e **não deve ser portada**.
+- **Favicon**: **empacotado no app** (ícone do Poke IdleWorld; globo genérico para endereço
+  personalizado). Sem evento de favicon e sem rede em tempo de execução —
+  `connect-src 'none'` permanece.
+- **Persistência** (já planejada): configurações por tela (nome, endereço, sessão, volume,
+  mudo, throttling), tema, estado do "áudio em foco" e altura das miniaturas.
+- **Interação com a tela embutida** (obrigações medidas no spike): o shell encaminha o foco
+  de teclado ao clicar numa tela (`WM_PARENTNOTIFY` via `hookWindowMessage` +
+  `AttachThreadInput`/`SetFocus`) e ao reativar a janela (evento `focus`); reafirma
+  `HWND_TOP` do filho em cada sync de bounds e em mudanças de ativação; **esconde as telas
+  (`SW_HIDE`) enquanto um modal/popover do painel estiver aberto**, porque a janela nativa
+  pinta por cima do DOM.
+- **Recarregar**: `WM_APPCOMMAND` com `APPCOMMAND_BROWSER_REFRESH` (código **3**) direto na
+  janela embutida — sem foco, sem clique, ~310ms. É a **única** operação que preserva o
+  login do jogo (sessão presa à aba, ADR-0009): navegar e voltar, reabrir ou nova aba
+  perdem a sessão.
+- **Atalhos de teclado** (futuro): `before-input-event` não existe para janelas alheias.
+  Atalhos do painel só são capturáveis enquanto o teclado está no renderer do próprio
+  painel; com um jogo em foco, a tecla vai para o Chrome. Se atalhos globais dentro do app
+  forem desejados, a opção honesta é reencaminhá-los a partir do estado de foco que o shell
+  já rastreia — decisão adiada para a implementação. Evitar `globalShortcut` (escopo de
+  sistema) continua valendo.
+- **Áudio em foco**: silenciar/restaurar via WASAPI por processo (mute existente + volume
+  por `ISimpleAudioVolume.SetMasterVolume` no worker PowerShell persistente — p95 de 13ms
+  por ajuste, medido). Não há `setAudioMuted` de webContents para janelas alheias.
+- **Popups** (`window.open` do jogo): abrem como janelas soltas no desktop, fora do painel —
+  comportamento medido; o tratamento de UX é decisão da implementação.

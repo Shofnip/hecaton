@@ -340,8 +340,8 @@ in-app focus mode, per-screen rename/volume/reload — specified in
 window**: Chrome is still spawned exactly as today (no CDP, per-slot `--user-data-dir`), and
 its windows are reparented into the panel via Win32 `SetParent`. The Electron-webview
 alternative was rejected — it would move logged-in sessions into Electron, lose Chrome's
-password manager, and has no per-screen volume API; the design spec's §13 Electron notes
-therefore do not apply. The Phase-0-style reparenting spike ran on 2026-07-22 and **every
+password manager, and has no per-screen volume API; the design spec's §13 was rewritten
+accordingly for the reparenting architecture. The Phase-0-style reparenting spike ran on 2026-07-22 and **every
 item passed** (embedding, input, kill semantics, a working synthetic reload via
 `WM_APPCOMMAND`, a 12 ms persistent volume worker, throttling flags, and Turnstile login
 verified live by the owner); the owner decided **go**. Measurements and the implementation

@@ -24,9 +24,10 @@ CDP, per-slot `--user-data-dir`), and its windows are reparented into the panel 
    re-login, see ADR-0009), and Electron has no per-webContents volume API — while Turnstile
    acceptance inside Electron was never measured. Reparenting keeps everything already
    proven: Turnstile, profile lifecycle (ADR-0005/0008), saved passwords, WASAPI.
-   **Consequence: design.md §13's Electron notes (webview events, `page-favicon-updated`,
-   `setAudioMuted`) do not apply.** The rest of the spec — visuals, behaviour, official UI
-   strings — stands.
+   **Consequence: design.md §13's original Electron notes (webview events,
+   `page-favicon-updated`, `setAudioMuted`) did not apply — §13 was rewritten on 2026-07-22
+   to describe the reparenting equivalents, carrying the spike's measurements.** The rest of
+   the spec — visuals, behaviour, official UI strings — stands as approved.
 2. **Audio-follows-focus changes semantics**: it follows the app's **focus mode**, no longer
    the OS foreground window. Toggle on + no screen in focus mode (normal grid) = **all**
    screens audible at their configured volume; focusing one screen mutes the others;
