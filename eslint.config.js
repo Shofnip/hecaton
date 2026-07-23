@@ -4,7 +4,9 @@ import prettier from 'eslint-config-prettier'
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', 'data/**', 'coverage/**'],
+    // spike/ is disposable probe code outside the packages (see docs/plans/);
+    // it never ships and is not part of the checked codebase.
+    ignores: ['**/dist/**', '**/node_modules/**', 'data/**', 'coverage/**', 'spike/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

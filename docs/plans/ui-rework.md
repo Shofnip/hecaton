@@ -70,9 +70,111 @@ on the results.
 | 0.5 | Hidden-window throttling, four cells: hidden × with/without the three flags, measuring rAF/timers in the page                                                      | A background screen must keep running (default). Plan B if the flags fail: position the window off-view instead of `SW_HIDE`                                                |
 | 0.6 | Turnstile sanity on a reparented window                                                                                                                            | Login passes (real Chrome, no CDP — expected, but measured, not assumed)                                                                                                    |
 
+**Decision (owner, 2026-07-22): GO.** All six items passed; Step 1 may start.
+
 ### Findings
 
-_To be filled by the spike session, per item, with the Chrome and Windows versions measured._
+Measured 2026-07-22 on **Chrome 150.0.7871.181**, **Windows 11 Pro 25H2 (build 26200)**,
+**Electron 43.2.0**, single monitor 1920×1080 at 96 DPI (100 % scaling — mixed-DPI behaviour
+was not measurable on this machine). Probe code in `spike/` (untracked, disposable); telemetry
+was read out of the probe page's `document.title` via `GetWindowText` on the hwnd resolved by
+PID — zero network, consistent with the no-CDP rule.
+
+**0.1 — SetParent: GO.** All criteria pass (`s01`, failures=0).
+
+- Reparent (`SetParent` + `WS_CHILD`, popup/caption/thickframe styles stripped) takes ~40 ms;
+  the child follows panel resizes pixel-exactly; the page relays out and stays interactive;
+  survives `SW_HIDE`/`SW_SHOW`; detach + `WM_CLOSE` still closes Chrome cleanly.
+- **Real user input all works**: clicks, typed text incl. accents/dead keys (`ççç ã`), wheel,
+  arrow keys — verified by hand by the owner in the embedded window.
+- Two things the shell MUST do (both cheap, both verified — first synthetically, then live
+  against the real game in 0.6, where their absence was reproduced as "can click but not
+  type" / "can type but not click" and their application fixed each, immediately):
+  1. **Forward keyboard focus** — clicking a foreign-process `WS_CHILD` does not reliably
+     move keyboard focus to Chrome, and alt-tabbing away and back always parks it on the
+     Electron side. `AttachThreadInput` + `SetFocus` on the child fixes it. Production hooks:
+     `WM_PARENTNOTIFY` reaches the parent on every child click (`win.hookWindowMessage`
+     exposes it) and the BrowserWindow `focus` event covers re-activation; a 0.8 s-interval
+     stand-in loop ("babysitter") validated the behaviour end-to-end during the 0.6 login.
+  2. **Re-assert `HWND_TOP` on every bounds sync AND on activation changes** — Electron is
+     Chromium too, and its own input hwnd (`Chrome_RenderWidgetHostHWND`) re-raises itself
+     on parent resize _and_ on ordinary focus/activation traffic, sitting over the embedded
+     child and swallowing every click. One `SetWindowPos(HWND_TOP)` after `MoveWindow` (and
+     on the same activation hooks as above) cures it. Symptom to remember: clicks dead but
+     painting fine (Electron paints via DirectComposition, so paint order and hwnd z-order
+     disagree).
+- The child window keeps ~14×37 px of Chrome-internal frame (the `--app` title strip): the
+  page viewport is smaller than the cell by that; the strip's ⋯ menu at top-right **captures
+  input if clicked** — the shell should overlay or avoid that region.
+- **Panel modals paint UNDER the embedded child** (2 % of a magenta test modal visible over
+  it). Mitigation verified: `SW_HIDE` the child while a modal is open (modal then 100 %
+  visible; page unharmed; input fine after re-show).
+- `window.open` popups appear as free top-level windows on the desktop (at the spawned
+  window's original position), not inside the panel. Recorded; UX treatment is a design
+  decision for the implementation phase.
+- DPI: both windows report 96; nothing to observe at 100 % scaling.
+
+**0.2 — kill/orphans: the plan's fallback branch is the reality.** Killing the shell process
+with a child reparented **destroys the child window and the Chrome process exits with it**
+(verified: process gone, no window left, nothing to re-adopt; `s02a`/`s02b`). So "reopening
+recovers the farm" is off the table — but so is the orphan problem: a shell crash cannot leave
+strays behind, and the tag-scan cleanup the criterion asked for as plan B has nothing to find.
+Consequence worth naming: **a shell crash takes every screen down with it** (today's free
+windows survive a panel crash). Since the game's login is tab-bound (ADR-0009), those sessions
+would have needed a re-login after any restart anyway; the regression is the lost _uptime_ of
+farms left running, not lost sessions. The graceful path (detach → `WM_CLOSE`) is measured
+clean in 0.1.
+
+**0.3 — synthetic reload: GO, via `WM_APPCOMMAND`, not F5.** The winning shape:
+`SendMessage(hwnd, WM_APPCOMMAND, hwnd, APPCOMMAND_BROWSER_REFRESH<<16)` straight to the
+embedded top-level — reloads in **~310 ms**, needs no focus, no clicks, steals nothing
+(foreground verified unchanged), repeatable, `sessionStorage` survives (login stays, per
+ADR-0009). Everything else measured dead on an embedded window: posted/`SendMessage`'d F5
+key events reach the page but Chrome's browser-side accelerator never fires (embedding
+starves the window of real activation; the same input reloads a free-standing control window
+fine), `WM_ACTIVATE` spoofing does not help, and the detach→click→F5→re-embed workaround
+works (~850 ms) but clicks the game — kept only as a fallback note. Caution for the adapter:
+the appcommand code is 3; **18 launches the Calculator** (measured the hard way).
+Owner-confirmed nuance that raises this item's importance: **an in-tab reload (F5 — what the
+appcommand performs) is the ONLY operation that preserves the game's login.** Navigating away
+and back, reopening the page, or a new tab all lose the session. So the appcommand reload is
+the one session-safe recovery tool the shell has, and any "re-navigate to the URL"
+alternative is ruled out.
+
+**0.4 — persistent volume worker: GO.** The mute adapter's C# surface plus
+`ISimpleAudioVolume.SetMasterVolume`, compiled once in a persistent PowerShell worker
+(stdin line protocol, zero npm deps): **avg 12 ms, p50 12 ms, p95 13 ms, max 19 ms** per
+volume change over a 61-step simulated drag — ~20× under the 270 ms/call shell-out and
+comfortably fluid. Session found by the same browser-pid → audio-service-child mapping as
+the mute adapter; volume readback exact. Worker compile-to-ready is ~680 ms, overlapping
+app startup. (Spike-only flag `--autoplay-policy=no-user-gesture-required` used so the probe
+tone could start a session; production needs no such flag — the game plays audio after real
+user gestures.)
+
+**0.5 — throttling: GO; flags work; plan B also verified.** rAF/s and 100 ms-timer ticks/s
+measured in-page, embedded, per cell (~10 s samples after a 12 s settle):
+
+| cell             | no flags                 | with the three flags    |
+| ---------------- | ------------------------ | ----------------------- |
+| visible embedded | raf ≈ 144, tmr = 10/s    | raf ≈ 144, tmr = 10/s   |
+| `SW_HIDE`        | raf = 0, tmr ≈ **1.8/s** | raf = 0, tmr = **10/s** |
+| moved off-view   | raf ≈ 144, tmr = 10/s    | raf ≈ 144, tmr = 10/s   |
+
+With the flags, a hidden screen keeps full timer rate (the farm's requirement); rAF stops
+either way (`visibilityState` goes `hidden` — expected and harmless for idle games, which
+run on timers/workers, but recorded). Off-view positioning keeps even rAF at full rate with
+`visibilityState: visible` — a stronger plan B than expected, flags or not. Caveat: Chrome's
+_intensive_ throttling (≥5 min hidden) was not held long enough to observe; if it ever bites,
+plan B sidesteps it entirely. rAF ≈ 144 (not 60) on this machine's uncapped compositor —
+values are rates, not vsync-locked.
+
+**0.6 — Turnstile on a reparented window: GO.** Owner-verified live, on a **throwaway temp
+profile** (worst case: no device-trust cookie): Turnstile passed inside the embedded window,
+login completed, and the game was played normally — clicks, typing, paste, and returning
+after alt-tab all fine once the focus/z-order forwarding above was active. One environmental
+note: the login flow involves alt-tabbing to fetch the password, which is exactly what
+exercises finding 0.1-(1)/(2); without the forwarding hooks the window degrades to
+"click-only" or "type-only", so those hooks are a hard prerequisite, not a polish item.
 
 ## Step 1 — core (fast suite, strict TDD)
 
@@ -92,7 +194,8 @@ _To be filled by the spike session, per item, with the Chrome and Windows versio
 - window-manager: reparent, bounds sync on shell resize, and orphan adoption **or** cleanup
   (whichever Step 0.2 established).
 - The persistent WASAPI worker replaces the per-call shell-out (mute + volume).
-- The F5 sender, in the shape 0.3 validated.
+- The reload sender, in the shape 0.3 validated: `WM_APPCOMMAND` with
+  `APPCOMMAND_BROWSER_REFRESH` (code **3** — 18 opens the Calculator).
 
 ## Step 3 — renderer
 

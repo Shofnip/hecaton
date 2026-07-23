@@ -333,18 +333,21 @@ the id never carries a path. Because it discards no session, it needs no confirm
 **clear archives**. Two validated IPC channels back it: `profiles:clearSlotCache` (a slot id)
 and `profiles:clearAllCaches` (no payload).
 
-**Phase 2.5 — UI rework (embedded screens). Not started, gated on a spike.** The panel is
-redesigned into a single-window "video wall" — sidebar, up to four screen cards, an in-app
-focus mode, per-screen rename/volume/reload — specified in
+**Phase 2.5 — UI rework (embedded screens). Spike passed; implementation starting.** The
+panel is redesigned into a single-window "video wall" — sidebar, up to four screen cards, an
+in-app focus mode, per-screen rename/volume/reload — specified in
 [docs/design/design.md](design/design.md). The game windows become **embedded in the shell
 window**: Chrome is still spawned exactly as today (no CDP, per-slot `--user-data-dir`), and
 its windows are reparented into the panel via Win32 `SetParent`. The Electron-webview
 alternative was rejected — it would move logged-in sessions into Electron, lose Chrome's
 password manager, and has no per-screen volume API; the design spec's §13 Electron notes
-therefore do not apply. Everything is gated on a Phase-0-style reparenting spike with
-explicit go/no-go criteria; the execution plan, the owner's decisions and the spike checklist
-live in [docs/plans/ui-rework.md](plans/ui-rework.md). The decision record (ADR-0011) will be
-written after the spike, carrying its measurements, as ADR-0003 did for Phase 0.
+therefore do not apply. The Phase-0-style reparenting spike ran on 2026-07-22 and **every
+item passed** (embedding, input, kill semantics, a working synthetic reload via
+`WM_APPCOMMAND`, a 12 ms persistent volume worker, throttling flags, and Turnstile login
+verified live by the owner); the owner decided **go**. Measurements and the implementation
+obligations they imply live in the Findings section of
+[docs/plans/ui-rework.md](plans/ui-rework.md) until the work lands; the decision record
+(ADR-0011) will be written then, carrying those measurements, as ADR-0003 did for Phase 0.
 
 **Phase 3 — distribution. Not started.** `electron-builder` · Windows installer · code signing
 decision · auto-update · license · Electron security review before the first public release.

@@ -67,6 +67,9 @@ latest*.yml
 # Session handoff between Claude Code sessions: ephemeral working state whose
 # durable content lives in committed docs (see docs/plans/). Never committed.
 .claude/handoff.md
+# Disposable probe code (Phase-0-style spikes). Findings are recorded in
+# docs/plans/ and ADRs; the code itself never ships and never enters git.
+spike/
 coverage/
 *.tsbuildinfo
 .eslintcache
