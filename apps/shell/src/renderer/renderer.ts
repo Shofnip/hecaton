@@ -360,27 +360,24 @@ function render(): void {
     const layer = el('div', 'fullscreen')
     layer.append(card(fs, true))
     board.append(layer)
-    return
-  }
-
-  if (state.slots.length === 0) {
+  } else if (state.slots.length === 0) {
     const empty = el('div', 'stage-empty')
     empty.append(icon('plus', 30))
     empty.append(
       el('span', undefined, 'Nenhuma tela na grade. Use o botão + na lateral para adicionar.'),
     )
     board.append(empty)
-    return
-  }
-
-  if (focused) {
+  } else if (focused) {
     board.append(focusLayout(focused))
-    return
+  } else {
+    const grid = el('div', `grid count-${state.slots.length}`)
+    for (const s of state.slots) grid.append(card(s, false))
+    board.append(grid)
   }
 
-  const grid = el('div', `grid count-${state.slots.length}`)
-  for (const s of state.slots) grid.append(card(s, false))
-  board.append(grid)
+  // Every redraw re-emits the embedded-window layout (coalesced to one per frame),
+  // so the real screens track whatever the board just became.
+  scheduleLayout()
 }
 
 function focusLayout(focused: SlotSnapshot): HTMLElement {
@@ -484,6 +481,10 @@ function targetLabel(s: SlotSnapshot): string {
 
 function viewport(s: SlotSnapshot): HTMLElement {
   const vp = el('div', 'viewport')
+  // Tagged so the layout emitter can find every live viewport in the DOM and
+  // give main the rectangle to sit that slot's embedded window over. Only cards
+  // carry a .viewport — thumbnails show a DOM placeholder, no window.
+  vp.dataset.slot = String(s.id)
   const status = statusOf(s.state)
 
   if (status === 'off') {
@@ -1108,16 +1109,66 @@ function openConfirm(opts: ConfirmOptions): void {
   )
 }
 
-// ============================ live embed layout (added in the next step) ============================
+// ============================ live embed layout (design §5.2, §13) ============================
+
+interface ScreenPlacement {
+  id: number
+  bounds?: { x: number; y: number; width: number; height: number }
+}
 
 /**
- * Recomputes and sends the embedded-screen layout. Wired in the follow-up step
- * (screens:layout emission + the main-side coordinate mapping); for now the
- * panel UI stands on its own and this is a no-op placeholder so the call sites
- * are already in place.
+ * The single source of embedded-window geometry (Option 1). Each card's viewport
+ * is the region its slot's real Chrome window sits over; the renderer measures
+ * those rectangles and tells main where to put the windows. A slot with no
+ * visible viewport — a thumbnail in focus mode, or every slot while a panel modal
+ * or the volume popover is open — is sent without bounds, which hides its window,
+ * because the native window paints over the DOM otherwise (§13).
+ *
+ * Rectangles are physical pixels in the panel's client area: getBoundingClientRect
+ * gives CSS pixels from the client origin (the web content fills the window's
+ * client area), and multiplying by devicePixelRatio is the exact CSS-to-device
+ * ratio for this window's display. Verified at 1x (this machine and the spike);
+ * higher-DPI displays still need a manual check.
  */
+function emitLayout(): void {
+  const rects = new Map<number, DOMRect>()
+  // A modal or the volume popover open ⇒ hide every screen (no rects gathered).
+  const blocked =
+    editingSlotId !== undefined || settingsOpen || confirmOpen || volumeOpenId !== undefined
+  if (!blocked) {
+    for (const vp of board.querySelectorAll<HTMLElement>('.viewport[data-slot]')) {
+      const id = Number(vp.dataset.slot)
+      const rect = vp.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) rects.set(id, rect)
+    }
+  }
+
+  const dpr = window.devicePixelRatio || 1
+  const phys = (v: number, min: number): number => Math.max(min, Math.round(v * dpr))
+  const placements: ScreenPlacement[] = state.slots.map((s) => {
+    const rect = rects.get(s.id)
+    if (!rect) return { id: s.id }
+    return {
+      id: s.id,
+      bounds: {
+        x: phys(rect.left, 0),
+        y: phys(rect.top, 0),
+        width: phys(rect.width, 1),
+        height: phys(rect.height, 1),
+      },
+    }
+  })
+  run(() => window.helloweb.setScreenLayout(placements))
+}
+
+let layoutFrame: number | undefined
+/** Coalesces bursts (render, resize, drag) into one emit per animation frame. */
 function scheduleLayout(): void {
-  // intentionally empty until the embed-coordination step
+  if (layoutFrame !== undefined) return
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = undefined
+    emitLayout()
+  })
 }
 
 // ============================ wiring ============================
@@ -1137,6 +1188,12 @@ document.addEventListener('click', () => {
     render()
   }
 })
+
+// The window resizing moves every viewport, so the embedded windows must follow.
+// A ResizeObserver on the stage catches sidebar-independent reflow too; both feed
+// the same coalesced emit.
+window.addEventListener('resize', scheduleLayout)
+new ResizeObserver(scheduleLayout).observe(document.getElementById('stage')!)
 
 window.helloweb.onState((next) => {
   // A background push must not redraw over an open editor, popover or drag.

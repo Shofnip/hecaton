@@ -384,9 +384,11 @@ function registerIpc(): void {
     'screens:layout': (payload) => {
       // The renderer-owned geometry: where each embedded screen goes, or that it
       // is hidden. Fires on every resize/drag frame, so it neither persists nor
-      // echoes state — it only drives the windows. The core clamps nothing about
-      // the panel, so main is the right place to do it, but that is deferred with
-      // the renderer wiring; for now the validated client-area rects pass through.
+      // echoes state — it only drives the windows. Rectangles arrive as physical
+      // pixels in the panel's client area (the renderer applied devicePixelRatio,
+      // where it is known exactly), so main relays them as-is: a reparented child
+      // is a WS_CHILD, clipped to the parent's client area, so an edge rounded a
+      // pixel long needs no clamp here.
       orchestrator?.applyScreenLayout(parseScreenLayout(payload))
     },
   }
