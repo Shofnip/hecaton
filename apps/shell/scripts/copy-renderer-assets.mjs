@@ -17,10 +17,21 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const FROM = join(HERE, '..', 'src', 'renderer')
 const TO = join(HERE, '..', 'dist', 'renderer')
 
-const ASSETS = ['index.html', 'style.css']
+// Paths relative to the renderer dir. The bundled font and game icon ship here
+// too — the runtime is offline (connect-src 'none'), so both are packaged, never
+// fetched. Sora-OFL.txt travels with the font it licenses.
+const ASSETS = [
+  'index.html',
+  'style.css',
+  'assets/sora-latin.woff2',
+  'assets/sora-latin-ext.woff2',
+  'assets/Sora-OFL.txt',
+  'assets/poke.ico',
+]
 
-mkdirSync(TO, { recursive: true })
 for (const asset of ASSETS) {
-  copyFileSync(join(FROM, asset), join(TO, asset))
+  const target = join(TO, asset)
+  mkdirSync(dirname(target), { recursive: true })
+  copyFileSync(join(FROM, asset), target)
 }
 console.log(`copied ${ASSETS.length} renderer assets to dist/renderer`)

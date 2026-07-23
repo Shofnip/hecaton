@@ -451,10 +451,7 @@ function card(s: SlotSnapshot, expanded: boolean): HTMLElement {
   name.type = 'button'
   name.title = s.focused ? 'Sair do foco' : 'Focar nesta tela'
   name.addEventListener('click', () => toggleFocus(s.id))
-  const fav = icon('globe', 20)
-  fav.classList.add('favicon')
-  fav.setAttribute('title', targetLabel(s))
-  head.append(led, name, fav)
+  head.append(led, name, favicon(s))
   node.append(head)
 
   // ---- viewport ----
@@ -477,6 +474,34 @@ function targetLabel(s: SlotSnapshot): string {
     return state.games.find((g) => g.id === s.gameId)?.name ?? s.gameId
   }
   return s.url ?? 'Endereço personalizado'
+}
+
+/**
+ * The tab-style favicon (design §5.1). Bundled, since the runtime is offline: a
+ * game slot shows the packaged game icon, a custom-url slot the generic globe. If
+ * the icon file ever fails to load it falls back to the globe rather than a broken
+ * image.
+ */
+function favicon(s: SlotSnapshot): Element {
+  const title = targetLabel(s)
+  if (s.gameId !== undefined) {
+    const img = el('img', 'favicon')
+    img.src = './assets/poke.ico'
+    img.width = 22
+    img.height = 22
+    img.alt = title
+    img.title = title
+    img.addEventListener('error', () => img.replaceWith(globeFavicon(title)))
+    return img
+  }
+  return globeFavicon(title)
+}
+
+function globeFavicon(title: string): Element {
+  const g = icon('globe', 20)
+  g.classList.add('favicon')
+  g.setAttribute('title', title)
+  return g
 }
 
 function viewport(s: SlotSnapshot): HTMLElement {
