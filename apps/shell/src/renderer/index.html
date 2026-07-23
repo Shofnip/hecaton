@@ -7,6 +7,11 @@
       The real policy is the header main injects; this tag is the second lock on
       the same door, and it is what protects the page if the window is ever
       loaded by something that does not go through that listener.
+
+      No 'unsafe-inline' anywhere: there are no inline styles or scripts. Dynamic
+      values (theme, thumb height, volume fill) are set through the CSSOM, which
+      the policy allows; connect-src 'none' keeps the runtime offline, so the
+      favicon and font are bundled, never fetched.
     -->
     <meta
       http-equiv="Content-Security-Policy"
@@ -15,43 +20,27 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <header class="bar">
-      <h1>helloweb</h1>
-      <div class="bar-actions">
-        <button id="add-slot" type="button">+ Adicionar slot</button>
-        <button id="reveal-logs" type="button">Abrir logs</button>
-        <button id="clear-all-caches" type="button">Limpar cache de todos</button>
-        <button id="clear-archives" type="button">Limpar arquivados</button>
-        <label class="bar-toggle">
-          <input id="audio-follows-focus" type="checkbox" />
-          Áudio segue o foco
-        </label>
-      </div>
-    </header>
+    <div id="app">
+      <!-- sidebar (design §4). Icons and handlers are wired by the renderer;
+           the structure is fixed, so it lives here rather than being built. -->
+      <aside id="sidebar">
+        <div class="logo" title="helloweb">H</div>
+        <button id="power-all" type="button" class="icon-btn sidebar-btn power-all"></button>
+        <button id="add-screen" type="button" class="icon-btn sidebar-btn add"></button>
+        <div class="spacer"></div>
+        <button
+          id="open-settings"
+          type="button"
+          class="icon-btn sidebar-btn"
+          title="Configurações"
+        ></button>
+      </aside>
 
-    <p class="hint">
-      Salvar a senha no Chrome agiliza o re-login.
-      <button id="hint-toggle" type="button" class="info" aria-label="Mais informações">i</button>
-    </p>
-    <p id="hint-detail" class="hint-detail" hidden>
-      A senha fica armazenada no seu computador, dentro do perfil do Chrome. Se o computador for
-      comprometido, ela pode vazar. Por isso, use uma senha única para as contas jogadas com este
-      software. O aplicativo nunca vê nem envia sua senha para lugar nenhum.
-    </p>
-
-    <p id="config-error" class="error" hidden></p>
-
-    <main id="slots" class="slots"></main>
-
-    <div id="modal" class="modal-backdrop" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-message">
-        <p id="modal-message" class="modal-message"></p>
-        <p id="modal-detail" class="modal-detail"></p>
-        <div class="modal-actions">
-          <button id="modal-cancel" type="button">Cancelar</button>
-          <button id="modal-confirm" type="button" class="danger"></button>
-        </div>
-      </div>
+      <main id="stage">
+        <p id="config-error" class="error-banner" hidden></p>
+        <div id="board"></div>
+        <div id="toast" class="toast" hidden></div>
+      </main>
     </div>
 
     <script type="module" src="./renderer.js"></script>

@@ -1,230 +1,635 @@
+/*
+ * The panel's styles. One file, because the CSP is strict: default-src 'none'
+ * with no 'unsafe-inline', so there are no inline <style> blocks and no style=""
+ * attributes anywhere. Everything visual lives here; the few genuinely dynamic
+ * values (theme, thumbnail height, volume fill) are CSS custom properties the
+ * renderer sets through the CSSOM (el.style.setProperty), which the CSP allows.
+ *
+ * Theme is a data-theme attribute on <html>: the dark tokens are the default on
+ * :root, the light theme overrides them. Both avoid pure black/white surfaces.
+ */
+
+/* ---- theme tokens: dark is the default (design §2.1) ---- */
 :root {
-  --bg: #16181d;
-  --card: #1e2128;
-  --line: #2c313b;
-  --text: #e6e8ec;
-  --muted: #9aa3b2;
-  --accent: #5b9dff;
-  --ok: #4ade80;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  color-scheme: dark;
+  --bg: #15171b;
+  --sidebar: #101216;
+  --panel: #1d2026;
+  --panel-soft: #23262d;
+  --border: #2c3038;
+  --text: #e7e9ec;
+  --muted: #9298a2;
+  --accent: #4cc38a;
+  --accent-soft: rgba(76, 195, 138, 0.14);
+  --warn: #d9b13b;
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.12);
+  --danger-border: rgba(229, 72, 77, 0.33);
+  --screen-off: #0b0c0f;
+  --screen-hint: #4a515c;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --knob: #ffffff;
+
+  --font: 'Sora', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* ---- light theme (design §2.2): paper tones, never pure white ---- */
+:root[data-theme='light'] {
+  --bg: #e3e1db;
+  --sidebar: #d9d7d0;
+  --panel: #efeee9;
+  --panel-soft: #e7e5df;
+  --border: #cfccc4;
+  --text: #41444a;
+  --muted: #7d8188;
+  --accent: #2f8f63;
+  --accent-soft: rgba(47, 143, 99, 0.13);
+  --warn: #a8862c;
+  --danger: #bf4046;
+  --danger-soft: rgba(191, 64, 70, 0.1);
+  --danger-border: rgba(191, 64, 70, 0.33);
+  --screen-off: #191b1f; /* the viewport stays dark in both themes */
+  --screen-hint: #5b6470;
+  --overlay: rgba(52, 54, 58, 0.38);
+  --knob: #fbfaf7;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
-  padding: 1rem;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  font:
-    14px/1.5 'Segoe UI',
-    system-ui,
-    sans-serif;
+  overflow: hidden;
+  transition:
+    background 0.25s ease,
+    color 0.25s ease;
 }
 
-.bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.bar h1 {
-  margin: 0;
-  font-size: 1.1rem;
-  letter-spacing: 0.02em;
-}
-
-.bar-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.bar-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  white-space: nowrap;
-  cursor: pointer;
+@keyframes hw-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 button {
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--card);
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
+  font-family: inherit;
 }
 
-button:hover:not(:disabled) {
-  border-color: var(--accent);
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.slots {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 0.75rem;
-}
-
-.slot {
-  padding: 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-}
-
-.slot-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 0.4rem;
-}
-
-.slot-title {
-  font-weight: 600;
-}
-
-.slot-target {
-  color: var(--muted);
-  font-size: 0.85rem;
-  word-break: break-all;
-  margin-bottom: 0.6rem;
-}
-
-.state {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.state-running {
-  color: var(--ok);
-}
-
-.state-starting,
-.state-restarting {
-  color: var(--warn);
-}
-
-.state-crashed {
-  color: var(--bad);
-}
-
-.state-stopped {
-  color: var(--muted);
-}
-
-.slot-actions {
-  display: flex;
-  gap: 0.4rem;
-}
-
-.tags {
-  display: flex;
-  gap: 0.4rem;
-  margin-bottom: 0.6rem;
-}
-
-.tag {
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--muted);
-  font-size: 0.75rem;
-}
-
-.error {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--bad);
-  border-radius: 8px;
-  background: #2a1c1e;
-  color: var(--bad);
-  white-space: pre-wrap;
-}
-
-.slot-error {
-  margin: 0 0 0.6rem;
-  color: var(--bad);
-  font-size: 0.85rem;
-  word-break: break-word;
-}
-
-.slot-actions + .slot-actions {
-  margin-top: 0.4rem;
-}
-
-.slot-editing {
-  border-color: var(--accent);
-}
-
-.field {
-  margin-bottom: 0.5rem;
-}
-
-.field-check {
+svg {
   display: block;
-  margin-bottom: 0.4rem;
-  color: var(--muted);
-  font-size: 0.9rem;
 }
 
-select,
-input[type='url'] {
+/* ============================ layout ============================ */
+
+#app {
+  display: flex;
   width: 100%;
-  padding: 0.35rem 0.5rem;
-  margin-bottom: 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
+  height: 100vh;
+  overflow: hidden;
 }
 
-.hint {
-  margin: 0 0 0.4rem;
-  color: var(--muted);
-  font-size: 0.85rem;
+/* ---- sidebar (design §4): 50px, icon buttons only, glued to the left ---- */
+#sidebar {
+  width: 50px;
+  flex-shrink: 0;
+  background: var(--sidebar);
+  border: 1px solid var(--border);
+  border-left: none;
+  border-radius: 0 12px 12px 0;
+  margin: 4px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 10px;
 }
 
-.info {
-  width: 1.3rem;
-  height: 1.3rem;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 0.75rem;
-  line-height: 1;
-}
-
-.hint-detail {
-  margin: 0 0 1rem;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
+.logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  margin-bottom: 6px;
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 53%, transparent)
+  );
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
-  background: rgba(0, 0, 0, 0.6);
+  color: #0c1310;
+  font-weight: 800;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.spacer {
+  margin-top: auto;
+}
+
+/* icon buttons: shared base (design §4/§5.3) */
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.icon-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.sidebar-btn {
+  width: 36px;
+  height: 36px;
+}
+
+.sidebar-btn.power-all:hover:not(:disabled),
+.sidebar-btn.add:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* the power-all button carries its on/off intent as a modifier class */
+.power-all.all-on {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.power-all.some-off {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ---- main stage ---- */
+#stage {
+  flex: 1;
+  min-width: 0;
+  padding: 4px;
+  position: relative;
+}
+
+.grid {
+  display: grid;
+  gap: 4px;
+  height: 100%;
+}
+
+.grid.count-1 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+.grid.count-2 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+}
+
+.grid.count-3,
+.grid.count-4 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.stage-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 0 20px;
+}
+
+/* focus mode (design §7) */
+.focus-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.focus-main {
+  flex: 1;
+  min-height: 0;
+}
+
+.focus-divider {
+  height: 10px;
+  flex-shrink: 0;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.focus-divider .grip {
+  width: 44px;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--border);
+  transition: background 0.15s ease;
+  pointer-events: none;
+}
+
+.focus-divider:hover .grip {
+  background: var(--accent);
+}
+
+.thumb-row {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  /* the drag height, set by the renderer; defaults to the design's 100px */
+  height: var(--thumb-height, 100px);
+}
+
+/* fullscreen (design §11): covers the whole app, sidebar included */
+.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--screen-off);
+}
+
+/* ============================ card ============================ */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  height: 100%;
+  transition: border-color 0.2s ease;
+}
+
+.card.running {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 13%, transparent),
+    0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.card.expanded {
+  border: none;
+  border-radius: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.led {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+  transition: all 0.25s ease;
+}
+
+.led.running {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.led.loading {
+  background: var(--warn);
+  box-shadow: 0 0 8px var(--warn);
+}
+
+.led.error {
+  background: var(--danger);
+  box-shadow: 0 0 8px var(--danger);
+}
+
+.card-name {
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.card-name:hover {
+  color: var(--accent);
+}
+
+.favicon {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+/* ---- viewport (design §5.2). The embedded Chrome window is positioned over
+   this region by main; the DOM content here shows only for non-running states. ---- */
+.viewport {
+  flex: 1;
+  position: relative;
+  background: var(--screen-off);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+  color: var(--screen-hint);
+}
+
+.viewport-power {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--screen-hint);
+  transition: color 0.15s ease;
+  font-size: 12px;
+}
+
+.viewport-power:hover {
+  color: var(--accent);
+}
+
+.viewport-loading,
+.viewport-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.viewport-error {
+  gap: 10px;
+  padding: 10px;
+  text-align: center;
+}
+
+.viewport-loading svg {
+  color: var(--warn);
+  animation: hw-spin 1s linear infinite;
+}
+
+.viewport-error svg.alert {
+  color: var(--danger);
+}
+
+.retry-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 14px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.retry-btn:hover {
+  border-color: var(--accent);
+}
+
+/* ---- control bar (design §5.3) ---- */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel-soft);
+}
+
+.controls .ctrl {
+  width: 34px;
+  height: 34px;
+  background: var(--panel);
+}
+
+.controls .flex-gap {
+  flex: 1;
+}
+
+/* the "active" tint an on/focus/volume-open button carries */
+.ctrl.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.ctrl.muted {
+  color: var(--danger);
+}
+
+.ctrl.danger {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+.ctrl.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+}
+
+.ctrl .spin {
+  animation: hw-spin 1s linear infinite;
+}
+
+.ctrl-wrap {
+  position: relative;
+  display: flex;
+}
+
+/* ---- volume popover (design §6) ---- */
+.volume-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 7px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  z-index: 30;
+}
+
+.volume-pct {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.volume-track {
+  width: 13px;
+  height: 77px;
+  border-radius: 99px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.volume-fill {
+  width: 100%;
+  /* set by the renderer as the slider is dragged */
+  height: var(--volume-fill, 0%);
+  background: linear-gradient(
+    180deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 73%, transparent)
+  );
+  transition: height 0.06s linear;
+  pointer-events: none;
+}
+
+.volume-mute {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.volume-mute.muted {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+
+/* ---- thumbnails (design §7) ---- */
+.thumb {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  text-align: left;
+  opacity: 0.85;
+  transition: all 0.15s ease;
+  color: var(--text);
+}
+
+.thumb.running {
+  border-color: color-mix(in srgb, var(--accent) 33%, transparent);
+}
+
+.thumb:hover {
+  opacity: 1;
+  border-color: var(--accent);
+}
+
+.thumb-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.thumb-name {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.thumb-body {
+  flex: 1;
+  background: var(--screen-off);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--screen-hint);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+/* ============================ toast (design §12) ============================ */
+.toast {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 18px;
+  border-radius: 99px;
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 40;
+}
+
+/* ============================ modals ============================ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+  backdrop-filter: blur(3px);
 }
 
 .modal-backdrop[hidden] {
@@ -232,39 +637,340 @@ input[type='url'] {
 }
 
 .modal {
-  width: 100%;
-  max-width: 26rem;
-  padding: 1.2rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--card);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: min(440px, 92vw);
+  padding: 22px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.3);
+  max-height: 92vh;
+  overflow-y: auto;
 }
 
-.modal-message {
-  margin: 0 0 0.5rem;
-  font-size: 1rem;
-  font-weight: 600;
+.modal.narrow {
+  width: min(380px, 92vw);
 }
 
-.modal-detail {
-  margin: 0 0 1.2rem;
+.modal.danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.modal-title-row svg {
+  color: var(--danger);
+}
+
+.modal-title-row h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-desc {
+  margin: 0 0 18px;
+  font-size: 13.5px;
   color: var(--muted);
-  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .modal-actions {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
-  gap: 0.5rem;
 }
 
-.danger {
-  border-color: var(--bad);
-  color: var(--bad);
+.btn {
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  cursor: pointer;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--text);
+  transition: all 0.15s ease;
 }
 
-.danger:hover:not(:disabled) {
-  border-color: var(--bad);
-  background: #2a1c1e;
+.btn.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+}
+
+.btn.destructive {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  font-weight: 700;
+}
+
+/* ---- toggle (design §10) ---- */
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--text);
+  transition: all 0.18s ease;
+}
+
+.toggle.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.toggle-desc {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.toggle-switch {
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  border-radius: 99px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.18s ease;
+}
+
+.toggle.on .toggle-switch {
+  background: var(--accent);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--knob);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: left 0.18s ease;
+}
+
+.toggle.on .toggle-knob {
+  left: 21px;
+}
+
+/* ---- settings rows ---- */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.neutral-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.neutral-btn svg {
+  color: var(--muted);
+}
+
+/* segmented theme control (design §10.3) */
+.segmented {
+  display: flex;
+  background: var(--panel);
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.segmented button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.segmented button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ---- danger button (design §9) ---- */
+.danger-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--danger);
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.danger-btn:hover {
+  border-color: var(--danger);
+}
+
+.danger-btn svg {
+  flex-shrink: 0;
+}
+
+.danger-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.danger-desc {
+  display: block;
+  font-size: 12px;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.risk-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 0;
+}
+
+.risk-label {
+  font-size: 11px;
+  color: var(--danger);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ---- edit modal fields (design §8) ---- */
+.field-box {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.field-input,
+.field-select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 9px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  width: 100%;
+}
+
+.field-select {
+  cursor: pointer;
+}
+
+.url-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.url-row svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.url-row .field-input {
+  flex: 1;
+}
+
+.error-banner {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin: 4px;
+}
+
+[hidden] {
+  display: none !important;
 }

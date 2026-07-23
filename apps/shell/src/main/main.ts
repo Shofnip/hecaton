@@ -258,7 +258,15 @@ function registerIpc(): void {
       pushState()
     },
 
-    'slot:focus': (payload) => orchestrator.focus(parseSlotId(payload)),
+    'slot:focus': (payload) => {
+      // Focus is server-authoritative: the orchestrator flips focusedSlotId (the
+      // audio policy reads it) and we push the new snapshot so the renderer, seeing
+      // the `focused` flag move, re-lays-out the wall. The boolean is still returned
+      // for a caller that wants the immediate result.
+      const nowFocused = orchestrator.focus(parseSlotId(payload))
+      pushState()
+      return nowFocused
+    },
 
     'slot:add': async (payload) => {
       orchestrator.addSlot(parseSlotAddition(payload, globals))
