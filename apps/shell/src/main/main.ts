@@ -87,6 +87,26 @@ let slots: SlotOverrides[]
 let panel: BrowserWindow | undefined
 /** Surfaced on the panel rather than thrown away when config cannot be read. */
 let configError: string | undefined
+// The two adapters that own a persistent PowerShell worker. Held here, not just
+// inside the orchestrator, so shutdown can dispose them — an undisposed worker
+// leaves an orphaned powershell.exe behind after the app closes.
+let audioController: WasapiAudioController | undefined
+let windowManager: NativeWindowManager | undefined
+
+/**
+ * The panel's native window handle, as the number the Win32 worker embeds into.
+ *
+ * Read lazily by the window adapter at reparent time, not at construction: the
+ * orchestrator (and its adapters) is built before the panel exists, and the
+ * closure sees `panel` once it does. getNativeWindowHandle hands back a Buffer
+ * holding the HWND pointer — 8 bytes on 64-bit Windows — which a real window
+ * handle fits inside a JS safe integer.
+ */
+function panelHwnd(): number | undefined {
+  if (!panel) return undefined
+  const handle = panel.getNativeWindowHandle()
+  return handle.length >= 8 ? Number(handle.readBigUInt64LE(0)) : handle.readUInt32LE(0)
+}
 
 async function loadConfiguration(): Promise<void> {
   const registry = buildGameRegistry()
@@ -102,9 +122,15 @@ async function loadConfiguration(): Promise<void> {
     if (firstGame !== undefined) slots = firstRunSlots(firstGame, 1)
   }
 
+  // Built before the orchestrator and kept, so shutdown can dispose their
+  // workers. The window adapter embeds into the panel, which does not exist yet;
+  // panelHwnd is read lazily, at reparent time, by which point it does.
+  audioController = new WasapiAudioController()
+  windowManager = new NativeWindowManager(panelHwnd)
+
   orchestrator = new Orchestrator({
     launcher: new ChromeLauncher(profilesDir()),
-    windows: new NativeWindowManager(),
+    windows: windowManager,
     screen: screen.getPrimaryDisplay().workArea,
     globals,
     registry,
@@ -112,7 +138,7 @@ async function loadConfiguration(): Promise<void> {
     autoRestart: true,
     logger,
     profiles,
-    audio: new WasapiAudioController(),
+    audio: audioController,
   })
 }
 
@@ -431,4 +457,18 @@ if (!app.requestSingleInstanceLock()) {
 
   // The panel is the app. Closing it should not leave a tray-less process behind.
   app.on('window-all-closed', () => app.quit())
+
+  // Dispose the adapters' persistent workers before the process exits, so no
+  // orphaned powershell.exe outlives the app. Quit is deferred once while the
+  // async teardown (send "exit", then kill the child) runs — Electron does not
+  // wait for a promise in a quit handler otherwise.
+  let disposed = false
+  app.on('before-quit', (event) => {
+    if (disposed) return
+    disposed = true
+    event.preventDefault()
+    void Promise.allSettled([audioController?.dispose(), windowManager?.dispose()]).finally(() =>
+      app.quit(),
+    )
+  })
 }
