@@ -33,5 +33,21 @@ export function buildChromeArgs(request: LaunchRequest, profilePath: string): st
 
   if (request.mute) args.push('--mute-audio')
 
+  // Embedded screens must keep running while hidden behind the video wall
+  // (decision 6): the farm cannot pause the moment a screen is not on top. A
+  // hidden window that keeps its full timer rate is what these three flags buy.
+  // They are performance flags, not security ones — they weaken no browser
+  // protection — but they ARE fragile across Chrome versions (precedent:
+  // --load-extension), so the version the spike measured them on is recorded:
+  // Chrome 150.0.7871.181. A per-screen toggle re-enables throttling by setting
+  // backgroundThrottling to true, for screens where saving resources matters.
+  if (!request.backgroundThrottling) {
+    args.push(
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+    )
+  }
+
   return args
 }

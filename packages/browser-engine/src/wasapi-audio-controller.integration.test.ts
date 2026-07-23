@@ -108,7 +108,10 @@ describe.skipIf(!onWindows || !CHROME)('WasapiAudioController', () => {
     await new Promise((resolve) => setTimeout(resolve, 4000))
   }, 120_000)
 
-  afterAll(() => {
+  afterAll(async () => {
+    // The controller now drives a persistent PowerShell worker; without closing
+    // it the test process would not exit.
+    await controller?.dispose()
     if (a) {
       kill(a.pid)
       removeDir(a.profile)
@@ -138,5 +141,52 @@ describe.skipIf(!onWindows || !CHROME)('WasapiAudioController', () => {
   it('does not throw for a pid with no audio session', async () => {
     await expect(controller.setMuted(999_999, true)).resolves.toBeUndefined()
     expect(await controller.probeMuted(999_999)).toBeUndefined()
+  })
+
+  describe('per-screen volume', () => {
+    // Volume rides the same WASAPI session as mute (ISimpleAudioVolume), through
+    // the persistent worker the reparenting spike measured at ~12 ms/change so a
+    // slider drag stays fluid.
+    it('sets a slot volume and reads it back', async () => {
+      await controller.setVolume(a.pid, 25)
+      expect(await controller.probeVolume(a.pid)).toBeCloseTo(0.25, 2)
+    })
+
+    it('is independent of the mute flag: a muted session keeps its volume', async () => {
+      await controller.setVolume(a.pid, 40)
+      await controller.setMuted(a.pid, true)
+      expect(await controller.probeVolume(a.pid)).toBeCloseTo(0.4, 2)
+      await controller.setMuted(a.pid, false)
+    })
+
+    it('clamps to the endpoints 0 and 100', async () => {
+      await controller.setVolume(a.pid, 0)
+      expect(await controller.probeVolume(a.pid)).toBeCloseTo(0, 2)
+      await controller.setVolume(a.pid, 100)
+      expect(await controller.probeVolume(a.pid)).toBeCloseTo(1, 2)
+    })
+
+    it('does not touch the neighbour when one slot changes volume', async () => {
+      await controller.setVolume(b.pid, 70)
+      await controller.setVolume(a.pid, 10)
+      expect(await controller.probeVolume(b.pid)).toBeCloseTo(0.7, 2)
+    })
+
+    it('stays fluid across a simulated slider drag', async () => {
+      // The reason the worker is persistent: 60 changes must each land quickly.
+      // Not a hard latency assertion (CI machines vary) — just that a burst of
+      // rapid changes all succeed and the final value sticks.
+      for (let i = 0; i <= 60; i++) {
+        const level = Math.round(50 + 50 * Math.sin((i / 60) * Math.PI * 2))
+        await controller.setVolume(a.pid, level)
+      }
+      await controller.setVolume(a.pid, 50)
+      expect(await controller.probeVolume(a.pid)).toBeCloseTo(0.5, 2)
+    })
+
+    it('does not throw for a pid with no audio session', async () => {
+      await expect(controller.setVolume(999_999, 50)).resolves.toBeUndefined()
+      expect(await controller.probeVolume(999_999)).toBeUndefined()
+    })
   })
 })

@@ -53,6 +53,31 @@ describe('buildChromeArgs', () => {
     expect(buildChromeArgs({ ...REQUEST, mute: true }, PROFILE_PATH)).toContain('--mute-audio')
   })
 
+  describe('background throttling', () => {
+    // Embedded screens keep running while hidden (decision 6): a hidden window
+    // that keeps its full timer rate is the farm's requirement. The three flags
+    // are the ones the spike measured (Chrome 150.0.7871.181) — they are fragile
+    // across Chrome versions, which is why the version is recorded here and in
+    // the plan.
+    const THROTTLING_FLAGS = [
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+    ]
+
+    it('disables throttling by default, so a hidden screen keeps running', () => {
+      // backgroundThrottling: false is the default (Etapa 1) — throttling off,
+      // flags applied.
+      const args = buildChromeArgs(REQUEST, PROFILE_PATH)
+      for (const flag of THROTTLING_FLAGS) expect(args).toContain(flag)
+    })
+
+    it('omits the flags when a screen opts back into throttling to save resources', () => {
+      const args = buildChromeArgs({ ...REQUEST, backgroundThrottling: true }, PROFILE_PATH)
+      for (const flag of THROTTLING_FLAGS) expect(args).not.toContain(flag)
+    })
+  })
+
   it('handles a negative window position, for a monitor left of the primary', () => {
     const request: LaunchRequest = {
       ...REQUEST,

@@ -96,24 +96,13 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
     expect(manager.boundsOf(pid)).toEqual({ x: 0, y: 0, width: 960, height: 540 })
   })
 
-  it('brings the window to the front', () => {
-    expect(manager.focus(pid)).toBe(true)
-  })
-
-  it('reports the focused window by pid', async () => {
-    // Audio-follows-focus stands on this: the foreground window is identified by
-    // the same pid the launcher and setBounds speak, never by title. After we
-    // bring our own window to the front, it is the one the OS reports.
-    expect(manager.focus(pid)).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    expect(manager.foregroundPid()).toBe(pid)
-  })
-
   it('reports failure for a pid with no window, instead of throwing', () => {
     // The orchestrator calls this while a browser is still starting up.
     expect(manager.setBounds(999_999, { x: 0, y: 0, width: 100, height: 100 })).toBe(false)
-    expect(manager.focus(999_999)).toBe(false)
     expect(manager.boundsOf(999_999)).toBeUndefined()
+    expect(manager.hide(999_999)).toBe(false)
+    expect(manager.show(999_999)).toBe(false)
+    expect(manager.reload(999_999)).toBe(false)
   })
 
   it('handles a negative position, for a monitor left of the primary', () => {
@@ -176,18 +165,147 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
     })
   })
 
-  describe('a maximised window', () => {
-    it('is restored before being placed, so the move is visible', () => {
-      // setBounds on a maximised window is accepted and applied underneath: on
-      // screen it stays maximised, and only snaps to the new place when the
-      // user restores it by hand. "Restore the grid" appeared to do nothing.
-      expect(manager.maximize(pid)).toBe(true)
-      const asked = { x: 200, y: 200, width: 600, height: 450 }
-      expect(manager.setBounds(pid, asked)).toBe(true)
-      expect(manager.boundsOf(pid)).toEqual(asked)
+  /**
+   * The video wall embeds each spawned Chrome window into the panel with Win32
+   * SetParent, so a game becomes a cell instead of a free desktop window. These
+   * run last, because reparenting the shared window into a stand-in panel
+   * consumes it: after this it is a WS_CHILD, not the top-level window the tests
+   * above drive.
+   */
+  describe('embedding into the panel', () => {
+    let parentPid: number
+    let parentProfile: string
+    let parentHwnd: number
+    let childHwnd: number
+    let embedManager: NativeWindowManager
+
+    beforeAll(async () => {
+      // A second Chrome window stands in for the Electron panel to embed into —
+      // any valid HWND is a valid SetParent target, and this keeps the test out
+      // of Electron.
+      parentProfile = mkdtempSync(join(tmpdir(), 'helloweb-panel-'))
+      const child = spawn(
+        CHROME!,
+        [
+          `--user-data-dir=${parentProfile}`,
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--window-position=200,200',
+          '--window-size=1000,800',
+          '--new-window',
+          'about:blank',
+        ],
+        { detached: true, stdio: 'ignore' },
+      )
+      child.unref()
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const found = browserPidFor(parentProfile)
+        if (found !== undefined) {
+          parentPid = found
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+      expect(parentPid).toBeGreaterThan(0)
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+
+      // Resolve both handles while they are still top-level, then build a manager
+      // that knows where the panel is.
+      parentHwnd = new NativeWindowManager().windowIdOf(parentPid)!
+      childHwnd = new NativeWindowManager().windowIdOf(pid)!
+      expect(parentHwnd).toBeGreaterThan(0)
+      expect(childHwnd).toBeGreaterThan(0)
+      embedManager = new NativeWindowManager(() => parentHwnd)
+    }, 90_000)
+
+    afterAll(async () => {
+      try {
+        execFileSync('taskkill', ['/PID', String(parentPid), '/F', '/T'], { stdio: 'ignore' })
+      } catch {
+        // already gone
+      }
+      for (let attempt = 0; attempt < 20; attempt++) {
+        try {
+          rmSync(parentProfile, { recursive: true, force: true })
+          return
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 250))
+        }
+      }
+    })
+
+    it('embeds a spawned window into the panel window', () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      // Confirm the embed independently, through DWM/user32 rather than the
+      // adapter's own bookkeeping: the child's parent is now the panel.
+      expect(parentOf(childHwnd)).toBe(parentHwnd)
+    })
+
+    it('is idempotent, so the core may call it whenever it places a slot', () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(parentOf(childHwnd)).toBe(parentHwnd)
+    })
+
+    it('still finds the embedded window by pid, which node-window-manager cannot', () => {
+      // The whole reason for the pid->hwnd cache: once embedded the window is no
+      // longer top-level, so a fresh manager (no cache) loses it.
+      expect(embedManager.windowIdOf(pid)).toBe(childHwnd)
+      expect(new NativeWindowManager().windowIdOf(pid)).toBeUndefined()
+    })
+
+    it('hides and shows the embedded window', () => {
+      expect(embedManager.hide(pid)).toBe(true)
+      expect(isVisibleWindow(childHwnd)).toBe(false)
+      expect(embedManager.show(pid)).toBe(true)
+      expect(isVisibleWindow(childHwnd)).toBe(true)
+    })
+
+    it('reloads the embedded window in place', () => {
+      // WM_APPCOMMAND returns whether the message was delivered, not what the
+      // page did; that the login survives a reload is ADR-0009's field test, not
+      // something an about:blank window can show. Here: it does not throw and the
+      // window stays alive and embedded.
+      expect(embedManager.reload(pid)).toBe(true)
+      expect(parentOf(childHwnd)).toBe(parentHwnd)
     })
   })
 })
+
+/** The direct parent of a window (GetAncestor GA_PARENT), straight from user32. */
+function parentOf(hwnd: number): number {
+  return Number(win32Query(`GetAncestor([IntPtr]${hwnd}, 1).ToInt64()`))
+}
+
+/** Whether a window is visible (IsWindowVisible), straight from user32. */
+function isVisibleWindow(hwnd: number): boolean {
+  return win32Query(`IsWindowVisible([IntPtr]${hwnd})`).trim() === 'True'
+}
+
+/** Runs one user32 expression and returns its printed result. */
+function win32Query(expression: string): string {
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class ProbeUser32 {
+  [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint f);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+}
+'@
+[ProbeUser32]::${expression}
+`
+  return execFileSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-EncodedCommand',
+      Buffer.from(script, 'utf16le').toString('base64'),
+    ],
+    // Silence stderr: Add-Type writes a CLIXML progress record there on first use.
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+  ).trim()
+}
 
 /** The painted rectangle of a window, straight from DWM. */
 function visibleBoundsOf(hwnd: number): { x: number; y: number; width: number; height: number } {
