@@ -16,8 +16,13 @@
  * here. `resolveSlotConfig` owns them, and calling it is what keeps one
  * implementation of the rules and one place to audit them.
  */
-import { DEFAULT_GLOBAL_CONFIG, SCHEMA_VERSION, resolveSlotConfig } from './config.js'
-import type { GlobalConfig, SlotOverrides } from './config.js'
+import {
+  DEFAULT_GLOBAL_CONFIG,
+  MAX_SLOT_NAME_LENGTH,
+  SCHEMA_VERSION,
+  resolveSlotConfig,
+} from './config.js'
+import type { GlobalConfig, SlotOverrides, Theme } from './config.js'
 import { normalizeUrl } from './normalize-url.js'
 
 export interface ParsedConfig {
@@ -31,6 +36,7 @@ const GLOBAL_KEYS = [
   'persistProfile',
   'mute',
   'audioFollowsFocus',
+  'theme',
   'slots',
 ] as const
 const SLOT_KEYS = [
@@ -44,9 +50,6 @@ const SLOT_KEYS = [
   'muted',
   'backgroundThrottling',
 ] as const
-
-/** The screen name is UI text with a hard cap, mirrored by the slots:rename channel. */
-const MAX_NAME_LENGTH = 24
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -83,6 +86,13 @@ function requirePositiveInteger(value: unknown, field: string, context: string):
     throw new Error(`${context}${field} must be a positive integer, got ${JSON.stringify(value)}`)
   }
   return value as number
+}
+
+function requireTheme(value: unknown, context: string): Theme {
+  if (value !== 'dark' && value !== 'light') {
+    throw new Error(`${context}theme must be "dark" or "light", got ${JSON.stringify(value)}`)
+  }
+  return value
 }
 
 function requireString(value: unknown, field: string, context: string): string {
@@ -162,8 +172,8 @@ function readSlotFields(
   if (input['mute'] !== undefined) into.mute = requireBoolean(input['mute'], 'mute', context)
   if (input['name'] !== undefined) {
     const name = requireString(input['name'], 'name', context)
-    if (name.length > MAX_NAME_LENGTH) {
-      throw new Error(`${context}name must be at most ${MAX_NAME_LENGTH} characters`)
+    if (name.length > MAX_SLOT_NAME_LENGTH) {
+      throw new Error(`${context}name must be at most ${MAX_SLOT_NAME_LENGTH} characters`)
     }
     into.name = name
   }
@@ -257,6 +267,12 @@ export function parseConfig(input: unknown): ParsedConfig {
       input['audioFollowsFocus'] === undefined
         ? DEFAULT_GLOBAL_CONFIG.audioFollowsFocus
         : requireBoolean(input['audioFollowsFocus'], 'audioFollowsFocus', 'config: '),
+    // Additive like audioFollowsFocus: absent means the shipped default (dark);
+    // present but not one of the two themes is a typo, not a silent fallback.
+    theme:
+      input['theme'] === undefined
+        ? DEFAULT_GLOBAL_CONFIG.theme
+        : requireTheme(input['theme'], 'config: '),
   }
 
   const rawSlots = input['slots']

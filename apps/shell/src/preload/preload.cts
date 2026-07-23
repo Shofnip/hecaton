@@ -40,6 +40,14 @@ const api = {
   clearSlotCache: (id: number) => ipcRenderer.invoke('profiles:clearSlotCache', id),
   clearAllCaches: () => ipcRenderer.invoke('profiles:clearAllCaches'),
 
+  // The video-wall runtime controls (UI rework, decision 7).
+  renameSlot: (id: number, name: string) => ipcRenderer.invoke('slots:rename', { id, name }),
+  setSlotVolume: (id: number, volume: number) =>
+    ipcRenderer.invoke('slots:setVolume', { id, volume }),
+  setSlotMuted: (id: number, muted: boolean) => ipcRenderer.invoke('slots:setMuted', { id, muted }),
+  reloadSlot: (id: number) => ipcRenderer.invoke('slots:reload', id),
+  setTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme),
+
   /**
    * State pushed by main. The listener receives only the payload: handing over
    * the Electron event would leak `sender`, and with it a way back into the

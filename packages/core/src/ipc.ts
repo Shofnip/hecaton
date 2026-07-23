@@ -17,7 +17,8 @@
  * generic invoke(method, args) would be less code today and an
  * arbitrary-call surface the first time someone forwards a method name.
  */
-import type { GlobalConfig, SlotOverrides } from './config.js'
+import { MAX_SLOT_NAME_LENGTH } from './config.js'
+import type { GlobalConfig, SlotOverrides, Theme } from './config.js'
 import { parseSlotOverrides } from './parse-config.js'
 
 /**
@@ -41,6 +42,13 @@ export const IPC_CHANNELS = [
   'profiles:clearArchives',
   'profiles:clearSlotCache',
   'profiles:clearAllCaches',
+  // The video-wall runtime controls (UI rework, decision 7): a fixed contract —
+  // any channel beyond these stops the work for the owner (CLAUDE.md rule 2).
+  'slots:rename',
+  'slots:setVolume',
+  'slots:setMuted',
+  'slots:reload',
+  'ui:setTheme',
 ] as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number]
@@ -91,6 +99,65 @@ export function parseAudioFollowsFocus(input: unknown): boolean {
  */
 export function parseSlotUpdate(input: unknown, globals: GlobalConfig): SlotOverrides {
   return parseSlotOverrides(input, globals, 'slot update')
+}
+
+/** The `{id, ...}` shape the runtime slots:* channels carry, before its field. */
+function requireIdObject(
+  input: unknown,
+  where: string,
+): { id: number; rest: Record<string, unknown> } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new Error(`${where} must be an object, got ${JSON.stringify(input)}`)
+  }
+  const rest = input as Record<string, unknown>
+  return { id: parseSlotId(rest['id']), rest }
+}
+
+/**
+ * A rename from the edit modal: a slot id and its new display name.
+ *
+ * An empty name is valid, not rejected — the modal clears the field to revert
+ * to the "Tela {N}" placeholder, and the orchestrator reads "" as that revert.
+ * The 24-char cap is the same constant the config file and the slot parser use.
+ */
+export function parseSlotRename(input: unknown): { id: number; name: string } {
+  const { id, rest } = requireIdObject(input, 'slot rename')
+  const name = rest['name']
+  if (typeof name !== 'string') {
+    throw new Error(`slot name must be a string, got ${JSON.stringify(name)}`)
+  }
+  if (name.length > MAX_SLOT_NAME_LENGTH) {
+    throw new Error(`slot name must be at most ${MAX_SLOT_NAME_LENGTH} characters`)
+  }
+  return { id, name }
+}
+
+/** A volume change from the popover: a slot id and a 0-100 integer. */
+export function parseSlotVolume(input: unknown): { id: number; volume: number } {
+  const { id, rest } = requireIdObject(input, 'slot volume')
+  const volume = rest['volume']
+  if (!Number.isInteger(volume) || (volume as number) < 0 || (volume as number) > 100) {
+    throw new Error(`volume must be an integer between 0 and 100, got ${JSON.stringify(volume)}`)
+  }
+  return { id, volume: volume as number }
+}
+
+/** A mute toggle from the popover: a slot id and a boolean. */
+export function parseSlotMuted(input: unknown): { id: number; muted: boolean } {
+  const { id, rest } = requireIdObject(input, 'slot muted')
+  const muted = rest['muted']
+  if (typeof muted !== 'boolean') {
+    throw new Error(`muted must be true or false, got ${JSON.stringify(muted)}`)
+  }
+  return { id, muted }
+}
+
+/** The theme toggle: one of the two shipped themes, validated as a literal. */
+export function parseTheme(input: unknown): Theme {
+  if (input !== 'dark' && input !== 'light') {
+    throw new Error(`theme must be "dark" or "light", got ${JSON.stringify(input)}`)
+  }
+  return input
 }
 
 // A slot the panel wants to add carries no id — the orchestrator assigns it —

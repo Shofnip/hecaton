@@ -6,7 +6,11 @@ import {
   parseNoPayload,
   parseSlotAddition,
   parseSlotId,
+  parseSlotMuted,
+  parseSlotRename,
   parseSlotUpdate,
+  parseSlotVolume,
+  parseTheme,
 } from './ipc.js'
 
 const globals = DEFAULT_GLOBAL_CONFIG
@@ -35,7 +39,84 @@ describe('the channel list', () => {
       'profiles:clearArchives',
       'profiles:clearSlotCache',
       'profiles:clearAllCaches',
+      'slots:rename',
+      'slots:setVolume',
+      'slots:setMuted',
+      'slots:reload',
+      'ui:setTheme',
     ])
+  })
+})
+
+describe('parseSlotRename', () => {
+  it('accepts an id and a name within the cap', () => {
+    expect(parseSlotRename({ id: 2, name: 'Fazenda' })).toEqual({ id: 2, name: 'Fazenda' })
+  })
+
+  it('accepts an empty name, which the orchestrator reads as "revert to default"', () => {
+    // The edit modal clears the field to go back to the "Tela {N}" placeholder,
+    // so an empty string is a valid rename, not a rejected one.
+    expect(parseSlotRename({ id: 1, name: '' })).toEqual({ id: 1, name: '' })
+  })
+
+  it('rejects a name past 24 characters', () => {
+    expect(() => parseSlotRename({ id: 1, name: 'x'.repeat(25) })).toThrow(/24/)
+  })
+
+  it.each([
+    ['a non-string name', { id: 1, name: 5 }],
+    ['a missing name', { id: 1 }],
+    ['a zero id', { id: 0, name: 'a' }],
+    ['not an object', 'nope'],
+  ])('rejects %s', (_case, input) => {
+    expect(() => parseSlotRename(input)).toThrow()
+  })
+})
+
+describe('parseSlotVolume', () => {
+  it('accepts an id and a 0-100 volume', () => {
+    expect(parseSlotVolume({ id: 3, volume: 0 })).toEqual({ id: 3, volume: 0 })
+    expect(parseSlotVolume({ id: 3, volume: 100 })).toEqual({ id: 3, volume: 100 })
+  })
+
+  it.each([
+    ['a volume above 100', { id: 1, volume: 101 }],
+    ['a negative volume', { id: 1, volume: -1 }],
+    ['a fractional volume', { id: 1, volume: 50.5 }],
+    ['a non-number volume', { id: 1, volume: '50' }],
+    ['a missing id', { volume: 50 }],
+  ])('rejects %s', (_case, input) => {
+    expect(() => parseSlotVolume(input)).toThrow()
+  })
+})
+
+describe('parseSlotMuted', () => {
+  it('accepts an id and a boolean', () => {
+    expect(parseSlotMuted({ id: 1, muted: true })).toEqual({ id: 1, muted: true })
+    expect(parseSlotMuted({ id: 1, muted: false })).toEqual({ id: 1, muted: false })
+  })
+
+  it.each([
+    ['a truthy non-boolean', { id: 1, muted: 1 }],
+    ['a missing flag', { id: 1 }],
+    ['a bad id', { id: -2, muted: true }],
+  ])('rejects %s', (_case, input) => {
+    expect(() => parseSlotMuted(input)).toThrow()
+  })
+})
+
+describe('parseTheme', () => {
+  it('accepts the two themes', () => {
+    expect(parseTheme('dark')).toBe('dark')
+    expect(parseTheme('light')).toBe('light')
+  })
+
+  it.each([
+    ['an unknown theme', 'sepia'],
+    ['a non-string', 1],
+    ['undefined', undefined],
+  ])('rejects %s', (_case, input) => {
+    expect(() => parseTheme(input)).toThrow(/theme/i)
   })
 })
 

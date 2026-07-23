@@ -36,6 +36,7 @@ describe('parseConfig on a valid file', () => {
         persistProfile: true,
         mute: false,
         audioFollowsFocus: true,
+        theme: 'dark',
       },
       slots: [
         { id: 1, gameId: 'poke-idleworld' },
@@ -78,6 +79,17 @@ describe('parseConfig on a valid file', () => {
     expect('audioFollowsFocus' in valid).toBe(false)
     expect(parseConfig(valid).globals.audioFollowsFocus).toBe(true)
   })
+
+  it('reads an explicit theme', () => {
+    expect(parseConfig({ ...valid, theme: 'light' }).globals.theme).toBe('light')
+  })
+
+  it('defaults theme to dark when the file predates the setting', () => {
+    // Additive like audioFollowsFocus: an older file omits the key, and its
+    // absence means the shipped default (dark).
+    expect('theme' in valid).toBe(false)
+    expect(parseConfig(valid).globals.theme).toBe('dark')
+  })
 })
 
 describe('parseConfig refuses a file it cannot fully understand', () => {
@@ -100,6 +112,7 @@ describe('parseConfig refuses a file it cannot fully understand', () => {
     ['a non-boolean persistProfile', { ...valid, persistProfile: 'yes' }],
     ['a non-boolean mute', { ...valid, mute: 1 }],
     ['a non-boolean audioFollowsFocus', { ...valid, audioFollowsFocus: 'on' }],
+    ['an unknown theme', { ...valid, theme: 'sepia' }],
     ['slots that are not an array', { ...valid, slots: {} }],
   ])('rejects %s', (_case, input) => {
     expect(() => parseConfig(input)).toThrow()

@@ -23,10 +23,14 @@ import {
   parseNoPayload,
   parseSlotAddition,
   parseSlotId,
+  parseSlotMuted,
+  parseSlotRename,
   parseSlotUpdate,
+  parseSlotVolume,
+  parseTheme,
 } from '@helloweb/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@helloweb/core'
-import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot } from '@helloweb/core'
+import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@helloweb/core'
 import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@helloweb/browser-engine'
 import { NativeWindowManager } from '@helloweb/window-manager'
 import {
@@ -118,11 +122,25 @@ async function saveConfiguration(): Promise<void> {
   await storage.save(value)
 }
 
+// A volume-slider drag fires dozens of changes a second; each applies to audio
+// at once (the persistent WASAPI worker is ~12ms) but persisting every one would
+// thrash config.json. A trailing debounce coalesces the burst into one write of
+// the final value.
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+function saveConfigurationSoon(): void {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    saveTimer = undefined
+    void saveConfiguration()
+  }, 400)
+}
+
 interface PanelState {
   slots: SlotSnapshot[]
   games: { id: string; name: string }[]
   maxSlots: number
   audioFollowsFocus: boolean
+  theme: Theme
   configError?: string
 }
 
@@ -133,6 +151,7 @@ function currentState(): PanelState {
     games: GAMES,
     maxSlots: globals.maxSlots,
     audioFollowsFocus: globals.audioFollowsFocus,
+    theme: globals.theme,
   }
   if (configError !== undefined) state.configError = configError
   return state
@@ -287,6 +306,44 @@ function registerIpc(): void {
       // orchestrator, not failed.
       parseNoPayload(payload)
       await orchestrator.clearAllCaches()
+    },
+
+    'slots:rename': async (payload) => {
+      const { id, name } = parseSlotRename(payload)
+      orchestrator.renameSlot(id, name)
+      await saveConfiguration()
+      pushState()
+    },
+
+    'slots:setVolume': async (payload) => {
+      // Apply to the live session immediately (applyAudio touches only the slot
+      // whose volume changed), but persist on a debounce: a slider drag must be
+      // heard at once yet not write the file every frame. No state echo — the
+      // renderer owns the value it just set, and echoing would fight the drag.
+      const { id, volume } = parseSlotVolume(payload)
+      orchestrator.setSlotVolume(id, volume)
+      await orchestrator.applyAudio()
+      saveConfigurationSoon()
+    },
+
+    'slots:setMuted': async (payload) => {
+      // A discrete toggle, so it persists and echoes at once — the icon flips.
+      const { id, muted } = parseSlotMuted(payload)
+      orchestrator.setSlotMuted(id, muted)
+      await orchestrator.applyAudio()
+      await saveConfiguration()
+      pushState()
+    },
+
+    'slots:reload': (payload) => orchestrator.reload(parseSlotId(payload)),
+
+    'ui:setTheme': async (payload) => {
+      // Theme is a persisted global with no orchestrator behaviour — main holds
+      // it and echoes it back so the renderer reflects the saved value.
+      const theme = parseTheme(payload)
+      globals = { ...globals, theme }
+      await saveConfiguration()
+      pushState()
     },
   }
 

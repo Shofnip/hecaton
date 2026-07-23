@@ -14,6 +14,13 @@ import { slotProfileDirName } from './slot-profile.js'
  */
 export const SCHEMA_VERSION = 1
 
+/** The hard cap on a screen's display name, shared by the config file, the
+ * slot-overrides parser and the slots:rename channel so they cannot disagree. */
+export const MAX_SLOT_NAME_LENGTH = 24
+
+/** The two UI themes, dark shipped as the default (design §2). */
+export type Theme = 'dark' | 'light'
+
 export interface GlobalConfig {
   schemaVersion: number
   maxSlots: number
@@ -25,6 +32,8 @@ export interface GlobalConfig {
    * switch, not per slot: the point is that exactly one slot plays at a time.
    */
   audioFollowsFocus: boolean
+  /** The panel's colour theme, persisted so it survives a restart. Default dark. */
+  theme: Theme
 }
 
 /** What a slot may override. Everything except the id is optional. */
@@ -78,6 +87,8 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   // On by default: out of the box, only the focused game makes sound. The panel
   // toggle turns it off for someone who wants every slot audible at once.
   audioFollowsFocus: true,
+  // Dark shipped as the default, per the design spec (§2).
+  theme: 'dark',
 }
 
 export function resolveSlotConfig(globals: GlobalConfig, slot: SlotOverrides): ResolvedSlotConfig {

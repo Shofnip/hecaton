@@ -265,6 +265,40 @@ export class Orchestrator {
     slot.overrides = overrides
   }
 
+  /**
+   * The runtime per-screen setters behind the approved slots:* channels.
+   *
+   * Each changes one field and leaves the rest of the slot's overrides intact —
+   * unlike updateSlot, which replaces the target wholesale. They only touch the
+   * stored config; applying the new volume or mute to the live WASAPI session is
+   * applyAudio's job, which the shell calls right after so the change is heard at
+   * once. Persisting is the shell's job too, from slotConfigs().
+   */
+  renameSlot(id: number, name: string): void {
+    const slot = this.slot(id)
+    const overrides: SlotOverrides = { ...slot.overrides }
+    // An empty name means "revert to the Tela {N} default": drop the override
+    // rather than storing a blank one, so the placeholder shows again.
+    if (name.trim() === '') delete overrides.name
+    else overrides.name = name
+    slot.overrides = overrides
+    slot.config = resolveSlotConfig(this.globals, overrides)
+  }
+
+  setSlotVolume(id: number, volume: number): void {
+    const slot = this.slot(id)
+    const overrides: SlotOverrides = { ...slot.overrides, volume }
+    slot.overrides = overrides
+    slot.config = resolveSlotConfig(this.globals, overrides)
+  }
+
+  setSlotMuted(id: number, muted: boolean): void {
+    const slot = this.slot(id)
+    const overrides: SlotOverrides = { ...slot.overrides, muted }
+    slot.overrides = overrides
+    slot.config = resolveSlotConfig(this.globals, overrides)
+  }
+
   /** The slots in their persisted shape, for the shell to save. */
   slotConfigs(): SlotOverrides[] {
     return [...this.slots.keys()]

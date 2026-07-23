@@ -27,6 +27,10 @@ describe('DEFAULT_GLOBAL_CONFIG', () => {
     expect(SCHEMA_VERSION).toBe(1)
     expect(DEFAULT_GLOBAL_CONFIG.schemaVersion).toBe(SCHEMA_VERSION)
   })
+
+  it('defaults to the dark theme, the design spec default', () => {
+    expect(DEFAULT_GLOBAL_CONFIG.theme).toBe('dark')
+  })
 })
 
 describe('resolveSlotConfig', () => {

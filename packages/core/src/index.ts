@@ -7,8 +7,13 @@ export type { SlotEvent, SlotState } from './slot-state.js'
 export { buildRegistry, validateGameDefinition } from './registry.js'
 export type { GameDefinition, Viewport } from './registry.js'
 
-export { DEFAULT_GLOBAL_CONFIG, SCHEMA_VERSION, resolveSlotConfig } from './config.js'
-export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
+export {
+  DEFAULT_GLOBAL_CONFIG,
+  MAX_SLOT_NAME_LENGTH,
+  SCHEMA_VERSION,
+  resolveSlotConfig,
+} from './config.js'
+export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides, Theme } from './config.js'
 
 export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
@@ -22,7 +27,11 @@ export {
   parseNoPayload,
   parseSlotAddition,
   parseSlotId,
+  parseSlotMuted,
+  parseSlotRename,
   parseSlotUpdate,
+  parseSlotVolume,
+  parseTheme,
 } from './ipc.js'
 export type { IpcChannel } from './ipc.js'
 

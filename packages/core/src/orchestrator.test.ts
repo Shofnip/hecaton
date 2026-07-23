@@ -400,6 +400,45 @@ describe('unknown slots', () => {
   })
 })
 
+describe('runtime per-screen setters (the approved slots:* channels)', () => {
+  it('renames a slot, persisting the name', () => {
+    const app = makeOrchestrator()
+    app.renameSlot(1, 'Fazenda')
+    expect(app.snapshot()[0]).toMatchObject({ name: 'Fazenda' })
+    expect(app.slotConfigs()[0]).toMatchObject({ id: 1, gameId: 'poke-idleworld', name: 'Fazenda' })
+  })
+
+  it('clears the name on an empty rename, reverting to the "Tela {N}" default', () => {
+    const app = makeOrchestrator()
+    app.renameSlot(1, 'Fazenda')
+    app.renameSlot(1, '   ')
+    expect(app.snapshot()[0]).not.toHaveProperty('name')
+    expect(app.slotConfigs()[0]).not.toHaveProperty('name')
+  })
+
+  it('sets a slot volume, persisting it and leaving the other fields alone', () => {
+    const app = makeOrchestrator()
+    app.setSlotVolume(1, 40)
+    expect(app.snapshot()[0]).toMatchObject({ volume: 40 })
+    // The target it inherited must survive a volume change.
+    expect(app.slotConfigs()[0]).toEqual({ id: 1, gameId: 'poke-idleworld', volume: 40 })
+  })
+
+  it('sets a slot muted flag, persisting it', () => {
+    const app = makeOrchestrator()
+    app.setSlotMuted(1, true)
+    expect(app.snapshot()[0]).toMatchObject({ muted: true })
+    expect(app.slotConfigs()[0]).toMatchObject({ id: 1, muted: true })
+  })
+
+  it('rejects an unknown slot', () => {
+    const app = makeOrchestrator()
+    expect(() => app.renameSlot(99, 'x')).toThrow()
+    expect(() => app.setSlotVolume(99, 10)).toThrow()
+    expect(() => app.setSlotMuted(99, true)).toThrow()
+  })
+})
+
 describe('snapshot for the panel', () => {
   it('lists every configured slot with its state and what it points at', () => {
     const base = {
