@@ -32,6 +32,7 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * Protocol, one command line in -> one reply line out:
  *   reparent <child> <parent>       -> OK parent=<hwnd>
  *   movechild <hwnd> <x> <y> <w> <h> -> OK        (x,y in the parent's client area)
+ *   focusat <parent> <x> <y>        -> OK <hwnd> | OK none  (x,y in the parent's client area)
  *   show <hwnd> <cmd>               -> OK         (0 = SW_HIDE, 5 = SW_SHOW)
  *   reload <hwnd>                   -> OK
  *   exists <hwnd>                   -> OK 1 | OK 0
@@ -56,9 +57,13 @@ public static class W {
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
   [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr ChildWindowFromPointEx(IntPtr parent, POINT pt, uint flags);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+
   const int GWL_STYLE = -16;
+  const uint CWP_SKIPINVISIBLE = 0x0001, CWP_SKIPTRANSPARENT = 0x0004;
   const long WS_CHILD = 0x40000000L;
   const long WS_POPUP = -2147483648L; // 0x80000000
   const long WS_CAPTION = 0x00C00000L;
@@ -79,10 +84,16 @@ public static class W {
     // Route the keyboard to the embedded screen. A WS_CHILD belonging to another
     // process (Chrome) does not take focus from a click unless the parent's and
     // child's input queues are attached — without this the game gets mouse clicks
-    // but no typing (finding 0.1). Attach panel<->child for good: the child's
-    // thread dies with the window, which detaches it, so there is nothing to undo.
-    // Attach this worker briefly too, so its SetFocus lands, and set focus once so
-    // the freshly embedded screen is typeable immediately.
+    // but no typing (finding 0.1). Attach panel<->child for good and set focus once
+    // so the freshly embedded screen is typeable immediately.
+    FocusChild(child, parent);
+    return "OK parent=" + GetAncestor(child, 1).ToInt64();
+  }
+
+  // Merges the panel and child input queues (persistently — the child's thread
+  // dies with its window, detaching automatically) so keystrokes reach the child,
+  // then focuses it. Attaches this worker's thread briefly so its SetFocus lands.
+  static void FocusChild(IntPtr child, IntPtr parent) {
     uint ptid = GetWindowThreadProcessId(parent, IntPtr.Zero);
     uint ctid = GetWindowThreadProcessId(child, IntPtr.Zero);
     uint self = GetCurrentThreadId();
@@ -90,7 +101,17 @@ public static class W {
     AttachThreadInput(self, ctid, true);
     SetFocus(child);
     AttachThreadInput(self, ctid, false);
-    return "OK parent=" + GetAncestor(child, 1).ToInt64();
+  }
+
+  // Focuses whichever embedded child sits under a click. The panel forwards the
+  // point of a WM_PARENTNOTIFY button-down here (finding 0.1): a click on a child
+  // of another process does not move keyboard focus on its own.
+  public static string FocusAt(IntPtr parent, int x, int y) {
+    POINT pt; pt.X = x; pt.Y = y;
+    IntPtr child = ChildWindowFromPointEx(parent, pt, CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT);
+    if (child == IntPtr.Zero || child == parent) return "OK none";
+    FocusChild(child, parent);
+    return "OK " + child.ToInt64();
   }
 
   public static string MoveChild(IntPtr h, int x, int y, int w, int hh) {
@@ -123,6 +144,7 @@ while ($true) {
     switch ($a[0]) {
       'reparent'  { Reply ([W]::Reparent([IntPtr][int64]$a[1], [IntPtr][int64]$a[2])) }
       'movechild' { Reply ([W]::MoveChild([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3], [int]$a[4], [int]$a[5])) }
+      'focusat'   { Reply ([W]::FocusAt([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'show'      { Reply ([W]::Show([IntPtr][int64]$a[1], [int]$a[2])) }
       'reload'    { Reply ([W]::Reload([IntPtr][int64]$a[1])) }
       'exists'    { Reply ([W]::Exists([IntPtr][int64]$a[1])) }

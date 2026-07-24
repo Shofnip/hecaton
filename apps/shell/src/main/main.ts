@@ -413,10 +413,35 @@ function createPanel(): void {
     webPreferences: { ...panelWebPreferences(), preload: PRELOAD },
   })
   lockDownWindow(panel)
+  hookChildFocus(panel)
   void panel.loadFile(join(RENDERER_DIR, 'index.html'))
   panel.once('ready-to-show', () => panel?.show())
   panel.on('closed', () => {
     panel = undefined
+  })
+}
+
+// Windows message + button-down codes for the child-focus hook.
+const WM_PARENTNOTIFY = 0x0210
+const BUTTON_DOWN = new Set([0x0201, 0x0204, 0x0207, 0x020b]) // L / R / M / X down
+
+/**
+ * Forwards keyboard focus to an embedded screen when it is clicked.
+ *
+ * A reparented Chrome window is a WS_CHILD of the panel but a different process, so
+ * clicking it gives it mouse input but not keyboard focus — typing a login went
+ * nowhere. The panel receives WM_PARENTNOTIFY when a child is clicked; on a
+ * button-down we hand the click point to the window adapter, which hit-tests for
+ * the child there and focuses it (finding 0.1). wParam's low word is the event,
+ * lParam packs the cursor point in the panel's client coordinates.
+ */
+function hookChildFocus(window: BrowserWindow): void {
+  window.hookWindowMessage(WM_PARENTNOTIFY, (wParam: Buffer, lParam: Buffer) => {
+    if (!BUTTON_DOWN.has(wParam.readUInt16LE(0))) return
+    const parent = panelHwnd()
+    if (parent !== undefined) {
+      windowManager?.focusChildAt(parent, lParam.readInt16LE(0), lParam.readInt16LE(2))
+    }
   })
 }
 

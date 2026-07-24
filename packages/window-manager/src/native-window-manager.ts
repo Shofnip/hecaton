@@ -288,6 +288,17 @@ export class NativeWindowManager implements WindowManager {
     return this.hwndFor(pid)
   }
 
+  /**
+   * Hands keyboard focus to whichever embedded screen sits under a click in the
+   * panel, at (x, y) in the panel's client area. Not a WindowManager port method —
+   * the core does not drive focus; the shell calls this from the panel's
+   * WM_PARENTNOTIFY hook, since a click on a child of another process does not move
+   * keyboard focus on its own (finding 0.1). The worker hit-tests and focuses.
+   */
+  focusChildAt(parentHwnd: number, x: number, y: number): void {
+    this.fire(`focusat ${parentHwnd} ${x} ${y}`)
+  }
+
   /** Stops the persistent worker. Call on shutdown; the adapter is done after. */
   async dispose(): Promise<void> {
     await this.worker.dispose()
