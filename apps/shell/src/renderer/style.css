@@ -224,6 +224,15 @@ svg {
   min-width: 0;
   padding: 4px;
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The board fills whatever the stage leaves after the error banner, so the grid's
+   height:100% resolves against a real height instead of collapsing to content. */
+#board {
+  flex: 1;
+  min-height: 0;
 }
 
 .grid {

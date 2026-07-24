@@ -11,7 +11,7 @@
  * exposes checkLiveness() as an explicit call precisely so crash handling stays
  * testable without waiting for wall-clock time.
  */
-import { BrowserWindow, app, ipcMain, screen, session, shell } from 'electron'
+import { BrowserWindow, Menu, app, ipcMain, screen, session, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -399,6 +399,12 @@ function registerIpc(): void {
 }
 
 function createPanel(): void {
+  // No application menu: it is not in the design, and a native menu bar sits
+  // between the title bar and the client area, offsetting where the web content's
+  // (0,0) is from where a reparented child window's (0,0) is — the two must agree
+  // for the embedded screens to line up with their viewports.
+  Menu.setApplicationMenu(null)
+
   panel = new BrowserWindow({
     width: 900,
     height: 640,

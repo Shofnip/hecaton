@@ -1077,6 +1077,15 @@ function openEditModal(id: number): void {
         ),
       )
 
+      // Changes apply live as they are typed/selected (design §8); this closes the
+      // modal with an explicit "done" affordance rather than only the X.
+      const footer = el('div', 'modal-actions')
+      const done = el('button', 'btn primary', 'Confirmar')
+      done.type = 'button'
+      done.addEventListener('click', close)
+      footer.append(done)
+      body.append(footer)
+
       dialog.append(body)
     },
     {
