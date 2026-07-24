@@ -53,6 +53,10 @@ public static class W {
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
+  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+  [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
+  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
   const int GWL_STYLE = -16;
   const long WS_CHILD = 0x40000000L;
@@ -72,6 +76,20 @@ public static class W {
     SetWindowLongPtr(child, GWL_STYLE, (IntPtr)stripped);
     SetParent(child, parent);
     SetWindowPos(child, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+    // Route the keyboard to the embedded screen. A WS_CHILD belonging to another
+    // process (Chrome) does not take focus from a click unless the parent's and
+    // child's input queues are attached — without this the game gets mouse clicks
+    // but no typing (finding 0.1). Attach panel<->child for good: the child's
+    // thread dies with the window, which detaches it, so there is nothing to undo.
+    // Attach this worker briefly too, so its SetFocus lands, and set focus once so
+    // the freshly embedded screen is typeable immediately.
+    uint ptid = GetWindowThreadProcessId(parent, IntPtr.Zero);
+    uint ctid = GetWindowThreadProcessId(child, IntPtr.Zero);
+    uint self = GetCurrentThreadId();
+    AttachThreadInput(ptid, ctid, true);
+    AttachThreadInput(self, ctid, true);
+    SetFocus(child);
+    AttachThreadInput(self, ctid, false);
     return "OK parent=" + GetAncestor(child, 1).ToInt64();
   }
 
