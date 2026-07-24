@@ -39,6 +39,13 @@ export interface OrchestratorDeps {
 
 const DEFAULT_MAX_RESTART_ATTEMPTS = 3
 
+/**
+ * Where a slot's window is born: far off any monitor, so it never shows on the
+ * desktop before it is embedded (item 6). Beyond the ±30000 range real virtual
+ * desktops use, so it is not clamped onto a screen.
+ */
+const OFFSCREEN_LAUNCH = -32000
+
 interface SlotRuntime {
   /** The raw overrides as given, kept so the persisted form stays faithful. */
   overrides: SlotOverrides
@@ -362,14 +369,24 @@ export class Orchestrator {
     }
 
     try {
+      const cell = this.cellOf(slot.config.id)
       slot.pid = await this.launcher.launch({
         slotId: slot.config.id,
         url,
         profileDir: slot.config.profileDir,
-        // The slot is already live (starting), so it counts toward the grid it
-        // is about to join: launch it straight into its cell rather than moving
-        // it a frame later.
-        bounds: this.cellOf(slot.config.id),
+        // Launch off-screen, at the size of the cell it will roughly fill. Without
+        // CDP the window is born as a normal top-level window and shown before we
+        // can embed it; born off-screen it is never visible on the desktop, so it
+        // does not flash there and then jump into the panel — the adapter hides it
+        // on reparent and the renderer's first layout shows it already in place.
+        // The size is a sensible initial (close to its viewport), the position is
+        // discarded the moment it is embedded.
+        bounds: {
+          x: OFFSCREEN_LAUNCH,
+          y: OFFSCREEN_LAUNCH,
+          width: cell.width,
+          height: cell.height,
+        },
         mute: slot.config.mute,
         persistProfile: slot.config.persistProfile,
         backgroundThrottling: slot.config.backgroundThrottling,

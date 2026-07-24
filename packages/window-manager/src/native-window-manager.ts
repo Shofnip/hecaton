@@ -198,6 +198,12 @@ export class NativeWindowManager implements WindowManager {
   /** SetParent the child into the panel and remember its handle. */
   private embed(pid: number, hwnd: number, parent: number): boolean {
     this.fire(`reparent ${hwnd} ${parent}`)
+    // Hide it the instant it is embedded. The window launches off-screen so it is
+    // not visible on the desktop, but should Chrome ever clamp that position onto a
+    // monitor it would flash; hiding here covers that, and the core's first
+    // screens:layout shows it again already positioned (its shownWindows starts
+    // empty, so the first placement is a show). FIFO keeps this after the reparent.
+    this.fire(`show ${hwnd} ${SW_HIDE}`)
     this.embedded.set(pid, hwnd)
     return true
   }

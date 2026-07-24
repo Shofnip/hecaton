@@ -95,12 +95,18 @@ describe('starting a slot', () => {
     expect(launcher.launched[0]?.backgroundThrottling).toBe(true)
   })
 
-  it('launches the only running slot filling the screen', async () => {
+  it('launches off-screen at the size of the cell it will fill', async () => {
     const app = makeOrchestrator()
     await app.start(1)
-    // The grid follows the running count, not the configured one: two slots are
-    // configured, but only one is running, so it takes the whole screen.
-    expect(launcher.launched[0]?.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1080 })
+    // Born off-screen so it never flashes on the desktop before it is embedded;
+    // the size follows the running grid (one running slot fills the screen), which
+    // is a sensible initial size before the renderer positions it.
+    expect(launcher.launched[0]?.bounds).toEqual({
+      x: -32000,
+      y: -32000,
+      width: 1920,
+      height: 1080,
+    })
   })
 
   it('accepts a custom url slot', async () => {
@@ -670,12 +676,16 @@ describe('adding and removing slots', () => {
     })
   }
 
-  it('launches a single slot filling the whole screen', async () => {
+  it('launches a single slot off-screen at whole-screen size', async () => {
     const app = oneSlot()
     await app.start(1)
-    // One slot: 1x1 grid, the whole work area — as the launch bounds, since the
-    // core no longer positions the window after it is up.
-    expect(launcher.launched[0]?.bounds).toEqual({ x: 0, y: 0, width: 1920, height: 1080 })
+    // Off-screen position (no desktop flash), sized to the 1x1 cell it will fill.
+    expect(launcher.launched[0]?.bounds).toEqual({
+      x: -32000,
+      y: -32000,
+      width: 1920,
+      height: 1080,
+    })
   })
 
   it('adds a slot pointed at the given game and returns its id', () => {
@@ -693,27 +703,36 @@ describe('adding and removing slots', () => {
     expect(windows.bounds.size).toBe(0)
   })
 
-  it('launches the second slot into its half of the two-up grid, without moving the first', async () => {
+  it('launches the second slot off-screen at its two-up size, without moving the first', async () => {
     const app = oneSlot()
     await app.start(1)
     app.addSlot({ gameId: 'poke-idleworld' })
     await app.start(2)
-    // Launch bounds follow the running grid so a window appears roughly in place
-    // before the renderer's first layout; but the core repositions nothing after
-    // launch, so slot 1 is not moved into its new half here.
-    expect(launcher.launched[1]?.bounds).toEqual({ x: 960, y: 0, width: 960, height: 1080 })
+    // Launch size follows the running grid (a half now), off-screen; the core
+    // repositions nothing after launch, so slot 1 is not moved into its new half.
+    expect(launcher.launched[1]?.bounds).toEqual({
+      x: -32000,
+      y: -32000,
+      width: 960,
+      height: 1080,
+    })
     expect(windows.bounds.size).toBe(0)
   })
 
-  it('uses the 2x2 layout for three slots as launch bounds', async () => {
+  it('launches the third slot off-screen at its 2x2 cell size', async () => {
     const app = oneSlot()
     app.addSlot({ gameId: 'poke-idleworld' })
     app.addSlot({ gameId: 'poke-idleworld' })
     await app.start(1)
     await app.start(2)
     await app.start(3)
-    // 3 slots -> 2x2 grid, three cells filled; slot 3 takes the bottom-left.
-    expect(launcher.launched[2]?.bounds).toEqual({ x: 0, y: 540, width: 960, height: 540 })
+    // 3 running -> 2x2 grid; slot 3's cell is 960x540, launched off-screen.
+    expect(launcher.launched[2]?.bounds).toEqual({
+      x: -32000,
+      y: -32000,
+      width: 960,
+      height: 540,
+    })
   })
 
   it('refuses to add past the configured maximum', () => {
