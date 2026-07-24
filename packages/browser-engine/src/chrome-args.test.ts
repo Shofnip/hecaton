@@ -48,6 +48,13 @@ describe('buildChromeArgs', () => {
     expect(args).toContain('--no-default-browser-check')
   })
 
+  it('hides scrollbars, which are noise in a small embedded screen (owner-approved)', () => {
+    // A cosmetic flag: it hides the visual scrollbar the game page shows when it
+    // is taller than a grid cell. It weakens no protection, and wheel scrolling
+    // still works — the owner approved it for the video wall.
+    expect(buildChromeArgs(REQUEST, PROFILE_PATH)).toContain('--hide-scrollbars')
+  })
+
   it('mutes only when asked', () => {
     expect(buildChromeArgs(REQUEST, PROFILE_PATH)).not.toContain('--mute-audio')
     expect(buildChromeArgs({ ...REQUEST, mute: true }, PROFILE_PATH)).toContain('--mute-audio')

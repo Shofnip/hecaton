@@ -20,6 +20,10 @@ export function buildChromeArgs(request: LaunchRequest, profilePath: string): st
     `--user-data-dir=${profilePath}`,
     '--no-first-run',
     '--no-default-browser-check',
+    // Hide the scrollbar the game page shows when it is taller than its embedded
+    // cell — cosmetic, approved by the owner. It weakens no protection (unlike the
+    // forbidden flags chrome-args.test.ts guards) and wheel scrolling still works.
+    '--hide-scrollbars',
     `--window-position=${bounds.x},${bounds.y}`,
     `--window-size=${bounds.width},${bounds.height}`,
     // App window, not a normal window with a tab. App windows do not take part
