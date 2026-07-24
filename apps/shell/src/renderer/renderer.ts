@@ -697,18 +697,30 @@ function applyVolume(s: SlotSnapshot, volume: number): void {
 
 function thumb(s: SlotSnapshot): HTMLElement {
   const status = statusOf(s.state)
-  const b = el('button', 'thumb' + (status === 'on' ? ' running' : ''))
-  b.type = 'button'
-  b.title = `Focar na ${slotName(s)}`
-  b.addEventListener('click', () => toggleFocus(s.id))
+  const running = status === 'on'
+  const wrap = el('div', 'thumb' + (running ? ' running' : ''))
 
+  // The header changes focus; a running screen's body hosts the live window (a
+  // click there reaches the game), so focus moves from the header, like the main
+  // card's name. A non-running body has no window, so it is clickable to focus.
   const head = el('div', 'thumb-head')
+  head.title = `Focar na ${slotName(s)}`
+  head.addEventListener('click', () => toggleFocus(s.id))
   const led = el('span', `led ${status}`)
   head.append(led, el('span', 'thumb-name', slotName(s)))
+  wrap.append(head)
 
-  const body = el('div', 'thumb-body', THUMB_STATE_TEXT[status])
-  b.append(head, body)
-  return b
+  if (running) {
+    const body = el('div', 'thumb-body')
+    body.dataset.slot = String(s.id)
+    wrap.append(body)
+  } else {
+    const body = el('div', 'thumb-body', THUMB_STATE_TEXT[status])
+    body.title = `Focar na ${slotName(s)}`
+    body.addEventListener('click', () => toggleFocus(s.id))
+    wrap.append(body)
+  }
+  return wrap
 }
 
 const THUMB_STATE_TEXT: Record<VisualStatus, string> = {
@@ -1151,12 +1163,16 @@ interface ScreenPlacement {
 }
 
 /**
- * The single source of embedded-window geometry (Option 1). Each card's viewport
- * is the region its slot's real Chrome window sits over; the renderer measures
- * those rectangles and tells main where to put the windows. A slot with no
- * visible viewport — a thumbnail in focus mode, or every slot while a panel modal
- * or the volume popover is open — is sent without bounds, which hides its window,
- * because the native window paints over the DOM otherwise (§13).
+ * The single source of embedded-window geometry (Option 1). Every region with a
+ * data-slot — a card viewport, or a running thumbnail's body in focus mode — is
+ * where that slot's real Chrome window sits; the renderer measures those and tells
+ * main where to put the windows. A slot with no such region, or one covered by an
+ * open modal or volume popover, is sent without bounds, which hides its window.
+ *
+ * Only the region an occluder actually overlaps is hidden, not every screen: the
+ * native window paints over the DOM, so a screen under the modal must go, but the
+ * others keep showing (the owner's call — the games stay watchable while a volume
+ * popover or an edit modal is open).
  *
  * Rectangles are physical pixels in the panel's client area: getBoundingClientRect
  * gives CSS pixels from the client origin (the web content fills the window's
@@ -1165,16 +1181,20 @@ interface ScreenPlacement {
  * higher-DPI displays still need a manual check.
  */
 function emitLayout(): void {
+  // Open modal dialogs and the volume popover occlude whatever they cover.
+  const occluders = [...document.querySelectorAll('.modal, .volume-popover')].map((e) =>
+    e.getBoundingClientRect(),
+  )
+  const covered = (r: DOMRect): boolean =>
+    occluders.some(
+      (o) => r.left < o.right && r.right > o.left && r.top < o.bottom && r.bottom > o.top,
+    )
+
   const rects = new Map<number, DOMRect>()
-  // A modal or the volume popover open ⇒ hide every screen (no rects gathered).
-  const blocked =
-    editingSlotId !== undefined || settingsOpen || confirmOpen || volumeOpenId !== undefined
-  if (!blocked) {
-    for (const vp of board.querySelectorAll<HTMLElement>('.viewport[data-slot]')) {
-      const id = Number(vp.dataset.slot)
-      const rect = vp.getBoundingClientRect()
-      if (rect.width > 0 && rect.height > 0) rects.set(id, rect)
-    }
+  for (const region of board.querySelectorAll<HTMLElement>('[data-slot]')) {
+    const id = Number(region.dataset.slot)
+    const rect = region.getBoundingClientRect()
+    if (rect.width > 0 && rect.height > 0 && !covered(rect)) rects.set(id, rect)
   }
 
   const dpr = window.devicePixelRatio || 1
