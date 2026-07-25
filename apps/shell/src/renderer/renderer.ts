@@ -769,13 +769,23 @@ function toggleFocus(id: number): void {
 function powerAll(): void {
   const anyScreens = state.slots.length > 0
   const allOn = anyScreens && state.slots.every((s) => s.state !== 'stopped')
+  // Spread the launches (or teardowns) out rather than firing all four at once:
+  // four Chromes spinning up or dying together is a CPU spike that, on top of the
+  // window work, is what lagged the cursor. A short gap keeps the machine breathing.
+  const stagger = (targets: SlotSnapshot[], act: (id: number) => Promise<unknown>): void => {
+    targets.forEach((s, i) => setTimeout(() => run(() => act(s.id)), i * 250))
+  }
   if (allOn) {
-    for (const s of state.slots)
-      if (s.state !== 'stopped') run(() => window.helloweb.stopSlot(s.id))
+    stagger(
+      state.slots.filter((s) => s.state !== 'stopped'),
+      (id) => window.helloweb.stopSlot(id),
+    )
     showToast('Todas as telas desligadas')
   } else {
-    for (const s of state.slots)
-      if (s.state === 'stopped') run(() => window.helloweb.startSlot(s.id))
+    stagger(
+      state.slots.filter((s) => s.state === 'stopped'),
+      (id) => window.helloweb.startSlot(id),
+    )
     showToast('Ligando todas as telas…')
   }
 }

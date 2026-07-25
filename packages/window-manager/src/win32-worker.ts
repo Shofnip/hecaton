@@ -85,12 +85,11 @@ public static class W {
     SetWindowLongPtr(child, GWL_STYLE, (IntPtr)stripped);
     SetParent(child, parent);
     SetWindowPos(child, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
-    // Route the keyboard to the embedded screen. A WS_CHILD belonging to another
-    // process (Chrome) does not take focus from a click unless the parent's and
-    // child's input queues are attached — without this the game gets mouse clicks
-    // but no typing (finding 0.1). Attach panel<->child for good and set focus once
-    // so the freshly embedded screen is typeable immediately.
-    FocusChild(child, parent);
+    // No input-queue attach here. It is done on click (focusat) instead: attaching
+    // the panel to a Chrome thread that is busy launching serialises the panel's
+    // own input with it, which froze the cursor when several screens started at
+    // once. By the time a screen is clicked, its Chrome is idle, so the attach is
+    // cheap — and the click is when keyboard focus is actually wanted (finding 0.1).
     return "OK parent=" + GetAncestor(child, 1).ToInt64();
   }
 
