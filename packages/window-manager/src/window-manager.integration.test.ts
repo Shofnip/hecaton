@@ -258,21 +258,23 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
       expect(new NativeWindowManager().windowIdOf(pid)).toBeUndefined()
     })
 
-    it('moves the embedded child by the panel-client delta it is given', async () => {
+    it('sizes the embedded child so its client fills the requested rect, and moves by the delta', async () => {
       // The live path: setBounds on an embedded window is a MoveWindow in the
-      // parent's client area. The parent-client origin is constant, so moving the
-      // child by (100,100) in client coords must shift its screen rect by exactly
-      // that, and the size must be what was asked — verified through GetWindowRect,
-      // independent of the adapter.
+      // parent's client area. The requested size is the CLIENT the game paints —
+      // the adapter inflates the window past its invisible frame so the client, not
+      // the window, matches — and moving by (100,100) in client coords shifts the
+      // window by exactly that. Both are read straight from user32, not the adapter.
       embedManager.setBounds(pid, { x: 50, y: 60, width: 420, height: 320 })
-      const first = await waitForRect(childHwnd, (r) => r.width === 420 && r.height === 320)
+      const first = await waitForRect(childHwnd, () => clientSize(childHwnd).width === 420)
+      expect(clientSize(childHwnd)).toEqual({ width: 420, height: 320 })
       embedManager.setBounds(pid, { x: 150, y: 160, width: 420, height: 320 })
       const second = await waitForRect(
         childHwnd,
         (r) => r.x === first.x + 100 && r.y === first.y + 100,
       )
-      expect(second.width).toBe(420)
-      expect(second.height).toBe(320)
+      expect(second.width).toBe(first.width)
+      expect(second.height).toBe(first.height)
+      expect(clientSize(childHwnd)).toEqual({ width: 420, height: 320 })
     })
 
     it('hides and shows the embedded window', async () => {
@@ -324,6 +326,12 @@ function windowRect(hwnd: number): { x: number; y: number; width: number; height
   return { x: left!, y: top!, width: right! - left!, height: bottom! - top! }
 }
 
+/** A window's client-area size (GetClientRect), straight from user32. */
+function clientSize(hwnd: number): { width: number; height: number } {
+  const [, , right, bottom] = win32Query(`Client([IntPtr]${hwnd})`).split(' ').map(Number)
+  return { width: right!, height: bottom! }
+}
+
 /** The direct parent of a window (GetAncestor GA_PARENT), straight from user32. */
 function parentOf(hwnd: number): number {
   return Number(win32Query(`GetAncestor([IntPtr]${hwnd}, 1).ToInt64()`))
@@ -345,7 +353,9 @@ public class ProbeUser32 {
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint f);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
   public static string Rect(IntPtr h) { RECT r; GetWindowRect(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
+  public static string Client(IntPtr h) { RECT r; GetClientRect(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
 }
 '@
 [ProbeUser32]::${expression}

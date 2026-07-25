@@ -58,9 +58,13 @@ public static class W {
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
   [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr ChildWindowFromPointEx(IntPtr parent, POINT pt, uint flags);
+  [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT pt);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
 
   const int GWL_STYLE = -16;
   const uint CWP_SKIPINVISIBLE = 0x0001, CWP_SKIPTRANSPARENT = 0x0004;
@@ -115,7 +119,21 @@ public static class W {
   }
 
   public static string MoveChild(IntPtr h, int x, int y, int w, int hh) {
-    MoveWindow(h, x, y, w, hh, true);
+    // Fit the CLIENT area, not the window. Chrome keeps a ~7px invisible frame
+    // (the resize border) around an --app window even after the style strip, so
+    // the game renders inset from the window edge; sizing the window to the target
+    // would leave the panel's black showing in that border. Measure the frame the
+    // window actually has (window rect vs client, via ClientToScreen) and inflate,
+    // so the game — the client — fills the target rect exactly. The invisible
+    // borders of neighbours overlap harmlessly in the gaps.
+    RECT wr; GetWindowRect(h, out wr);
+    RECT cr; GetClientRect(h, out cr);
+    POINT origin; origin.X = 0; origin.Y = 0; ClientToScreen(h, ref origin);
+    int left = origin.X - wr.Left;
+    int top = origin.Y - wr.Top;
+    int right = (wr.Right - wr.Left) - (cr.Right - cr.Left) - left;
+    int bottom = (wr.Bottom - wr.Top) - (cr.Bottom - cr.Top) - top;
+    MoveWindow(h, x - left, y - top, w + left + right, hh + top + bottom, true);
     // Re-assert top of the sibling z-order so Electron's input hwnd cannot cover it.
     SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     return "OK";
