@@ -274,19 +274,23 @@ function iconButton(
   return b
 }
 
+/** Shows a failed action by name. The overlay has no banner; the wall does. */
+function showError(error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  if (configError) {
+    configError.textContent = message
+    configError.hidden = false
+  } else {
+    console.error('[helloweb]', message)
+  }
+}
+
 /** Errors are shown, never swallowed — a failing action must fail by name. */
 function run(action: () => Promise<unknown>): void {
-  void action().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    // The overlay has no error banner; the wall does. Either way it is not lost.
-    if (configError) {
-      configError.textContent = message
-      configError.hidden = false
-    } else {
-      console.error('[helloweb]', message)
-    }
-  })
+  void action().catch(showError)
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 // ============================ DOM refs ============================
 // The wall's elements (null in the overlay window, where they are never touched);
@@ -766,27 +770,40 @@ function toggleFocus(id: number): void {
   run(() => window.helloweb.focusSlot(id))
 }
 
-function powerAll(): void {
-  const anyScreens = state.slots.length > 0
-  const allOn = anyScreens && state.slots.every((s) => s.state !== 'stopped')
-  // Spread the launches (or teardowns) out rather than firing all four at once:
-  // four Chromes spinning up or dying together is a CPU spike that, on top of the
-  // window work, is what lagged the cursor. A short gap keeps the machine breathing.
-  const stagger = (targets: SlotSnapshot[], act: (id: number) => Promise<unknown>): void => {
-    targets.forEach((s, i) => setTimeout(() => run(() => act(s.id)), i * 250))
+// How long to let a freshly launched screen open and settle before starting the
+// next one. Launching four Chromes at once froze the cursor; bringing them up one
+// at a time, waiting between each, keeps only one browser starting at any moment.
+const POWER_ON_SETTLE_MS = 1800
+
+let poweringAll = false
+async function powerAll(): Promise<void> {
+  if (poweringAll) return // one sequence at a time; a second click is ignored
+  poweringAll = true
+  try {
+    await powerAllSequence()
+  } finally {
+    poweringAll = false
   }
+}
+
+async function powerAllSequence(): Promise<void> {
+  const allOn = state.slots.length > 0 && state.slots.every((s) => s.state !== 'stopped')
   if (allOn) {
-    stagger(
-      state.slots.filter((s) => s.state !== 'stopped'),
-      (id) => window.helloweb.stopSlot(id),
-    )
+    // Off: one after another with no wait — a kill is quick, and it was the delay
+    // between them, not the killing, that made them slow to go down.
+    const ids = state.slots.filter((s) => s.state !== 'stopped').map((s) => s.id)
+    for (const id of ids) await window.helloweb.stopSlot(id).catch(showError)
     showToast('Todas as telas desligadas')
   } else {
-    stagger(
-      state.slots.filter((s) => s.state === 'stopped'),
-      (id) => window.helloweb.startSlot(id),
-    )
-    showToast('Ligando todas as telas…')
+    // On: strictly one at a time. await startSlot returns once that browser has
+    // spawned; the settle wait then lets it finish coming up before the next
+    // starts, so the machine only ever brings up one Chrome at once.
+    const ids = state.slots.filter((s) => s.state === 'stopped').map((s) => s.id)
+    showToast('Ligando as telas, uma por vez…')
+    for (const id of ids) {
+      await window.helloweb.startSlot(id).catch(showError)
+      await sleep(POWER_ON_SETTLE_MS)
+    }
   }
 }
 
@@ -1298,7 +1315,7 @@ function initWall(): void {
   addBtn.append(icon('plus', 19))
   settingsBtn.append(icon('settings', 19))
 
-  powerAllBtn.addEventListener('click', powerAll)
+  powerAllBtn.addEventListener('click', () => void powerAll())
   addBtn.addEventListener('click', addScreen)
   settingsBtn.addEventListener('click', () =>
     run(() => window.helloweb.openOverlay({ kind: 'settings' })),
