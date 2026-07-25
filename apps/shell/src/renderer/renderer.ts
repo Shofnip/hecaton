@@ -290,8 +290,6 @@ function run(action: () => Promise<unknown>): void {
   void action().catch(showError)
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
-
 // ============================ DOM refs ============================
 // The wall's elements (null in the overlay window, where they are never touched);
 // the cross-mode ones (configError, toast) are guarded at use.
@@ -771,39 +769,20 @@ function toggleFocus(id: number): void {
 }
 
 // How long to let a freshly launched screen open and settle before starting the
-// next one. Launching four Chromes at once froze the cursor; bringing them up one
-// at a time, waiting between each, keeps only one browser starting at any moment.
-const POWER_ON_SETTLE_MS = 1800
-
-let poweringAll = false
-async function powerAll(): Promise<void> {
-  if (poweringAll) return // one sequence at a time; a second click is ignored
-  poweringAll = true
-  try {
-    await powerAllSequence()
-  } finally {
-    poweringAll = false
-  }
-}
-
-async function powerAllSequence(): Promise<void> {
-  const allOn = state.slots.length > 0 && state.slots.every((s) => s.state !== 'stopped')
+function powerAll(): void {
+  const anyScreens = state.slots.length > 0
+  const allOn = anyScreens && state.slots.every((s) => s.state !== 'stopped')
+  // All at once: what made this freeze was the synchronous PowerShell shell-outs
+  // in the launcher blocking the main thread, and those are async now, so four
+  // browsers can start (or stop) together without stalling the cursor.
   if (allOn) {
-    // Off: one after another with no wait — a kill is quick, and it was the delay
-    // between them, not the killing, that made them slow to go down.
-    const ids = state.slots.filter((s) => s.state !== 'stopped').map((s) => s.id)
-    for (const id of ids) await window.helloweb.stopSlot(id).catch(showError)
+    for (const s of state.slots)
+      if (s.state !== 'stopped') run(() => window.helloweb.stopSlot(s.id))
     showToast('Todas as telas desligadas')
   } else {
-    // On: strictly one at a time. await startSlot returns once that browser has
-    // spawned; the settle wait then lets it finish coming up before the next
-    // starts, so the machine only ever brings up one Chrome at once.
-    const ids = state.slots.filter((s) => s.state === 'stopped').map((s) => s.id)
-    showToast('Ligando as telas, uma por vez…')
-    for (const id of ids) {
-      await window.helloweb.startSlot(id).catch(showError)
-      await sleep(POWER_ON_SETTLE_MS)
-    }
+    for (const s of state.slots)
+      if (s.state === 'stopped') run(() => window.helloweb.startSlot(s.id))
+    showToast('Ligando todas as telas…')
   }
 }
 
@@ -1315,7 +1294,7 @@ function initWall(): void {
   addBtn.append(icon('plus', 19))
   settingsBtn.append(icon('settings', 19))
 
-  powerAllBtn.addEventListener('click', () => void powerAll())
+  powerAllBtn.addEventListener('click', powerAll)
   addBtn.addEventListener('click', addScreen)
   settingsBtn.addEventListener('click', () =>
     run(() => window.helloweb.openOverlay({ kind: 'settings' })),
