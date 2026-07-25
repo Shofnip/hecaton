@@ -35,6 +35,7 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  *   focusat <parent> <x> <y>        -> OK <hwnd> | OK none  (x,y in the parent's client area)
  *   show <hwnd> <cmd>               -> OK         (0 = SW_HIDE, 5 = SW_SHOW)
  *   reload <hwnd>                   -> OK
+ *   close <hwnd>                    -> OK         (posts WM_CLOSE, graceful)
  *   exists <hwnd>                   -> OK 1 | OK 0
  *   exit                            -> OK  then the process exits
  * Errors reply "ERR <message>". "READY" is printed once the compile is done.
@@ -53,6 +54,7 @@ public static class W {
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hh, uint flags);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
+  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
@@ -78,6 +80,7 @@ public static class W {
   const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_FRAMECHANGED = 0x0020;
   const uint WM_APPCOMMAND = 0x0319;
   const int APPCOMMAND_BROWSER_REFRESH = 3;
+  const uint WM_CLOSE = 0x0010;
 
   public static string Reparent(IntPtr child, IntPtr parent) {
     long style = GetWindowLongPtr(child, GWL_STYLE).ToInt64();
@@ -145,6 +148,12 @@ public static class W {
     return "OK";
   }
 
+  // Posts WM_CLOSE — the same message clicking the window's X sends — so Chrome
+  // closes gracefully even though, reparented, it is no longer a top-level window
+  // that CloseMainWindow could reach. Posted, not sent, so the worker does not
+  // block on Chrome's shutdown.
+  public static string Close(IntPtr h) { PostMessage(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); return "OK"; }
+
   public static string Exists(IntPtr h) { return IsWindow(h) ? "OK 1" : "OK 0"; }
 }
 '@
@@ -164,6 +173,7 @@ while ($true) {
       'focusat'   { Reply ([W]::FocusAt([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'show'      { Reply ([W]::Show([IntPtr][int64]$a[1], [int]$a[2])) }
       'reload'    { Reply ([W]::Reload([IntPtr][int64]$a[1])) }
+      'close'     { Reply ([W]::Close([IntPtr][int64]$a[1])) }
       'exists'    { Reply ([W]::Exists([IntPtr][int64]$a[1])) }
       'exit'      { Reply 'OK'; exit 0 }
       default     { Reply "ERR unknown: $($a[0])" }

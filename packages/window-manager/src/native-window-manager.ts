@@ -261,6 +261,19 @@ export class NativeWindowManager implements WindowManager {
     return true
   }
 
+  /**
+   * Posts WM_CLOSE to the embedded window so Chrome closes gracefully. Needed
+   * because reparenting made the window a child, which the launcher's
+   * CloseMainWindow can no longer reach — without this, stopping a screen waited
+   * out the launcher's grace period before force-killing. False when not found.
+   */
+  close(pid: number): boolean {
+    const hwnd = this.hwndFor(pid)
+    if (hwnd === undefined) return false
+    this.fire(`close ${hwnd}`)
+    return true
+  }
+
   /** The rectangle the user sees — the same coordinates a top-level setBounds accepts. */
   boundsOf(pid: number): GridCell | undefined {
     const window = this.windowFor(pid)

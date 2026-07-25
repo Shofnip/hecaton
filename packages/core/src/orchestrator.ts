@@ -227,7 +227,10 @@ export class Orchestrator {
     }
     const slot = this.slot(slotId)
     const pid = slot.pid
-    if (pid !== undefined) await this.launcher.stop(pid)
+    if (pid !== undefined) {
+      this.windows.close(pid) // graceful close before the launcher stops it (see stop)
+      await this.launcher.stop(pid)
+    }
     await this.profiles?.archive(slot.config.profileDir)
 
     this.slots.delete(slotId)
@@ -431,7 +434,14 @@ export class Orchestrator {
     slot.pid = undefined
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
-    if (pid !== undefined) await this.launcher.stop(pid)
+    if (pid !== undefined) {
+      // Ask the embedded window to close gracefully first (WM_CLOSE); the launcher
+      // then waits for that clean exit and force-kills only as a fallback. Without
+      // it the launcher's own graceful ask cannot reach the reparented child and
+      // the browser lingers seconds before the force-kill.
+      this.windows.close(pid)
+      await this.launcher.stop(pid)
+    }
   }
 
   /**

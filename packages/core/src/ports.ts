@@ -61,6 +61,15 @@ export interface WindowManager {
    * False when the window is not found yet.
    */
   reload(pid: number): boolean
+  /**
+   * Asks the embedded window to close gracefully — posts WM_CLOSE to it, the way
+   * clicking its X does, so Chrome flushes its session and exits clean. False when
+   * the window is not found. It is the launcher that owns ending the process (and
+   * force-kills as a fallback); this just makes the graceful path work, because
+   * CloseMainWindow cannot reach a reparented child, so without it that path always
+   * times out and the browser lingers seconds before the force-kill.
+   */
+  close(pid: number): boolean
 }
 
 /**

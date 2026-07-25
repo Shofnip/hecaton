@@ -261,6 +261,19 @@ describe('stopping', () => {
     expect(launcher.stopped).toContain(pid)
   })
 
+  it('asks the embedded window to close before the launcher stops it', async () => {
+    // The graceful path: WM_CLOSE on the child so Chrome exits clean, rather than
+    // waiting out the launcher grace (CloseMainWindow cannot reach a reparented
+    // child). The launcher still stops (and force-kills as a fallback).
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+
+    await app.stop(1)
+    expect(windows.closed).toContain(pid)
+    expect(launcher.stopped).toContain(pid)
+  })
+
   it('is harmless on an already stopped slot', async () => {
     const app = makeOrchestrator()
     await app.stop(1)

@@ -100,6 +100,7 @@ export class FakeWindowManager implements WindowManager {
   readonly hidden: number[] = []
   readonly shown: number[] = []
   readonly reloaded: number[] = []
+  readonly closed: number[] = []
 
   /** Pids whose window is "not found yet", as when the browser is still starting. */
   readonly missing = new Set<number>()
@@ -131,6 +132,12 @@ export class FakeWindowManager implements WindowManager {
   reload(pid: number): boolean {
     if (this.missing.has(pid)) return false
     this.reloaded.push(pid)
+    return true
+  }
+
+  close(pid: number): boolean {
+    if (this.missing.has(pid)) return false
+    this.closed.push(pid)
     return true
   }
 }
