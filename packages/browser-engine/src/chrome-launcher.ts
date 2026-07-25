@@ -8,12 +8,21 @@
  * Holds no business rules. Which slot runs where, and when to restart, are the
  * orchestrator's decisions.
  */
-import { execFileSync, spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { BrowserLauncher, LaunchRequest } from '@helloweb/core'
 import { buildChromeArgs } from './chrome-args.js'
+
+// Async, never *Sync: these shell out to PowerShell/taskkill, and PowerShell alone
+// takes a few hundred ms to start. execFileSync would block the Electron main
+// thread for that whole time — on every launch (the pid poll runs it repeatedly)
+// and every stop — which froze the cursor. execFile runs it in a child process
+// while the event loop keeps turning; stderr is captured, not inherited, so the
+// CLIXML noise PowerShell prints never reaches the app's console.
+const execFileAsync = promisify(execFile)
 
 const DEFAULT_CHROME_PATHS = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -29,20 +38,18 @@ interface ChromeProcess {
   commandLine: string
 }
 
-function listChromeProcesses(): ChromeProcess[] {
+async function listChromeProcesses(): Promise<ChromeProcess[]> {
   const script =
     "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' } " +
     '| Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress'
   let stdout: string
   try {
-    stdout = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-      // Capture stdout, but silence stderr rather than letting it inherit the
-      // app's console: PowerShell writes progress and CLIXML noise there, which
-      // otherwise surfaces in the running app's output for no reason.
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    const result = await execFileAsync(
+      'powershell',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+    )
+    stdout = result.stdout
   } catch {
     return []
   }
@@ -64,9 +71,9 @@ function listChromeProcesses(): ChromeProcess[] {
  * during the Phase 0 spike it did exactly that. Renderers and GPU helpers carry
  * `--type=`; the browser process is the one that does not.
  */
-function findBrowserPid(profilePath: string): number | undefined {
+async function findBrowserPid(profilePath: string): Promise<number | undefined> {
   const needle = `--user-data-dir=${profilePath}`
-  return listChromeProcesses().find(
+  return (await listChromeProcesses()).find(
     (proc) => proc.commandLine.includes(needle) && !proc.commandLine.includes('--type='),
   )?.pid
 }
@@ -74,7 +81,7 @@ function findBrowserPid(profilePath: string): number | undefined {
 async function waitForBrowserPid(profilePath: string, timeoutMs = 20_000): Promise<number> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
-    const pid = findBrowserPid(profilePath)
+    const pid = await findBrowserPid(profilePath)
     if (pid !== undefined) return pid
     if (Date.now() >= deadline) {
       throw new Error(`Chrome did not start for profile ${profilePath} within ${timeoutMs}ms`)
@@ -154,12 +161,12 @@ export class ChromeLauncher implements BrowserLauncher {
     const profile = this.profiles.get(pid)
 
     if (this.isAlive(pid)) {
-      this.askToClose(pid)
+      await this.askToClose(pid)
       await this.waitForExit(pid, ChromeLauncher.CLOSE_GRACE_MS)
       if (this.isAlive(pid)) {
         // /T takes the renderer and GPU children with it; without it they linger.
         try {
-          execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
+          await execFileAsync('taskkill', ['/PID', String(pid), '/F', '/T'])
         } catch {
           // Already gone between the check and the kill.
         }
@@ -182,13 +189,14 @@ export class ChromeLauncher implements BrowserLauncher {
    * No double quotes in the command, deliberately: PowerShell eats those out of
    * a -Command string, which docs/troubleshooting.md records the hard way.
    */
-  private askToClose(pid: number): void {
+  private async askToClose(pid: number): Promise<void> {
     try {
-      execFileSync(
-        'powershell',
-        ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${pid}).CloseMainWindow()`],
-        { stdio: 'ignore' },
-      )
+      await execFileAsync('powershell', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-Process -Id ${pid}).CloseMainWindow()`,
+      ])
     } catch {
       // No such process, or no main window to close. The force path follows.
     }
