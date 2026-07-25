@@ -63,6 +63,8 @@ public static class W {
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT pt);
+  [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
+  [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
@@ -81,6 +83,11 @@ public static class W {
   const uint WM_APPCOMMAND = 0x0319;
   const int APPCOMMAND_BROWSER_REFRESH = 3;
   const uint WM_CLOSE = 0x0010;
+  // Height of the title bar Chrome draws inside an --app window's client area, at
+  // 100% scale. Not a Win32 boundary (Chrome renders it), so it cannot be measured
+  // here — it is clipped away by window height. Tune if a sliver shows or the game
+  // is cropped; scales with display DPI.
+  const int APP_TITLE = 37;
 
   public static string Reparent(IntPtr child, IntPtr parent) {
     long style = GetWindowLongPtr(child, GWL_STYLE).ToInt64();
@@ -121,13 +128,14 @@ public static class W {
   }
 
   public static string MoveChild(IntPtr h, int x, int y, int w, int hh) {
-    // Fit the CLIENT area, not the window. Chrome keeps a ~7px invisible frame
-    // (the resize border) around an --app window even after the style strip, so
-    // the game renders inset from the window edge; sizing the window to the target
-    // would leave the panel's black showing in that border. Measure the frame the
-    // window actually has (window rect vs client, via ClientToScreen) and inflate,
-    // so the game — the client — fills the target rect exactly. The invisible
-    // borders of neighbours overlap harmlessly in the gaps.
+    // x,y,w,hh is where the GAME should appear (a viewport), in parent-client px.
+    // Chrome draws a title bar (APP_TITLE) at the top of its client and keeps a
+    // ~7px invisible frame around the window even after the style strip. We want
+    // neither showing. Measure the frame (window rect vs client, via ClientToScreen)
+    // and size the window so the game — the client below the title bar — fills the
+    // target, then clip the window to just that game area with SetWindowRgn. The
+    // clipped-away title bar and frame become invisible AND stop taking clicks,
+    // which is also what stops the user dragging the screen out of place.
     RECT wr; GetWindowRect(h, out wr);
     RECT cr; GetClientRect(h, out cr);
     POINT origin; origin.X = 0; origin.Y = 0; ClientToScreen(h, ref origin);
@@ -135,7 +143,11 @@ public static class W {
     int top = origin.Y - wr.Top;
     int right = (wr.Right - wr.Left) - (cr.Right - cr.Left) - left;
     int bottom = (wr.Bottom - wr.Top) - (cr.Bottom - cr.Top) - top;
-    MoveWindow(h, x - left, y - top, w + left + right, hh + top + bottom, true);
+    // The client must be APP_TITLE taller and shifted up, so the game lands at x,y.
+    MoveWindow(h, x - left, y - APP_TITLE - top, w + left + right, hh + APP_TITLE + top + bottom, true);
+    // Region = just the game, in window coords: past the frame-left, and past the
+    // frame-top plus the title bar. SetWindowRgn takes ownership of the region.
+    SetWindowRgn(h, CreateRectRgn(left, top + APP_TITLE, left + w, top + APP_TITLE + hh), true);
     // Re-assert top of the sibling z-order so Electron's input hwnd cannot cover it.
     SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
     return "OK";

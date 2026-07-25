@@ -258,15 +258,15 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
       expect(new NativeWindowManager().windowIdOf(pid)).toBeUndefined()
     })
 
-    it('sizes the embedded child so its client fills the requested rect, and moves by the delta', async () => {
-      // The live path: setBounds on an embedded window is a MoveWindow in the
-      // parent's client area. The requested size is the CLIENT the game paints —
-      // the adapter inflates the window past its invisible frame so the client, not
-      // the window, matches — and moving by (100,100) in client coords shifts the
-      // window by exactly that. Both are read straight from user32, not the adapter.
+    it('clips the child to the requested game rect, and moves by the delta', async () => {
+      // The live path: setBounds on an embedded window sizes and clips it so the
+      // game — not the window, which is bigger by Chrome's title bar and invisible
+      // frame — fills the requested rect. The visible region (GetWindowRgnBox) is
+      // that game area, and moving by (100,100) in client coords shifts the window
+      // by exactly that. Both are read straight from user32, not the adapter.
       embedManager.setBounds(pid, { x: 50, y: 60, width: 420, height: 320 })
-      const first = await waitForRect(childHwnd, () => clientSize(childHwnd).width === 420)
-      expect(clientSize(childHwnd)).toEqual({ width: 420, height: 320 })
+      const first = await waitForRect(childHwnd, () => regionSize(childHwnd).width === 420)
+      expect(regionSize(childHwnd)).toEqual({ width: 420, height: 320 })
       embedManager.setBounds(pid, { x: 150, y: 160, width: 420, height: 320 })
       const second = await waitForRect(
         childHwnd,
@@ -274,7 +274,7 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
       )
       expect(second.width).toBe(first.width)
       expect(second.height).toBe(first.height)
-      expect(clientSize(childHwnd)).toEqual({ width: 420, height: 320 })
+      expect(regionSize(childHwnd)).toEqual({ width: 420, height: 320 })
     })
 
     it('hides and shows the embedded window', async () => {
@@ -326,10 +326,10 @@ function windowRect(hwnd: number): { x: number; y: number; width: number; height
   return { x: left!, y: top!, width: right! - left!, height: bottom! - top! }
 }
 
-/** A window's client-area size (GetClientRect), straight from user32. */
-function clientSize(hwnd: number): { width: number; height: number } {
-  const [, , right, bottom] = win32Query(`Client([IntPtr]${hwnd})`).split(' ').map(Number)
-  return { width: right!, height: bottom! }
+/** The size of a window's visible region (GetWindowRgnBox) — the clipped game area. */
+function regionSize(hwnd: number): { width: number; height: number } {
+  const [left, top, right, bottom] = win32Query(`RgnBox([IntPtr]${hwnd})`).split(' ').map(Number)
+  return { width: right! - left!, height: bottom! - top! }
 }
 
 /** The direct parent of a window (GetAncestor GA_PARENT), straight from user32. */
@@ -353,9 +353,9 @@ public class ProbeUser32 {
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint f);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
-  [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern int GetWindowRgnBox(IntPtr h, out RECT r);
   public static string Rect(IntPtr h) { RECT r; GetWindowRect(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
-  public static string Client(IntPtr h) { RECT r; GetClientRect(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
+  public static string RgnBox(IntPtr h) { RECT r; GetWindowRgnBox(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
 }
 '@
 [ProbeUser32]::${expression}
