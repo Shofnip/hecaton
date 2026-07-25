@@ -4,6 +4,7 @@ import {
   IPC_CHANNELS,
   parseAudioFollowsFocus,
   parseNoPayload,
+  parseOverlayRequest,
   parseSlotAddition,
   parseScreenLayout,
   parseSlotId,
@@ -46,7 +47,42 @@ describe('the channel list', () => {
       'slots:reload',
       'ui:setTheme',
       'screens:layout',
+      'overlay:open',
+      'overlay:close',
     ])
+  })
+})
+
+describe('parseOverlayRequest', () => {
+  it('accepts each modal kind with its fields', () => {
+    expect(parseOverlayRequest({ kind: 'settings' })).toEqual({ kind: 'settings' })
+    expect(parseOverlayRequest({ kind: 'edit', id: 3 })).toEqual({ kind: 'edit', id: 3 })
+    expect(parseOverlayRequest({ kind: 'confirmRemove', id: 2 })).toEqual({
+      kind: 'confirmRemove',
+      id: 2,
+    })
+  })
+
+  it('accepts a volume request with its anchor rectangle', () => {
+    const anchor = { x: 10, y: 20, width: 34, height: 34 }
+    expect(parseOverlayRequest({ kind: 'volume', id: 1, anchor })).toEqual({
+      kind: 'volume',
+      id: 1,
+      anchor,
+    })
+  })
+
+  it('rejects an unknown kind', () => {
+    expect(() => parseOverlayRequest({ kind: 'nope' })).toThrow(/unknown overlay kind/)
+    expect(() => parseOverlayRequest('edit')).toThrow(/must be an object/)
+  })
+
+  it('rejects a bad slot id or a malformed anchor', () => {
+    expect(() => parseOverlayRequest({ kind: 'edit', id: 0 })).toThrow(/positive integer/)
+    expect(() => parseOverlayRequest({ kind: 'volume', id: 1 })).toThrow(/anchor must be an object/)
+    expect(() =>
+      parseOverlayRequest({ kind: 'volume', id: 1, anchor: { x: -1, y: 0, width: 1, height: 1 } }),
+    ).toThrow(/x must be an integer/)
   })
 })
 

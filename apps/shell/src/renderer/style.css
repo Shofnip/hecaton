@@ -1011,3 +1011,24 @@ svg {
 [hidden] {
   display: none !important;
 }
+
+/* ============================ overlay window ============================ */
+/* The overlay hosts the modals and the volume popover above the embedded games.
+   Its body is transparent so the games show through; the modal backdrop neither
+   dims nor blurs (that would cover the screens the owner wants visible) — it only
+   catches an outside click. The dialog and popover keep their own panel surface. */
+body[data-mode='overlay'] {
+  background: transparent;
+}
+
+body[data-mode='overlay'] .modal-backdrop {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+/* Full-window click-catcher behind the volume popover: an outside click closes it. */
+.overlay-catcher {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}

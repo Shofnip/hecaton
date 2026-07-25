@@ -78,8 +78,18 @@ interface HellowebApi {
   reloadSlot(id: number): Promise<boolean>
   setTheme(theme: Theme): Promise<void>
   setScreenLayout(placements: unknown): Promise<void>
+  openOverlay(request: OverlayRequest): Promise<void>
+  closeOverlay(): Promise<void>
   onState(listener: (state: PanelState) => void): void
+  onOverlayOpen(listener: (request: OverlayRequest) => void): void
 }
+
+/** What the wall asks the overlay window to show (mirrors the core's validator). */
+type OverlayRequest =
+  | { kind: 'edit'; id: number }
+  | { kind: 'volume'; id: number; anchor: Anchor }
+  | { kind: 'settings' }
+  | { kind: 'confirmRemove'; id: number }
 
 declare global {
   interface Window {
@@ -267,16 +277,24 @@ function iconButton(
 /** Errors are shown, never swallowed — a failing action must fail by name. */
 function run(action: () => Promise<unknown>): void {
   void action().catch((error: unknown) => {
-    configError.textContent = error instanceof Error ? error.message : String(error)
-    configError.hidden = false
+    const message = error instanceof Error ? error.message : String(error)
+    // The overlay has no error banner; the wall does. Either way it is not lost.
+    if (configError) {
+      configError.textContent = message
+      configError.hidden = false
+    } else {
+      console.error('[helloweb]', message)
+    }
   })
 }
 
 // ============================ DOM refs ============================
+// The wall's elements (null in the overlay window, where they are never touched);
+// the cross-mode ones (configError, toast) are guarded at use.
 
 const board = document.getElementById('board') as HTMLElement
-const configError = document.getElementById('config-error') as HTMLElement
-const toastEl = document.getElementById('toast') as HTMLElement
+const configError = document.getElementById('config-error') as HTMLElement | null
+const toastEl = document.getElementById('toast') as HTMLElement | null
 const powerAllBtn = document.getElementById('power-all') as HTMLButtonElement
 const addBtn = document.getElementById('add-screen') as HTMLButtonElement
 const settingsBtn = document.getElementById('open-settings') as HTMLButtonElement
@@ -291,26 +309,16 @@ let state: PanelState = {
   theme: 'dark',
 }
 
-// UI-only state main does not own.
+// UI-only state main does not own. The modal/editor flags moved to the overlay
+// window with the modals; the wall's only live interaction is the focus divider.
 let fullscreenId: number | undefined
-let volumeOpenId: number | undefined
 let thumbHeight = 100
-let editingSlotId: number | undefined
-let settingsOpen = false
-let confirmOpen = false
 let draggingVolume = false
 let draggingDivider = false
 
-/** A background push must not redraw over an open editor, popover or drag. */
+/** A background push must not redraw the wall out from under a divider drag. */
 function interacting(): boolean {
-  return (
-    editingSlotId !== undefined ||
-    settingsOpen ||
-    confirmOpen ||
-    volumeOpenId !== undefined ||
-    draggingVolume ||
-    draggingDivider
-  )
+  return draggingDivider
 }
 
 function slot(id: number): SlotSnapshot | undefined {
@@ -325,11 +333,12 @@ function slotName(s: SlotSnapshot): string {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 function showToast(message: string): void {
+  if (!toastEl) return // the overlay has no toast strip; toasts are the wall's
   toastEl.textContent = message
   toastEl.hidden = false
   if (toastTimer) clearTimeout(toastTimer)
   toastTimer = setTimeout(() => {
-    toastEl.hidden = true
+    if (toastEl) toastEl.hidden = true
   }, 2600)
 }
 
@@ -337,8 +346,10 @@ function showToast(message: string): void {
 
 function render(): void {
   document.documentElement.dataset.theme = state.theme
-  configError.hidden = state.configError === undefined
-  if (state.configError !== undefined) configError.textContent = state.configError
+  if (configError) {
+    configError.hidden = state.configError === undefined
+    if (state.configError !== undefined) configError.textContent = state.configError
+  }
 
   // Sidebar reflects the running set.
   const anyScreens = state.slots.length > 0
@@ -590,11 +601,19 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
     ),
   )
 
-  // Edit.
-  bar.append(iconButton('pencil', 'icon-btn ctrl', 'Editar tela', () => openEditModal(s.id)))
+  // Edit — opens in the overlay window, above the games.
+  bar.append(
+    iconButton('pencil', 'icon-btn ctrl', 'Editar tela', () =>
+      run(() => window.helloweb.openOverlay({ kind: 'edit', id: s.id })),
+    ),
+  )
 
-  // Delete (always last).
-  bar.append(iconButton('trash', 'icon-btn ctrl danger', 'Apagar tela', () => removeScreen(s.id)))
+  // Delete (always last) — its confirmation opens in the overlay too.
+  bar.append(
+    iconButton('trash', 'icon-btn ctrl danger', 'Apagar tela', () =>
+      run(() => window.helloweb.openOverlay({ kind: 'confirmRemove', id: s.id })),
+    ),
+  )
 
   return bar
 }
@@ -602,25 +621,32 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
 // ---- volume control + popover (design §6) ----
 
 function volumeControl(s: SlotSnapshot): HTMLElement {
-  const wrap = el('div', 'ctrl-wrap')
-  const open = volumeOpenId === s.id
+  // The popover renders in the overlay, above the games; the button just asks for
+  // it, handing over its own rectangle so the overlay can anchor the popover to
+  // it. Both windows share the panel's client coordinates, so the rect carries
+  // over unchanged.
   const silent = s.muted || s.volume === 0
   const btn = iconButton(
     silent ? 'volumeOff' : 'volume',
-    'icon-btn ctrl' + (open ? ' on' : silent ? ' muted' : ''),
+    'icon-btn ctrl' + (silent ? ' muted' : ''),
     'Volume',
-    () => {},
+    () => {
+      const r = btn.getBoundingClientRect()
+      run(() =>
+        window.helloweb.openOverlay({
+          kind: 'volume',
+          id: s.id,
+          anchor: {
+            x: Math.round(r.left),
+            y: Math.round(r.top),
+            width: Math.round(r.width),
+            height: Math.round(r.height),
+          },
+        }),
+      )
+    },
   )
-  // Replace the default handler so we can stop propagation (the document click
-  // listener closes the popover otherwise).
-  btn.onclick = (e) => {
-    e.stopPropagation()
-    volumeOpenId = open ? undefined : s.id
-    render()
-  }
-  wrap.append(btn)
-  if (open) wrap.append(volumePopover(s))
-  return wrap
+  return btn
 }
 
 function volumePopover(s: SlotSnapshot): HTMLElement {
@@ -634,14 +660,23 @@ function volumePopover(s: SlotSnapshot): HTMLElement {
   const track = el('div', 'volume-track')
   track.title = 'Clique ou arraste para ajustar'
   const fill = el('div', 'volume-fill')
-  fill.style.setProperty('--volume-fill', `${shown()}%`)
   track.append(fill)
 
+  const mute = el('button', 'icon-btn volume-mute')
+  mute.type = 'button'
+
+  // Repaints the popover in place — no full render, so it works in the overlay
+  // window, which has no wall to redraw. The control bar's own icon updates from
+  // the state push setSlotMuted triggers.
   const paint = (): void => {
     const v = shown()
     pct.textContent = `${v}%`
     fill.style.setProperty('--volume-fill', `${v}%`)
+    mute.replaceChildren(icon(s.muted || s.volume === 0 ? 'volumeOff' : 'volume', 13))
+    mute.title = s.muted ? 'Ativar som' : 'Silenciar'
+    mute.classList.toggle('muted', s.muted)
   }
+  paint()
 
   const setFromY = (clientY: number): void => {
     const r = track.getBoundingClientRect()
@@ -664,19 +699,11 @@ function volumePopover(s: SlotSnapshot): HTMLElement {
   track.addEventListener('pointerup', end)
   track.addEventListener('pointercancel', end)
 
-  const mute = iconButton(
-    s.muted || s.volume === 0 ? 'volumeOff' : 'volume',
-    'icon-btn volume-mute' + (s.muted ? ' muted' : ''),
-    s.muted ? 'Ativar som' : 'Silenciar',
-    () => {
-      const next = !s.muted
-      s.muted = next
-      run(() => window.helloweb.setSlotMuted(s.id, next))
-      // Rebuild so the icon on the control bar and popover update together.
-      render()
-    },
-    13,
-  )
+  mute.addEventListener('click', () => {
+    s.muted = !s.muted
+    run(() => window.helloweb.setSlotMuted(s.id, s.muted))
+    paint()
+  })
 
   pop.append(pct, track, mute)
   return pop
@@ -736,7 +763,6 @@ function toggleFocus(id: number): void {
   // Server-authoritative: focusSlot flips the orchestrator's focusedSlotId (the
   // audio policy reads it) and main pushes the new snapshot, whose `focused`
   // flag drives the focus layout here.
-  volumeOpenId = undefined
   run(() => window.helloweb.focusSlot(id))
 }
 
@@ -763,22 +789,15 @@ function addScreen(): void {
   })
 }
 
-function removeScreen(id: number): void {
-  const s = slot(id)
-  if (!s) return
+// Runs in the overlay: the remove confirmation, above the games. Removal pushes
+// state, so the wall redraws without the slot on its own — no local cleanup here.
+function openConfirmRemove(id: number): void {
   openConfirm({
     title: 'Apagar tela',
     message: REMOVE_DETAIL,
     danger: false,
     confirmLabel: 'Sim, apagar',
-    onYes: () => {
-      if (fullscreenId === id) fullscreenId = undefined
-      if (volumeOpenId === id) volumeOpenId = undefined
-      run(async () => {
-        await window.helloweb.removeSlot(id)
-        showToast('Tela removida')
-      })
-    },
+    onYes: () => run(() => window.helloweb.removeSlot(id)),
   })
 }
 
@@ -795,10 +814,22 @@ interface ModalOptions {
 }
 
 /**
- * A generic modal shell: backdrop + dialog, closable by backdrop, Escape or the
- * close button. onClose runs on all three, so the interacting() flag a modal
- * sets is always cleared and the board is redrawn to pick up any state that
- * arrived while it was open.
+ * How many overlay surfaces (modals, the volume popover) are open. The overlay
+ * window is hidden again only when the last one closes — a confirm opened over
+ * settings must not tear the whole overlay down when it alone is dismissed.
+ */
+let overlayDepth = 0
+
+/** Hides the overlay window once nothing is left open in it. */
+function overlayClosed(): void {
+  if (--overlayDepth === 0) void window.helloweb.closeOverlay()
+}
+
+/**
+ * A generic modal shell for the overlay window: backdrop + dialog, closable by
+ * backdrop, Escape or the close button. onClose runs on all three. When the last
+ * open surface closes, the overlay window hides itself, so the games take the
+ * mouse again.
  */
 function openModal(
   build: (dialog: HTMLElement, close: () => void) => void,
@@ -809,6 +840,7 @@ function openModal(
   dialog.setAttribute('role', 'dialog')
   dialog.setAttribute('aria-modal', 'true')
   backdrop.append(dialog)
+  overlayDepth++
 
   let closed = false
   const close = (): void => {
@@ -817,8 +849,7 @@ function openModal(
     options.onClose?.()
     backdrop.remove()
     document.removeEventListener('keydown', onKey)
-    render()
-    scheduleLayout()
+    overlayClosed()
   }
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') close()
@@ -830,7 +861,6 @@ function openModal(
 
   build(dialog, close)
   document.body.append(backdrop)
-  scheduleLayout()
 }
 
 function modalHead(dialog: HTMLElement, title: string, close: () => void): void {
@@ -878,81 +908,73 @@ function dangerButton(label: string, desc: string, onClick: () => void): HTMLEle
 // ---- settings modal (design §10) ----
 
 function openSettings(): void {
-  settingsOpen = true
-  openModal(
-    (dialog, close) => {
-      modalHead(dialog, 'Configurações', close)
-      const body = el('div', 'modal-body')
+  openModal((dialog, close) => {
+    modalHead(dialog, 'Configurações', close)
+    const body = el('div', 'modal-body')
 
-      body.append(
-        toggle(
-          'Áudio apenas na tela em foco',
-          'Silencia automaticamente as telas fora de foco',
-          state.audioFollowsFocus,
-          (v) => run(() => window.helloweb.setAudioFollowsFocus(v)),
-        ),
-      )
+    body.append(
+      toggle(
+        'Áudio apenas na tela em foco',
+        'Silencia automaticamente as telas fora de foco',
+        state.audioFollowsFocus,
+        (v) => run(() => window.helloweb.setAudioFollowsFocus(v)),
+      ),
+    )
 
-      const logs = el('button', 'neutral-btn')
-      logs.type = 'button'
-      logs.append(icon('logs', 18), el('span', undefined, 'Abrir logs'))
-      logs.addEventListener('click', () => {
-        showToast('Abrindo logs…')
-        run(() => window.helloweb.revealLogs())
-      })
-      body.append(logs)
+    const logs = el('button', 'neutral-btn')
+    logs.type = 'button'
+    logs.append(icon('logs', 18), el('span', undefined, 'Abrir logs'))
+    logs.addEventListener('click', () => {
+      showToast('Abrindo logs…')
+      run(() => window.helloweb.revealLogs())
+    })
+    body.append(logs)
 
-      body.append(themeRow())
+    body.append(themeRow())
 
-      body.append(el('div', 'risk-divider'))
-      body.append(el('span', 'risk-label', 'Zona de risco'))
-      body.append(
-        dangerButton(
-          'Limpar cache das telas',
-          'Remove o cache de todas as telas. Pode exigir novo login.',
-          () =>
-            openConfirm({
-              title: 'Limpar cache das telas?',
-              message:
-                'O cache de todas as telas será apagado. Sessões salvas podem precisar de novo login.',
-              danger: true,
-              confirmLabel: 'Sim, apagar',
-              onYes: () =>
-                run(async () => {
-                  await window.helloweb.clearAllCaches()
-                  showToast('Cache das telas limpo')
-                }),
-            }),
-        ),
-      )
-      body.append(
-        dangerButton(
-          'Limpar dados arquivados',
-          'Exclui permanentemente os arquivos arquivados. Sem volta.',
-          () =>
-            openConfirm({
-              title: 'Excluir dados arquivados?',
-              message:
-                'Esta ação é permanente e não pode ser desfeita. Os dados arquivados serão perdidos para sempre.',
-              danger: true,
-              confirmLabel: 'Sim, apagar',
-              onYes: () =>
-                run(async () => {
-                  await window.helloweb.clearArchives()
-                  showToast('Dados arquivados excluídos')
-                }),
-            }),
-        ),
-      )
+    body.append(el('div', 'risk-divider'))
+    body.append(el('span', 'risk-label', 'Zona de risco'))
+    body.append(
+      dangerButton(
+        'Limpar cache das telas',
+        'Remove o cache de todas as telas. Pode exigir novo login.',
+        () =>
+          openConfirm({
+            title: 'Limpar cache das telas?',
+            message:
+              'O cache de todas as telas será apagado. Sessões salvas podem precisar de novo login.',
+            danger: true,
+            confirmLabel: 'Sim, apagar',
+            onYes: () =>
+              run(async () => {
+                await window.helloweb.clearAllCaches()
+                showToast('Cache das telas limpo')
+              }),
+          }),
+      ),
+    )
+    body.append(
+      dangerButton(
+        'Limpar dados arquivados',
+        'Exclui permanentemente os arquivos arquivados. Sem volta.',
+        () =>
+          openConfirm({
+            title: 'Excluir dados arquivados?',
+            message:
+              'Esta ação é permanente e não pode ser desfeita. Os dados arquivados serão perdidos para sempre.',
+            danger: true,
+            confirmLabel: 'Sim, apagar',
+            onYes: () =>
+              run(async () => {
+                await window.helloweb.clearArchives()
+                showToast('Dados arquivados excluídos')
+              }),
+          }),
+      ),
+    )
 
-      dialog.append(body)
-    },
-    {
-      onClose: () => {
-        settingsOpen = false
-      },
-    },
-  )
+    dialog.append(body)
+  })
 }
 
 function themeRow(): HTMLElement {
@@ -985,127 +1007,122 @@ function themeRow(): HTMLElement {
 
 function openEditModal(id: number): void {
   const s = slot(id)
-  if (!s) return
-  editingSlotId = id
-  openModal(
-    (dialog, close) => {
-      modalHead(dialog, `Editar ${slotName(s)}`, close)
-      const body = el('div', 'modal-body')
+  if (!s) {
+    void window.helloweb.closeOverlay()
+    return
+  }
+  openModal((dialog, close) => {
+    modalHead(dialog, `Editar ${slotName(s)}`, close)
+    const body = el('div', 'modal-body')
 
-      // Name.
-      const nameBox = el('div', 'field-box')
-      nameBox.append(el('span', 'field-label', 'Nome da tela'))
-      const nameInput = el('input', 'field-input')
-      nameInput.type = 'text'
-      nameInput.maxLength = MAX_NAME_LENGTH
-      nameInput.placeholder = `Tela ${s.id}`
-      nameInput.value = s.name ?? ''
-      nameInput.addEventListener('input', () =>
-        run(() => window.helloweb.renameSlot(s.id, nameInput.value)),
-      )
-      nameInput.addEventListener('blur', () => {
-        if (!nameInput.value.trim()) run(() => window.helloweb.renameSlot(s.id, ''))
-      })
-      nameBox.append(nameInput)
-      body.append(nameBox)
+    // Name.
+    const nameBox = el('div', 'field-box')
+    nameBox.append(el('span', 'field-label', 'Nome da tela'))
+    const nameInput = el('input', 'field-input')
+    nameInput.type = 'text'
+    nameInput.maxLength = MAX_NAME_LENGTH
+    nameInput.placeholder = `Tela ${s.id}`
+    nameInput.value = s.name ?? ''
+    nameInput.addEventListener('input', () =>
+      run(() => window.helloweb.renameSlot(s.id, nameInput.value)),
+    )
+    nameInput.addEventListener('blur', () => {
+      if (!nameInput.value.trim()) run(() => window.helloweb.renameSlot(s.id, ''))
+    })
+    nameBox.append(nameInput)
+    body.append(nameBox)
 
-      // Keep session.
-      let keepSession = s.persistProfile
-      body.append(
-        toggle(
-          'Manter sessão salva',
-          'Guarda o login desta tela entre reinícios',
-          keepSession,
-          (v) => {
-            keepSession = v
-            saveTarget()
-          },
-        ),
-      )
+    // Keep session.
+    let keepSession = s.persistProfile
+    body.append(
+      toggle(
+        'Manter sessão salva',
+        'Guarda o login desta tela entre reinícios',
+        keepSession,
+        (v) => {
+          keepSession = v
+          saveTarget()
+        },
+      ),
+    )
 
-      // Address: a registry game, or a custom https url.
-      const addrBox = el('div', 'field-box')
-      addrBox.append(el('span', 'field-label', 'Endereço da tela'))
-      const select = el('select', 'field-select')
-      for (const g of state.games) {
-        const opt = el('option')
-        opt.value = `game:${g.id}`
-        opt.textContent = g.id === state.games[0]?.id ? `${g.name} (padrão)` : g.name
-        if (s.gameId === g.id) opt.selected = true
-        select.append(opt)
+    // Address: a registry game, or a custom https url.
+    const addrBox = el('div', 'field-box')
+    addrBox.append(el('span', 'field-label', 'Endereço da tela'))
+    const select = el('select', 'field-select')
+    for (const g of state.games) {
+      const opt = el('option')
+      opt.value = `game:${g.id}`
+      opt.textContent = g.id === state.games[0]?.id ? `${g.name} (padrão)` : g.name
+      if (s.gameId === g.id) opt.selected = true
+      select.append(opt)
+    }
+    const customOpt = el('option')
+    customOpt.value = 'custom'
+    customOpt.textContent = 'Endereço personalizado'
+    if (s.url !== undefined) customOpt.selected = true
+    select.append(customOpt)
+    addrBox.append(select)
+
+    const urlRow = el('div', 'url-row')
+    urlRow.append(icon('globe', 16))
+    const urlInput = el('input', 'field-input')
+    urlInput.type = 'text'
+    urlInput.placeholder = 'https://exemplo.com'
+    urlInput.value = s.url ?? ''
+    urlRow.append(urlInput)
+    urlRow.hidden = s.url === undefined
+    addrBox.append(urlRow)
+
+    const saveTarget = (): void => {
+      const update: SlotAddition & { id: number } = {
+        id: s.id,
+        persistProfile: keepSession,
+        mute: s.mute,
       }
-      const customOpt = el('option')
-      customOpt.value = 'custom'
-      customOpt.textContent = 'Endereço personalizado'
-      if (s.url !== undefined) customOpt.selected = true
-      select.append(customOpt)
-      addrBox.append(select)
+      if (select.value === 'custom') update.url = urlInput.value.trim()
+      else update.gameId = select.value.slice('game:'.length)
+      // A blank custom url is not sent — updateSlot would reject it; the screen
+      // just keeps its current target until a valid one is typed.
+      if (select.value === 'custom' && update.url === '') return
+      run(() => window.helloweb.updateSlot(update))
+    }
 
-      const urlRow = el('div', 'url-row')
-      urlRow.append(icon('globe', 16))
-      const urlInput = el('input', 'field-input')
-      urlInput.type = 'text'
-      urlInput.placeholder = 'https://exemplo.com'
-      urlInput.value = s.url ?? ''
-      urlRow.append(urlInput)
-      urlRow.hidden = s.url === undefined
-      addrBox.append(urlRow)
+    select.addEventListener('change', () => {
+      urlRow.hidden = select.value !== 'custom'
+      saveTarget()
+    })
+    urlInput.addEventListener('change', saveTarget)
+    body.append(addrBox)
 
-      const saveTarget = (): void => {
-        const update: SlotAddition & { id: number } = {
-          id: s.id,
-          persistProfile: keepSession,
-          mute: s.mute,
-        }
-        if (select.value === 'custom') update.url = urlInput.value.trim()
-        else update.gameId = select.value.slice('game:'.length)
-        // A blank custom url is not sent — updateSlot would reject it; the screen
-        // just keeps its current target until a valid one is typed.
-        if (select.value === 'custom' && update.url === '') return
-        run(() => window.helloweb.updateSlot(update))
-      }
+    // Clear this screen's cache (design §8.4).
+    body.append(
+      dangerButton('Limpar cache desta tela', `Apaga somente o cache da ${slotName(s)}.`, () =>
+        openConfirm({
+          title: `Limpar cache da ${slotName(s)}?`,
+          message: 'O cache desta tela será apagado. A sessão salva pode exigir novo login.',
+          danger: true,
+          confirmLabel: 'Sim, apagar',
+          onYes: () =>
+            run(async () => {
+              await window.helloweb.clearSlotCache(s.id)
+              showToast(`Cache da ${slotName(s)} limpo`)
+            }),
+        }),
+      ),
+    )
 
-      select.addEventListener('change', () => {
-        urlRow.hidden = select.value !== 'custom'
-        saveTarget()
-      })
-      urlInput.addEventListener('change', saveTarget)
-      body.append(addrBox)
+    // Changes apply live as they are typed/selected (design §8); this closes the
+    // modal with an explicit "done" affordance rather than only the X.
+    const footer = el('div', 'modal-actions')
+    const done = el('button', 'btn primary', 'Confirmar')
+    done.type = 'button'
+    done.addEventListener('click', close)
+    footer.append(done)
+    body.append(footer)
 
-      // Clear this screen's cache (design §8.4).
-      body.append(
-        dangerButton('Limpar cache desta tela', `Apaga somente o cache da ${slotName(s)}.`, () =>
-          openConfirm({
-            title: `Limpar cache da ${slotName(s)}?`,
-            message: 'O cache desta tela será apagado. A sessão salva pode exigir novo login.',
-            danger: true,
-            confirmLabel: 'Sim, apagar',
-            onYes: () =>
-              run(async () => {
-                await window.helloweb.clearSlotCache(s.id)
-                showToast(`Cache da ${slotName(s)} limpo`)
-              }),
-          }),
-        ),
-      )
-
-      // Changes apply live as they are typed/selected (design §8); this closes the
-      // modal with an explicit "done" affordance rather than only the X.
-      const footer = el('div', 'modal-actions')
-      const done = el('button', 'btn primary', 'Confirmar')
-      done.type = 'button'
-      done.addEventListener('click', close)
-      footer.append(done)
-      body.append(footer)
-
-      dialog.append(body)
-    },
-    {
-      onClose: () => {
-        editingSlotId = undefined
-      },
-    },
-  )
+    dialog.append(body)
+  })
 }
 
 // ---- confirmation (design §9) ----
@@ -1119,7 +1136,6 @@ interface ConfirmOptions {
 }
 
 function openConfirm(opts: ConfirmOptions): void {
-  confirmOpen = true
   openModal(
     (dialog, close) => {
       const titleRow = el('div', 'modal-title-row')
@@ -1146,13 +1162,51 @@ function openConfirm(opts: ConfirmOptions): void {
       dialog.append(actions)
       cancel.focus()
     },
-    {
-      extraClass: opts.danger ? 'narrow danger' : 'narrow',
-      onClose: () => {
-        confirmOpen = false
-      },
-    },
+    { extraClass: opts.danger ? 'narrow danger' : 'narrow' },
   )
+}
+
+// ---- volume popover in the overlay, anchored to the wall's button ----
+
+interface Anchor {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function openVolume(id: number, anchor: Anchor): void {
+  const s = slot(id)
+  if (!s) {
+    void window.helloweb.closeOverlay()
+    return
+  }
+  overlayDepth++
+  const catcher = el('div', 'overlay-catcher')
+  const pop = volumePopover(s)
+  // The overlay shares the wall's client coordinates, so the button's rectangle
+  // places the popover directly: centered on the button, its base 10px above it.
+  pop.style.position = 'fixed'
+  pop.style.left = `${anchor.x + anchor.width / 2}px`
+  pop.style.bottom = `${window.innerHeight - anchor.y + 10}px`
+  pop.style.transform = 'translateX(-50%)'
+
+  let closed = false
+  const close = (): void => {
+    if (closed) return
+    closed = true
+    catcher.remove()
+    pop.remove()
+    document.removeEventListener('keydown', onKey)
+    overlayClosed()
+  }
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') close()
+  }
+  // A click anywhere but the popover closes it (the popover stops its own clicks).
+  catcher.addEventListener('click', close)
+  document.addEventListener('keydown', onKey)
+  document.body.append(catcher, pop)
 }
 
 // ============================ live embed layout (design §5.2, §13) ============================
@@ -1226,42 +1280,69 @@ function scheduleLayout(): void {
 }
 
 // ============================ wiring ============================
+// The same bundle runs in both windows; the body's data-mode picks which half.
 
-powerAllBtn.append(icon('power', 19))
-addBtn.append(icon('plus', 19))
-settingsBtn.append(icon('settings', 19))
+/** The panel window: the video wall. Triggers modals open in the overlay. */
+function initWall(): void {
+  powerAllBtn.append(icon('power', 19))
+  addBtn.append(icon('plus', 19))
+  settingsBtn.append(icon('settings', 19))
 
-powerAllBtn.addEventListener('click', powerAll)
-addBtn.addEventListener('click', addScreen)
-settingsBtn.addEventListener('click', () => openSettings())
+  powerAllBtn.addEventListener('click', powerAll)
+  addBtn.addEventListener('click', addScreen)
+  settingsBtn.addEventListener('click', () =>
+    run(() => window.helloweb.openOverlay({ kind: 'settings' })),
+  )
 
-// A click anywhere else closes an open volume popover (design §6).
-document.addEventListener('click', () => {
-  if (volumeOpenId !== undefined) {
-    volumeOpenId = undefined
-    render()
-  }
-})
+  // The window resizing moves every viewport, so the embedded windows must
+  // follow. A ResizeObserver on the stage catches sidebar-independent reflow too.
+  window.addEventListener('resize', scheduleLayout)
+  new ResizeObserver(scheduleLayout).observe(document.getElementById('stage')!)
 
-// The window resizing moves every viewport, so the embedded windows must follow.
-// A ResizeObserver on the stage catches sidebar-independent reflow too; both feed
-// the same coalesced emit.
-window.addEventListener('resize', scheduleLayout)
-new ResizeObserver(scheduleLayout).observe(document.getElementById('stage')!)
-
-window.helloweb.onState((next) => {
-  // A background push must not redraw over an open editor, popover or drag.
-  if (interacting()) {
+  window.helloweb.onState((next) => {
+    // A background push must not redraw the wall out from under a divider drag.
     state = next
-    return
-  }
-  state = next
-  render()
-  scheduleLayout()
-})
+    if (!interacting()) {
+      render()
+      scheduleLayout()
+    }
+  })
 
-run(async () => {
-  state = await window.helloweb.readConfig()
-  render()
-  scheduleLayout()
-})
+  run(async () => {
+    state = await window.helloweb.readConfig()
+    render()
+    scheduleLayout()
+  })
+}
+
+/** The overlay window: modals and the volume popover, above the games. */
+function initOverlay(): void {
+  // It keeps a fresh copy of the state so a modal renders current data, but it
+  // never redraws on a push — that would wipe a half-typed field. It only draws
+  // when the wall asks it to.
+  window.helloweb.onState((next) => {
+    state = next
+  })
+  window.helloweb.onOverlayOpen((request) => {
+    switch (request.kind) {
+      case 'edit':
+        openEditModal(request.id)
+        break
+      case 'settings':
+        openSettings()
+        break
+      case 'confirmRemove':
+        openConfirmRemove(request.id)
+        break
+      case 'volume':
+        openVolume(request.id, request.anchor)
+        break
+    }
+  })
+  run(async () => {
+    state = await window.helloweb.readConfig()
+  })
+}
+
+if (document.body.dataset.mode === 'overlay') initOverlay()
+else initWall()

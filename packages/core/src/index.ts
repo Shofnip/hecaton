@@ -25,6 +25,7 @@ export {
   IPC_CHANNELS,
   parseAudioFollowsFocus,
   parseNoPayload,
+  parseOverlayRequest,
   parseScreenLayout,
   parseSlotAddition,
   parseSlotId,
@@ -34,7 +35,7 @@ export {
   parseSlotVolume,
   parseTheme,
 } from './ipc.js'
-export type { IpcChannel, ScreenPlacement } from './ipc.js'
+export type { IpcChannel, OverlayRequest, ScreenPlacement } from './ipc.js'
 
 export { normalizeUrl } from './normalize-url.js'
 

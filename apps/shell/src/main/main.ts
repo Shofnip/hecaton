@@ -21,6 +21,7 @@ import {
   parseAudioFollowsFocus,
   parseConfig,
   parseNoPayload,
+  parseOverlayRequest,
   parseScreenLayout,
   parseSlotAddition,
   parseSlotId,
@@ -85,6 +86,12 @@ let orchestrator: Orchestrator
 let globals: GlobalConfig = DEFAULT_GLOBAL_CONFIG
 let slots: SlotOverrides[]
 let panel: BrowserWindow | undefined
+/**
+ * The always-on-top window that hosts the modals and the volume popover, so they
+ * paint above the embedded game windows instead of being hidden under them. It
+ * mirrors the panel's content area and is click-through except while open.
+ */
+let overlay: BrowserWindow | undefined
 /** Surfaced on the panel rather than thrown away when config cannot be read. */
 let configError: string | undefined
 // The two adapters that own a persistent PowerShell worker. Held here, not just
@@ -236,9 +243,12 @@ function registerIpc(): void {
   const guard =
     <T>(handler: (payload: unknown) => T | Promise<T>) =>
     async (event: Electron.IpcMainInvokeEvent, payload: unknown): Promise<T> => {
-      // With navigation denied the panel frame cannot become hostile, so this
-      // is belt over braces rather than the main defence.
-      if (event.senderFrame !== panel?.webContents.mainFrame) {
+      // Both the panel and the overlay are our own windows, loaded from disk with
+      // navigation denied, so neither frame can become hostile — this is belt over
+      // braces. The overlay hosts the modals, which call the same bridge methods,
+      // so its frame is accepted too.
+      const frame = event.senderFrame
+      if (frame !== panel?.webContents.mainFrame && frame !== overlay?.webContents.mainFrame) {
         throw new Error('ipc from an unexpected frame')
       }
       return handler(payload)
@@ -391,6 +401,27 @@ function registerIpc(): void {
       // pixel long needs no clamp here.
       orchestrator?.applyScreenLayout(parseScreenLayout(payload))
     },
+
+    'overlay:open': (payload) => {
+      // The wall asks to show a modal or the volume popover. Validate the request,
+      // then show the overlay (above the games), make it interactive, and hand it
+      // the request. The overlay renders it and calls overlay:close when done.
+      const request = parseOverlayRequest(payload)
+      if (!overlay) return
+      overlay.setBounds(panel?.getContentBounds() ?? overlay.getBounds())
+      overlay.setIgnoreMouseEvents(false)
+      overlay.show()
+      overlay.focus() // so a modal's form is typeable at once
+      overlay.webContents.send('overlay-open', request)
+    },
+
+    'overlay:close': (payload) => {
+      // The overlay is done: hide it and make it click-through again so the games
+      // beneath take the mouse. Takes no argument.
+      parseNoPayload(payload)
+      overlay?.hide()
+      overlay?.setIgnoreMouseEvents(true, { forward: true })
+    },
   }
 
   for (const channel of IPC_CHANNELS) {
@@ -418,6 +449,50 @@ function createPanel(): void {
   panel.once('ready-to-show', () => panel?.show())
   panel.on('closed', () => {
     panel = undefined
+  })
+
+  createOverlay(panel)
+}
+
+/**
+ * The overlay window: a frameless, transparent, owned window that sits above the
+ * panel and its embedded game windows, so modals and the volume popover render
+ * over the games instead of being hidden under them. It mirrors the panel's
+ * content rectangle exactly, so the wall and the overlay share one coordinate
+ * system — a client rectangle means the same thing in both. Same locked-down
+ * webPreferences as the panel; it never embeds anything, only draws DOM.
+ */
+function createOverlay(parent: BrowserWindow): void {
+  overlay = new BrowserWindow({
+    parent,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    hasShadow: false,
+    focusable: true,
+    // Above the panel AND its embedded child game windows; only ever up while a
+    // modal is open, so it does not sit over other apps in normal use.
+    alwaysOnTop: true,
+    webPreferences: { ...panelWebPreferences(), preload: PRELOAD },
+  })
+  lockDownWindow(overlay)
+  overlay.setIgnoreMouseEvents(true, { forward: true })
+  void overlay.loadFile(join(RENDERER_DIR, 'overlay.html'))
+
+  // Keep it exactly over the panel's content area. The panel's own move/resize is
+  // what changes that rectangle, so following those events is enough.
+  const track = (): void => {
+    if (overlay) overlay.setBounds(parent.getContentBounds())
+  }
+  parent.on('move', track)
+  parent.on('resize', track)
+  parent.on('maximize', track)
+  parent.on('unmaximize', track)
+  parent.on('restore', track)
+  overlay.on('closed', () => {
+    overlay = undefined
   })
 }
 

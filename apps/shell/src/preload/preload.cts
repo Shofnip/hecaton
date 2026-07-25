@@ -49,6 +49,14 @@ const api = {
   setTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme),
   setScreenLayout: (placements: unknown) => ipcRenderer.invoke('screens:layout', placements),
 
+  // The overlay window (modals + volume popover, above the games). The wall asks
+  // to open one; the overlay renders it and asks to close when done.
+  openOverlay: (request: unknown) => ipcRenderer.invoke('overlay:open', request),
+  closeOverlay: () => ipcRenderer.invoke('overlay:close'),
+  onOverlayOpen: (listener: (request: unknown) => void) => {
+    ipcRenderer.on('overlay-open', (_event, request) => listener(request))
+  },
+
   /**
    * State pushed by main. The listener receives only the payload: handing over
    * the Electron event would leak `sender`, and with it a way back into the

@@ -22,6 +22,7 @@ const TO = join(HERE, '..', 'dist', 'renderer')
 // fetched. Sora-OFL.txt travels with the font it licenses.
 const ASSETS = [
   'index.html',
+  'overlay.html',
   'style.css',
   'assets/sora-latin.woff2',
   'assets/sora-latin-ext.woff2',

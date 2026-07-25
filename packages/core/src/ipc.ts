@@ -67,6 +67,12 @@ export const IPC_CHANNELS = [
   // The renderer-owned geometry channel (UI rework, Option 1, approved by the
   // owner): the renderer sends where each embedded screen goes, main relays it.
   'screens:layout',
+  // The overlay window (UI rework, approved by the owner): modals and the volume
+  // popover render in a separate always-on-top window so they paint above the
+  // embedded game windows without hiding any screen. `open` asks main to show it
+  // with a request; `close` asks main to hide it.
+  'overlay:open',
+  'overlay:close',
 ] as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number]
@@ -217,6 +223,54 @@ export function parseScreenLayout(input: unknown): ScreenPlacement[] {
       },
     }
   })
+}
+
+/**
+ * What the wall asks the overlay to show. A discriminated union, validated as
+ * one: the overlay is a second renderer, so what arrives is `unknown` and a
+ * stray kind must be refused, not guessed. `volume` carries the anchor — the
+ * volume button's rectangle in the wall's client area — because the overlay
+ * covers the same client area, so the same coordinates place the popover.
+ */
+export type OverlayRequest =
+  | { kind: 'edit'; id: number }
+  | { kind: 'volume'; id: number; anchor: GridCell }
+  | { kind: 'settings' }
+  | { kind: 'confirmRemove'; id: number }
+
+export function parseOverlayRequest(input: unknown): OverlayRequest {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new Error(`overlay request must be an object, got ${JSON.stringify(input)}`)
+  }
+  const rest = input as Record<string, unknown>
+  const kind = rest['kind']
+  switch (kind) {
+    case 'settings':
+      return { kind }
+    case 'edit':
+      return { kind, id: parseSlotId(rest['id']) }
+    case 'confirmRemove':
+      return { kind, id: parseSlotId(rest['id']) }
+    case 'volume': {
+      const raw = rest['anchor']
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        throw new Error(`volume anchor must be an object, got ${JSON.stringify(raw)}`)
+      }
+      const a = raw as Record<string, unknown>
+      return {
+        kind,
+        id: parseSlotId(rest['id']),
+        anchor: {
+          x: requireBoundsInteger(a['x'], 'x', 0),
+          y: requireBoundsInteger(a['y'], 'y', 0),
+          width: requireBoundsInteger(a['width'], 'width', 1),
+          height: requireBoundsInteger(a['height'], 'height', 1),
+        },
+      }
+    }
+    default:
+      throw new Error(`unknown overlay kind ${JSON.stringify(kind)}`)
+  }
 }
 
 // A slot the panel wants to add carries no id — the orchestrator assigns it —
