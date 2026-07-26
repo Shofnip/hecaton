@@ -94,7 +94,10 @@ unchanged, and per-screen volume was added through the same session interface.
   `setAudioFollowsFocus()`; verify in `packages/core/src/orchestrator.ts` (`applyAudio`,
   `focusedSlotId`). The `AudioController` port is real and now also carries `setVolume`.
 
-The rest holds: the WASAPI-shell-out choice, the additive `audioFollowsFocus` toggle (default on,
-no schema bump), the port keeping a later move to an in-process addon a one-adapter change, and the
-accepted latency (the mute path is still the shell-out; the persistent worker is an
-implementation-level speed-up for per-screen volume, same interface).
+The rest holds: the WASAPI-shell-out **approach** (PowerShell + inline C#, no native module, no npm
+dependency), the additive `audioFollowsFocus` toggle (default on, no schema bump), and the port
+keeping a later move to an in-process addon a one-adapter change. One implementation change worth
+naming, though — **both** mute and volume now ride a **persistent** worker (~12 ms per change)
+rather than the fresh ~270 ms spawn per call this ADR measured; verify in
+`packages/browser-engine/src/wasapi-audio-controller.ts`. So the accepted-latency caveat above is
+no longer the operating cost.

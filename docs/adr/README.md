@@ -23,7 +23,9 @@ seriously weighed** and someone will later ask why the other one was not taken.
 ## Format
 
 Numbered `NNNN-short-title.md`, sequential, never reused. Keep them short — a page at most.
-Status is one of `Accepted`, `Superseded by ADR-NNNN`, or `Deprecated`.
+Status is one of `Accepted`, `Superseded by ADR-NNNN`, or `Deprecated` — or `Superseded in part by
+ADR-NNNN` when a later decision reverses only part of one (ADR-0002 is the case: its presentation
+half is superseded, its substance stands).
 
 English, like the rest of the repository. The app's UI is the only Portuguese surface.
 
