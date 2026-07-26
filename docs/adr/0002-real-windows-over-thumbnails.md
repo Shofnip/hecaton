@@ -1,6 +1,15 @@
 # ADR-0002 — Real OS windows in a grid, not a panel of live thumbnails
 
-**Status:** Accepted · **Date:** 2026-07-21 (recorded retroactively)
+**Status:** Superseded in part by [ADR-0011](0011-embed-spawned-chrome-into-the-shell.md) · **Date:** 2026-07-21 (recorded retroactively)
+
+> **Superseded in part by [ADR-0011](0011-embed-spawned-chrome-into-the-shell.md) (2026-07-26):**
+> the _presentation_ half is reversed — the windows are now embedded in a single shell window
+> (a "video wall"), not arranged free on the desktop, and "the app cannot render anything over the
+> game" (Consequences) no longer holds: an always-on-top overlay window renders the HUD over the
+> games. The substance this ADR exists for — **real Chrome windows, not an NVR-style screencast
+> with forwarded input** — still stands, and turned out load-bearing (the screencast path depended
+> on CDP, which [ADR-0003](0003-spawn-over-cdp.md) later ruled out). The body below is left as
+> written, per the convention in [README](README.md).
 
 ## Context
 
