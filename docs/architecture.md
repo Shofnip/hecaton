@@ -24,9 +24,11 @@ and error handling throughout.
 ## Settled decisions
 
 1. **Manual play.** The user plays with their own hands. Automation is a later phase.
-2. **Real OS windows in a grid**, not a single panel of live thumbnails. CDP screencast with
-   forwarded input was considered and dropped. With real side-by-side windows, "see all at
-   once" and "interact without selecting" come for free — move the mouse and click.
+2. **Real OS windows**, not a single panel of live thumbnails. CDP screencast with forwarded
+   input was considered and dropped — with real windows, "see all at once" and "interact without
+   selecting" come for free. The windows are now **embedded into one shell window** (a video
+   wall) rather than arranged free on the desktop — [ADR-0002](adr/0002-real-windows-over-thumbnails.md),
+   superseded in part by [ADR-0011](adr/0011-embed-spawned-chrome-into-the-shell.md).
 3. **Session isolation is mandatory.** Any slot can point at any game, including the same
    game on different accounts. Separate profiles from v1.
 4. **Shell: Electron.** Node/JS end to end.
@@ -81,20 +83,22 @@ setting sticks.** Mute inside the game once per slot and it survives closing and
 The app additionally offers `--mute-audio` per slot as a fallback for games with no audio
 control of their own.
 
-Phase 2 makes audio **follow focus**: only the game whose window is in the OS foreground is
-audible, every other running slot muted and unmuted as focus moves. It is silenced per process
-through the Windows audio session API (WASAPI), reaching a slot's sound through the
+The app makes audio **follow the app's own focus mode** (not the OS foreground window): with the
+global `audioFollowsFocus` setting on (the default) and no screen in focus mode, every running
+slot plays at its configured volume; focusing one screen mutes the others; leaving focus restores
+all. Each slot also has its own **volume** (0–100) and mute, set from the panel. It is all done
+per process through the Windows audio session API (WASAPI), reaching a slot's sound through the
 _audio-service_ child Chrome renders it in — mapped back from the slot's main pid — and it adds
-**no dependency**: the Core Audio interfaces are declared inline as C# and driven through
-PowerShell, the same shape the window adapter uses for DWM, at ~270ms per focus change. The
-off-the-shelf native module was rejected because it identifies sessions by window title, not pid,
-so it cannot tell two Chrome slots apart; the full trade-off is
-[ADR-0010](adr/0010-audio-follows-focus-without-a-dependency.md). A global `audioFollowsFocus`
-setting (on by default) turns it off for someone who wants every slot audible at once. The mute
-policy lives in the core behind an `AudioController` port, so a later move to an in-process addon
-would be a one-adapter change. Writing the game's preference straight into the profile's LevelDB
-was considered and rejected: undocumented format, and a bad write loses the login rather than
-just the volume setting.
+**no dependency**: the Core Audio interfaces are declared inline as C# and driven through a
+**persistent PowerShell worker** (stdin line protocol), fast enough for a volume-slider drag
+(~12 ms per change; the mute path began as a ~270 ms per-call shell-out and was promoted to the
+worker for volume). The off-the-shelf native module was rejected because it identifies sessions by
+window title, not pid, so it cannot tell two Chrome slots apart; the full trade-off is
+[ADR-0010](adr/0010-audio-follows-focus-without-a-dependency.md) (whose Correction records the
+foreground→focus-mode change). The mute/volume policy lives in the core behind an
+`AudioController` port, so a later move to an in-process addon would be a one-adapter change.
+Writing the game's preference straight into the profile's LevelDB was considered and rejected:
+undocumented format, and a bad write loses the login rather than just the volume setting.
 
 **Anti-detection is out of scope.** The plan excluded fingerprint evasion from the start, and
 since the app is distributed, a terms-of-service ban would land on the end user, not the
@@ -127,14 +131,16 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
 ```
 helloweb/
   apps/
-    shell/              # Electron: main (orchestrator) + preload + renderer (panel)
+    shell/              # Electron: main (orchestrator) + preload + renderer
+                        #   (panel + an always-on-top overlay window for modals over the games)
   packages/
     core/               # PURE CORE - grid, state machine, registry, config, orchestrator.
                         #   No I/O, enforced by ESLint rather than by convention.
                         #   src/testing/ holds the fakes; excluded from the build.
     browser-engine/     # process adapter: Chrome via spawn, PID resolution, liveness,
-                        #   profile archiving, and per-process audio muting (WASAPI)
-    window-manager/     # node-window-manager adapter: applies positions computed by core
+                        #   profile archiving, and per-process audio mute + volume (WASAPI)
+    window-manager/     # embeds spawned Chrome into the shell (Win32 SetParent) and drives
+                        #   it — move/hide/show/reload/close — applying the layout the renderer sends
     storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/helloweb
     games/              # registry - one file per integrated game
   tests/                # checks on the repository itself, not on any package
@@ -160,8 +166,10 @@ processes, windows and disk and runs separately.
 Every decision is a pure function; I/O lives in thin adapters with no logic. This is what
 makes strict TDD practical rather than theatre.
 
-- **Grid math:** `(slot count, screen dimensions, layout) → positions/sizes`. Exhaustively
-  testable: 2 slots, 4, 5, ultrawide, multi-monitor.
+- **Grid math:** `(slot count, screen dimensions, layout) → positions/sizes`, exhaustively
+  testable. Since the embedding rework the live wall layout is the **renderer's** — it measures
+  the DOM viewports and sends per-screen rectangles over `screens:layout` — and `computeGrid` now
+  only seeds a window's launch size ([ADR-0011](adr/0011-embed-spawned-chrome-into-the-shell.md)).
 - **Slot state machine:** `stopped → starting → running → crashed → restarting`, with valid
   and invalid transitions.
 - **Registry validation:** well/badly formed game definition, required fields, duplicate ids.
@@ -305,9 +313,9 @@ replacement. Code discarded, findings recorded above.
 **Phase 2 — playing comfort. Done.** Narrowed from the automation phase it was first sketched
 as: the extension path, per-slot proxy and declarative actions were dropped, to return only if a
 future need makes them worth it. What landed instead removes friction while playing — **clearing
-a slot's cache** without ending its session, and making **audio follow focus** so only the
-foreground game is audible ([ADR-0010](adr/0010-audio-follows-focus-without-a-dependency.md)), a
-global toggle on by default.
+a slot's cache** without ending its session, and making **audio follow the app's focus mode** so
+the games outside focus fall silent ([ADR-0010](adr/0010-audio-follows-focus-without-a-dependency.md)),
+a global toggle on by default.
 
 ### Resetting a slot profile — implemented by archiving
 
@@ -333,21 +341,31 @@ the id never carries a path. Because it discards no session, it needs no confirm
 **clear archives**. Two validated IPC channels back it: `profiles:clearSlotCache` (a slot id)
 and `profiles:clearAllCaches` (no payload).
 
-**Phase 2.5 — UI rework (embedded screens). Spike passed; implementation starting.** The
-panel is redesigned into a single-window "video wall" — sidebar, up to four screen cards, an
-in-app focus mode, per-screen rename/volume/reload — specified in
-[docs/design/design.md](design/design.md). The game windows become **embedded in the shell
-window**: Chrome is still spawned exactly as today (no CDP, per-slot `--user-data-dir`), and
-its windows are reparented into the panel via Win32 `SetParent`. The Electron-webview
-alternative was rejected — it would move logged-in sessions into Electron, lose Chrome's
-password manager, and has no per-screen volume API; the design spec's §13 was rewritten
-accordingly for the reparenting architecture. The Phase-0-style reparenting spike ran on 2026-07-22 and **every
-item passed** (embedding, input, kill semantics, a working synthetic reload via
-`WM_APPCOMMAND`, a 12 ms persistent volume worker, throttling flags, and Turnstile login
-verified live by the owner); the owner decided **go**. Measurements and the implementation
-obligations they imply live in the Findings section of
-[docs/plans/ui-rework.md](plans/ui-rework.md) until the work lands; the decision record
-(ADR-0011) will be written then, carrying those measurements, as ADR-0003 did for Phase 0.
+**Phase 2.5 — UI rework (embedded screens). Done.** The panel is a single-window "video wall"
+(spec: [docs/design/design.md](design/design.md)) — a thin sidebar, up to four screen cards, an
+in-app focus mode with thumbnails, fullscreen, per-screen rename/volume/reload, light/dark themes.
+The full decision record and the spike measurements are [ADR-0011](adr/0011-embed-spawned-chrome-into-the-shell.md).
+The load-bearing points:
+
+- Chrome is spawned exactly as before (no CDP, per-slot `--user-data-dir`); its window is then
+  **reparented into the panel** via Win32 `SetParent`. The Electron-webview alternative was
+  rejected (sessions into Electron, no password manager, no per-screen volume).
+- **Geometry is the renderer's**: it measures the DOM viewports and sends per-screen rectangles
+  over the `screens:layout` channel; the core relays them and no longer tiles (the `grid:restore`
+  channel is gone). The window-manager fits the **game** to the viewport and clips Chrome's
+  `--app` title bar and frame away with `SetWindowRgn` — which also stops the user dragging a
+  screen out of place.
+- Modals and the volume popover render in a **second, always-on-top, transparent overlay window**,
+  because a child Chrome window always paints over the panel's DOM. Both windows share the same
+  locked-down `webPreferences`; the bundled Sora font and Poke favicon keep `connect-src 'none'`.
+- The window-manager and audio adapters run **persistent PowerShell workers** (Win32 and WASAPI),
+  disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
+  shell-outs are async so they never freeze the main thread; a screen closes gracefully by a
+  `WM_CLOSE` posted to the embedded child.
+
+Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundThrottling`) and a
+global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,
+`ui:setTheme`, `screens:layout` and `overlay:open`/`overlay:close`.
 
 **Phase 3 — distribution. Not started.** `electron-builder` · Windows installer · code signing
 decision · auto-update · license · Electron security review before the first public release.
@@ -357,7 +375,8 @@ decision · auto-update · license · Electron security review before the first 
 - The test suite is the primary check. `npm test` runs the core in seconds and stays green.
 - **Isolation:** log two slots into different accounts of the same game; close and reopen;
   confirm sessions neither mix nor leak.
-- **Grid and focus:** launch 4 slots, confirm auto-placement, focus each by shortcut, restore.
+- **Wall and focus:** launch 4 slots, confirm they tile in the panel; enter and leave focus mode;
+  resize the panel and confirm the screens re-tile live and stay clipped to their cards.
 - **Crash:** kill a Chrome from Task Manager; confirm the panel notices and restarts.
 - **Registry:** add a second fictitious game pointing elsewhere and confirm it shows up
   **without touching the core** — the real test of the contract.
