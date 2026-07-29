@@ -314,23 +314,46 @@ Worth recording either way: this decision is cheap only because ADR-0004 already
 piece of app state outside the install directory. An app that wrote next to its own binary would
 have had to care.
 
-**(b) The uninstaller asks whether to remove data too.** A checkbox or page offering to delete
-`%APPDATA%/hecaton`, defaulting to keeping it. This is the same shape ADR-0008 already accepts for
-clearing archives — deletion of session data only by an explicit, confirmed user action — but it
-runs somewhere new: outside the app, without the orchestrator's guards.
+**(b) The uninstaller offers a checkbox, and the app performs the deletion.** DECIDED 2026-07-29,
+after probe P1 measured the update path (findings below). The uninstaller shows an unchecked
+checkbox; if it is checked, `customUnInstall` runs `Hecaton.exe --delete-user-data` **before** NSIS
+removes the installation directory — at that point the app binary still exists, because
+`customUnInstall` is inserted at the top of the uninstall section, ahead of the `RMDir /r $INSTDIR`.
+The NSIS script therefore contains no deletion of its own: it contains a launch.
 
-**One probe is mandatory before this is implemented, and it may reopen the design.**
+**Scope:** everything under `%APPDATA%/hecaton` — the persistent profiles `slot-N`, the archived
+`slot-N.old-*`, `config.json` and `logs/` — plus `%LOCALAPPDATA%/hecaton-updater`, the 99 MB
+installer copy that a normal uninstall orphans (consequence 5 below).
 
-**Does an update run the old uninstaller, and in silent mode?** If an NSIS update executes the
-previous version's uninstaller, the data-deleting branch must be provably unreachable from that
-path — otherwise an _update_ deletes logged-in profiles. This is the exact class of assumption
-this project has been burned by before, so it is measured, not reasoned about.
+**Not in scope:** the throwaway clean-session profiles under the OS temp directory (the ADR-0005
+exception). They are deleted on `stop()` and only survive a crash, and sweeping them would mean
+deleting by filename pattern inside `%TEMP%`, where a pattern one character too broad destroys a
+third party's files. The informational text says the temp location exists instead.
 
-**Pre-agreed fallback if the probe shows the uninstaller cannot be trusted to reach the delete
-branch only on a real uninstall:** the "delete my data" action moves **into the app**, where the
-orchestrator's guards exist, and the uninstaller keeps only the informational page saying where
-the data is. That change is a fork and goes back to the owner rather than being taken by an
-implementing session.
+**Why the app and not the NSIS script**, given that P1 proved the `${isUpdated}` guard works: the
+guard is not the risky part. Deciding _which directories die_ is, and in the NSIS variant that
+decision sits outside the test suite and is **frozen in every uninstaller already distributed** —
+the uninstaller an update executes is the previous release's binary, so a wrong branch cannot be
+repaired by any later release. In this shape the frozen part is "launch the app with a flag", which
+is trivial and unlikely to need repair, while the deletion travels with the app version that owns
+it. The cost accepted in exchange: NSIS gains the ability to execute the app (a rule-2 external
+code execution trigger, recorded here as taken deliberately), and the app needs a headless mode
+that runs and exits without a window — if it hangs, the uninstall hangs.
+
+**Obligations this creates:**
+
+- **`deleteAppDataOnUninstall` stays `false`.** The built-in deletes on every real uninstall with no
+  confirmation at all, which is exactly what ADR-0005 and ADR-0008 forbid; and P1 measured that it
+  also matches `%APPDATA%/<package.json name>`, which after the D2 rename is `%APPDATA%/hecaton`
+  itself. It must be off, deliberately, not by default.
+- **The launch is guarded by `${isUpdated}`** even though the checkbox cannot be checked on the
+  update path (no pages are shown), because P1 measured that an unguarded branch in
+  `customUnInstall` runs on every update.
+- **The checkbox label must match the scope.** "Apagar dados de perfil" would understate it now that
+  config and logs are included; the label is **"Apagar todos os meus dados (perfis, configuração e
+  logs)"**. Same obligation as the first-run text: D13's accuracy requirement applies to any UI
+  string that describes what happens to user data.
+- **The first release that ships this must be right**, because of the frozen-binary property above.
 
 _(A second probe — which user's `%APPDATA%` an elevated uninstaller resolves — was dropped when
 (a) became per-user: without elevation the question does not arise.)_
@@ -662,7 +685,11 @@ whole app:
    validated or ignored, failures closed and visible, neither ever blocking the UI.
 2. `shell.openExternal` — the URL is a constant; nothing from the renderer or from a fetched
    document can reach it.
-3. The uninstaller's delete branch, after its probe.
+3. The uninstall delete path, now that P1 has measured it: `deleteAppDataOnUninstall` is `false`, the
+   app launch is guarded by `${isUpdated}`, the `--delete-user-data` flag is reachable only from that
+   launch and never from a renderer, the headless run exits on its own, and an **update** of a real
+   installation leaves every profile in place — verified by installing, updating and inspecting, not
+   by reading the script.
 4. The metrics allowlist: tests proving the forbidden fields (custom URL, screen name, log
    content, paths) cannot appear in a built event.
 5. The bug-report bundle: redaction, and that what is shown is what is sent.
@@ -712,9 +739,78 @@ the ADRs.
 
 | #   | Question                                                                                                                                                                   | Why it blocks                                                                                                                       |
 | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                            | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
+| P1  | **DONE 2026-07-29 — yes to both.** Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                         | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
 | P2  | Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact?                           | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
 | P3  | Does `shell.openExternal` to the hardcoded release URL behave with the navigation handlers ADR-0007 installed (`will-navigate` prevented, `setWindowOpenHandler` denying)? | The deny-everything posture must not have to be weakened to let the update link work                                                |
+
+### P1 — findings, measured 2026-07-29
+
+Windows 11 Pro 10.0.26200, `electron-builder` 26.15.3, Electron 43.2.0. Two throwaway installers
+(1.0.0 and 1.0.1) built in exactly D4's shape — assisted with a licence page, per-user, no
+elevation — with every NSIS hook instrumented to log its state. The delete branches were
+**simulated**: they logged "would delete" instead of deleting, so reachability was answered without
+removing a file. `deleteAppDataOnUninstall: true` was left on and pointed at throwaway marker
+directories, so the one real deletion in the probe was observable and harmless.
+
+**An update runs the previous version's uninstaller, always silently, with an explicit `--updated`
+flag.** Measured command line, logged by the 1.0.0 uninstaller while the 1.0.1 installer ran:
+
+```
+"...\Temp\nsw6FD1.tmp\old-uninstaller.exe" /S /KEEP_APP_DATA /currentuser --keep-shortcuts --updated
+```
+
+| Path                       | `${isUpdated}` | `${Silent}` | unguarded branch | guarded branch | built-in delete       |
+| -------------------------- | -------------- | ----------- | ---------------- | -------------- | --------------------- |
+| fresh install              | —              | —           | not run          | not run        | not run               |
+| **update** (silent, `/S`)  | **YES**        | **YES**     | **RAN**          | skipped        | did **not** delete    |
+| **update** (assisted, GUI) | **YES**        | **YES**     | **RAN**          | skipped        | did **not** delete    |
+| real uninstall             | no             | YES         | RAN              | RAN            | **deleted both dirs** |
+
+The `/S` is hardcoded in `installUtil.nsh`'s `uninstallOldVersion`, which `installSection.nsh` calls
+**unconditionally** — not gated on the installer itself being silent. That is why the assisted and
+silent rows are identical, and it was measured both ways rather than inferred from the one.
+
+The row that decides D4b: **an unguarded branch in `customUnInstall` runs during an update.**
+`${isUpdated}` distinguishes the paths reliably, and electron-builder's own built-in deletion is
+already guarded by it — but `!insertmacro customUnInstall` is inserted at the **top** of the
+uninstall section, ahead of that guard, so custom code inherits no protection.
+
+**Five consequences, three of which were not in the question:**
+
+1. **The uninstaller executed during an update is the OLD release's binary**, read from the
+   `UninstallString` registry value and copied to `%TEMP%`. A wrong delete branch is therefore
+   permanent for everyone who already installed: fixing it in 1.0.2 does nothing for the 1.0.1
+   uninstaller that 1.0.2's installer will run. This is what decided D4b's shape.
+2. **A "delete my data?" page cannot appear on the update path — and that is the trap, not the fix.**
+   Silent means NSIS shows no pages, so a checkbox variable keeps its initial value and the code
+   after it runs anyway. Absence of the page is not absence of the branch.
+3. **`deleteAppDataOnUninstall` deletes more than its name suggests.** Measured: it removed both
+   `%APPDATA%\<productName>` and `%APPDATA%\<package.json name>`; from `uninstaller.nsh` it targets
+   `APP_FILENAME`, `APP_PRODUCT_FILENAME` and `APP_PACKAGE_NAME`. After the D2 rename the package
+   name and `APP_DIR_NAME` are the same string, so `%APPDATA%\hecaton` — every persistent profile —
+   is in that list.
+4. **`InstallLocation` came back empty in the registry**, so `uninstallOldVersion` fell back to
+   deriving the directory from the `UninstallString` path. It worked, but the update path depends on
+   a fallback rather than on the value it reads first.
+5. **Every install leaves a full copy of the installer in `%LOCALAPPDATA%`, and no uninstall removes
+   it.** Measured: 99 MB at `%LOCALAPPDATA%\<package name>-updater\installer.exe`, still there after
+   a clean uninstall. Source: `include/installer.nsh:93`,
+   `!insertmacro copyFile "$EXEPATH" "$LOCALAPPDATA\${APP_INSTALLER_STORE_FILE}"`. It is one file
+   overwritten per update, not an accumulating pile, but it survives uninstallation permanently. It
+   exists to serve `electron-updater`'s `--package-file` flow, which **D7 decided not to use**, so
+   for this project it is dead weight. It is now inside D4b's delete scope, and any "where is my
+   data" text has to count it.
+
+**Confirmed in passing:** per-user install raised **no UAC prompt** on install or update (D4a's
+premise); the install directory is `%LOCALAPPDATA%\Programs\<productName>`; the assisted installer's
+licence page appeared and worked (D3b's requirement); and NSIS and the app agree on `%APPDATA%`.
+
+**Packaging facts worth carrying into step 4**, learned building the probe: `electron-builder`
+26.15.3 installs **277 packages**, and pulls `electron-winstaller@5.4.0`, whose install script npm 11
+blocks — the NSIS build succeeded with it unapproved, so it needs no `allowScripts` entry. The
+config needs `publish: null` or the build fails at its last step computing update channels. Pointing
+`electronDist` at the repo's own `node_modules/electron/dist` avoids downloading a second Electron,
+but then `electronVersion` must be stated explicitly.
 
 ## When the phase lands
 
@@ -747,20 +843,26 @@ bug-report bundle), and Phases (Phase 3 from "not started" to done).
 
 Sequenced so each step is verifiable and nothing risky happens before its probe.
 
-1. **P1** — the uninstaller probe. It can change D4b's design, so it comes first.
+1. ~~**P1** — the uninstaller probe.~~ **Done 2026-07-29**; it did change D4b's design (see D4b and
+   the findings above).
 2. **The rename** (D1, D2), as one mechanical commit: `@hecaton/*`, root package name, repo, and
    `APP_DIR_NAME` red-first in `packages/storage/src/app-paths.test.ts`. Plus the one-time manual
    step in `docs/troubleshooting.md`, written as a **move**.
 3. **`LICENSE` + `NOTICE`** (Apache-2.0, copyright held under the handle) and the README's terms
    section.
 4. **`electron-builder` config and the first packaged build**, then **P2** and **P3** against it.
-5. **The release workflow** on tag, publishing the artifact and its SHA256.
-6. **The first-run screen** — the terms warning and the metrics consent, together, since D3b and
+   `deleteAppDataOnUninstall: false` from the first line of config, per D4b.
+5. **The delete-user-data path** (D4b): the headless `--delete-user-data` run in the app, red-first
+   like everything else, then the uninstaller's checkbox and its `${isUpdated}`-guarded launch. It
+   comes after the first packaged build because it cannot be verified without installing and
+   updating a real artifact.
+6. **The release workflow** on tag, publishing the artifact and its SHA256.
+7. **The first-run screen** — the terms warning and the metrics consent, together, since D3b and
    D9a share it.
-7. **The update check** — core validator first, then the adapter, then the UI.
-8. **Metrics** — the pure event builder in the core with its allowlist tests, then the POST adapter.
-9. **The bug report** — bundle, redaction, show-before-send.
-10. **The security review** (D13), then the docs: `architecture.md`, the four new ADRs, ADR-0007's
+8. **The update check** — core validator first, then the adapter, then the UI.
+9. **Metrics** — the pure event builder in the core with its allowlist tests, then the POST adapter.
+10. **The bug report** — bundle, redaction, show-before-send.
+11. **The security review** (D13), then the docs: `architecture.md`, the four new ADRs, ADR-0007's
     `Superseded in part` line and ADR-0004's Correction — then delete this file.
 
 ## Non-decisions — recorded so they are not re-raised
@@ -770,5 +872,7 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
 - No forced update, no minimum-version enforcement, no remote kill switch (D8).
 - No accounts (D10), no monetization (D11).
 - No app-level encryption of profile directories (D13).
+- No sweeping of the OS temp directory for leftover clean-session profiles, and no deletion of user
+  data by the NSIS script itself — the uninstaller launches the app, which deletes (D4b).
 - No `electron-updater`, and no automatic update check unless the owner turns on the opt-in variant
   named in D8.
