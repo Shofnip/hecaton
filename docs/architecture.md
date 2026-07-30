@@ -121,6 +121,14 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
 - **Resource cost is low:** 4 idle instances = 1.72 GB and ~1% of one core. Under Playwright
   the same 4 cost 2.29 GB and ~294% of one core, because Playwright injects flags that disable
   Chrome's background throttling. Default of 4 slots has ample headroom.
+- **Disk cost per slot is ~300 MB — but Chrome tries to make it 4.3 GB.** Chrome downloads
+  Gemini Nano into `OptGuideOnDeviceModel` inside **each** profile, about two days after the
+  profile is created rather than at first launch. Measured at Chrome 150.0.7871.187: 4,072 MB per
+  slot, 16.3 GB across four, the same model version duplicated each time. The app therefore
+  launches every slot with `--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading`.
+  Because Chromium silently ignores feature names it does not recognise, that switch can become a
+  no-op in a future version with no symptom but the disk filling again — so the check is whether the
+  directory has reappeared, and it belongs in the dependency review that each release already needs.
 - **Extensions work, but cannot be auto-installed.** An MV3 extension injects CSS/JS and reads
   the game DOM fine, and Turnstile accepts it — but **Chrome 150 ignores `--load-extension`**;
   it only loads via manual "Load unpacked". For a distributed app that pushes HUD/actions

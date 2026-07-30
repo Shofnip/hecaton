@@ -727,10 +727,39 @@ none is assumed by the plan above.
 6. **A written dependency-review cadence.** ADR-0007 accepted the obligation to raise Electron
    deliberately; D12 just added two more pins (`node-window-manager`, `electron-builder`). An
    obligation with no moment attached is one nobody performs — tying the review to each release is
-   the cheapest moment that already exists.
+   the cheapest moment that already exists. **The disk-footprint check below belongs in the same
+   review**, since it fails the same way: silently, between versions.
 
 Not suggested, because they are already done and were checked: atomic config writes (`save` writes
 to a temp file and renames, which is crash-safe on the same volume) and log redaction (see D13).
+
+### Disk footprint per screen — done 2026-07-29, with a verification that outlives the commit
+
+Not a fork; recorded because it was measured during this phase, it changes what installing this
+costs a friend, and it carries an obligation no test can hold.
+
+`%APPDATA%/helloweb` was 17.4 GB for four slots. **16.3 GB of that was Chrome's Gemini Nano model**,
+4,072 MB duplicated in each profile under `OptGuideOnDeviceModel`, the same model version every
+time. The rest of a profile is ~300 MB. It arrives roughly **two days** after a profile is created,
+not at first launch — measured from directory creation times across the four slots, at Chrome
+150.0.7871.187.
+
+Every slot is now launched with
+`--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading`. The 16.3 GB
+already on disk is the owner's to remove by hand, with the app closed — the same posture as the D2
+directory move: no code in this product deletes anything inside a live profile. The flag weakens no
+browser protection; adding it
+did, however, weaken an existing test, which was fixed in the same commit — `chrome-args.test.ts`
+matched forbidden flags on the whole argument, so `--disable-features=<anything>,IsolateOrigins`
+would have passed once the switch existed. The guard now inspects the parsed feature names, and pins
+the number of `--disable-features` arguments at one, because Chromium honours a single value per
+switch and a second occurrence would silently discard the first.
+
+**The verification obligation:** there is no fast test for this. Chromium ignores feature names it
+does not recognise, so a rename upstream turns the switch into a no-op whose only symptom is the
+disk filling again, two days at a time. Confirmation is checking that `OptGuideOnDeviceModel` has not
+reappeared — which is why it is tied to the release-time dependency review above rather than left as
+an intention.
 
 ## Probes — measured, not reasoned about
 

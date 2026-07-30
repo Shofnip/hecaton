@@ -12,6 +12,32 @@
  */
 import type { LaunchRequest } from '@helloweb/core'
 
+/**
+ * Chromium features turned off in every slot, as one comma-separated switch.
+ *
+ * Chrome downloads Gemini Nano — ~4 GB — into `OptGuideOnDeviceModel` inside each
+ * profile. Measured on this machine at Chrome 150.0.7871.187: 4,072 MB in each of
+ * four slots, 16.3 GB in total, the same model version duplicated per profile,
+ * and it arrived about **two days** after each profile was created, not at first
+ * launch. A farm multiplies that by the number of screens, on the end user's disk.
+ *
+ * Two properties of this flag deserve stating, because both are traps:
+ *
+ * - **A wrong or removed feature name fails silently.** Chromium ignores names it
+ *   does not know, so this switch could become a no-op in a future version and the
+ *   only symptom would be the disk filling again. That is the `--load-extension`
+ *   precedent, and it is why there is no quick test that proves this works: the
+ *   download takes days, so verification means checking that the directory has not
+ *   come back, not asserting anything at launch.
+ * - **Chromium honours one value per switch.** A second `--disable-features` would
+ *   make one of the two silently win; `chrome-args.test.ts` pins the count at one.
+ *
+ * Nothing here weakens a browser protection — these disable an AI model download.
+ * The test file guards the parsed feature names, so a protection cannot be
+ * smuggled into this list later.
+ */
+const DISABLED_FEATURES = ['OptimizationGuideOnDeviceModel', 'OptimizationGuideModelDownloading']
+
 export function buildChromeArgs(request: LaunchRequest, profilePath: string): string[] {
   const { bounds } = request
   const args = [
@@ -24,6 +50,7 @@ export function buildChromeArgs(request: LaunchRequest, profilePath: string): st
     // cell — cosmetic, approved by the owner. It weakens no protection (unlike the
     // forbidden flags chrome-args.test.ts guards) and wheel scrolling still works.
     '--hide-scrollbars',
+    `--disable-features=${DISABLED_FEATURES.join(',')}`,
     `--window-position=${bounds.x},${bounds.y}`,
     `--window-size=${bounds.width},${bounds.height}`,
     // App window, not a normal window with a tab. App windows do not take part
