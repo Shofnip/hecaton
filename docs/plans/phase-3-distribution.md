@@ -354,11 +354,25 @@ after probe P1 measured the update path (findings below). The uninstaller shows 
 checkbox; if it is checked, `customUnInstall` runs `Hecaton.exe --delete-user-data` **before** NSIS
 removes the installation directory — at that point the app binary still exists, because
 `customUnInstall` is inserted at the top of the uninstall section, ahead of the `RMDir /r $INSTDIR`.
-The NSIS script therefore contains no deletion of its own: it contains a launch.
 
 **Scope:** everything under `%APPDATA%/hecaton` — the persistent profiles `slot-N`, the archived
-`slot-N.old-*`, `config.json` and `logs/` — plus `%LOCALAPPDATA%/hecaton-updater`, the 99 MB
-installer copy that a normal uninstall orphans (consequence 5 below).
+`slot-N.old-*`, `config.json` and `logs/` — plus the 96 MB installer copy that a normal uninstall
+orphans (consequence 5 below).
+
+**Refined while implementing, 2026-07-30: the updater cache is deleted by NSIS, not by the app.** An
+earlier line here said the NSIS script "contains no deletion of its own: it contains a launch". That
+is no longer exactly true, and the reason is a measurement. The cache directory's name is derived by
+electron-builder from the **package** name, not the product name: `sanitize-filename('@hecaton/shell')`
+keeps the `@` and drops only the slash, so the real path is
+**`%LOCALAPPDATA%/@hecatonshell-updater`** — not `hecaton-updater`, as this document previously
+stated. The app could only know that by reimplementing electron-builder's derivation, which would
+fail silently the day it changed. NSIS has it as a build-time constant.
+
+So the split is by who knows the path and by what is at stake: **the app deletes the session data**,
+from its own constant, in code the suite covers; **NSIS deletes the installer copy**, which contains
+no user data — it is a copy of a public installer — by exact filename, then removes the directory
+non-recursively. There is no `RMDir /r` anywhere in the custom script. The property D4b was protecting
+is unchanged: no deletion of _user data_ happens outside tested code.
 
 **Not in scope:** the throwaway clean-session profiles under the OS temp directory (the ADR-0005
 exception). They are deleted on `stop()` and only survive a crash, and sweeping them would mean
@@ -863,7 +877,10 @@ uninstall section, ahead of that guard, so custom code inherits no protection.
    overwritten per update, not an accumulating pile, but it survives uninstallation permanently. It
    exists to serve `electron-updater`'s `--package-file` flow, which **D7 decided not to use**, so
    for this project it is dead weight. It is now inside D4b's delete scope, and any "where is my
-   data" text has to count it.
+   data" text has to count it. **The exact name, measured on 2026-07-30 while implementing D4b:**
+   `%LOCALAPPDATA%\@hecatonshell-updater`. It comes from the **package** name, not the product name —
+   `sanitize-filename('@hecaton/shell')` keeps the `@` and removes only the slash — which is also why
+   NSIS deletes it rather than the app (see D4b).
 
 **Confirmed in passing:** per-user install raised **no UAC prompt** on install or update (D4a's
 premise); the install directory is `%LOCALAPPDATA%\Programs\<productName>`; the assisted installer's
@@ -959,10 +976,14 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
    passed only after a fix it forced (see its findings); **P3 moved to step 7**, since nothing calls
    `shell.openExternal` yet. D12's two exact pins are now actually in force: `electron-builder`
    at 26.15.3 and `node-window-manager` at 2.2.4, which had still been floating at `^2.2.4`.
-5. **The delete-user-data path** (D4b): the headless `--delete-user-data` run in the app, red-first
-   like everything else, then the uninstaller's checkbox and its `${isUpdated}`-guarded launch. It
-   comes after the first packaged build because it cannot be verified without installing and
-   updating a real artifact.
+5. ~~**The delete-user-data path** (D4b).~~ **Done 2026-07-30.** Core validator red-first, sync
+   adapter with an integration test on real disk, headless branch in main ahead of the
+   single-instance lock, and the NSIS checkbox with its `${isUpdated}` guard. Verified against real
+   installers with `APPDATA` redirected to a throwaway directory **and the real one moved aside
+   first**, so the destructive path could never reach four logged-in profiles: ticked → data gone and
+   the sibling directory untouched; update 0.1.0 → 0.1.1 → data survives; uninstall without ticking →
+   data survives. That covers D13's review item 3 by installing and inspecting rather than by reading
+   the script.
 6. **The release workflow** on tag, publishing the artifact and its SHA256.
 7. **The first-run screen** — the terms warning and the metrics consent, together, since D3b and
    D9a share it.
