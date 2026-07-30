@@ -2,7 +2,7 @@
  * Configuration: shipped defaults, global settings, per-slot overrides.
  *
  * Pure merge logic. Reading and writing the files is the storage adapter's job;
- * config and logs live in %APPDATA%/helloweb in every environment, including
+ * config and logs live in %APPDATA%/hecaton in every environment, including
  * development, so the repository never becomes a place real state can land.
  */
 import { slotProfileDirName } from './slot-profile.js'

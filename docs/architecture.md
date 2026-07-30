@@ -137,7 +137,7 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
 ## Structure
 
 ```
-helloweb/
+hecaton/
   apps/
     shell/              # Electron: main (orchestrator) + preload + renderer
                         #   (panel + an always-on-top overlay window for modals over the games)
@@ -149,7 +149,7 @@ helloweb/
                         #   profile archiving, and per-process audio mute + volume (WASAPI)
     window-manager/     # embeds spawned Chrome into the shell (Win32 SetParent) and drives
                         #   it — move/hide/show/reload/close — applying the layout the renderer sends
-    storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/helloweb
+    storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/hecaton
     games/              # registry - one file per integrated game
   tests/                # checks on the repository itself, not on any package
   docs/architecture.md
@@ -229,7 +229,7 @@ is **declarative actions** (`{ selector, op: 'click' }`) interpreted by the core
 
 ## Data locations
 
-Everything the app **persists** goes to `%APPDATA%/helloweb`, **always, including development**:
+Everything the app **persists** goes to `%APPDATA%/hecaton`, **always, including development**:
 
 |                         |                                                                                         |
 | ----------------------- | --------------------------------------------------------------------------------------- |
@@ -255,7 +255,7 @@ backups and would need cleanup code to compensate. The consequence worth remembe
 session data can exist in two places, so "where can cookies land on this machine?" has two
 answers, and an orphaned throwaway profile survives an abrupt kill until Windows reclaims it.
 
-Paths come from `@helloweb/storage` (`appDataDir`, `configFilePath`, `logsDir`,
+Paths come from `@hecaton/storage` (`appDataDir`, `configFilePath`, `logsDir`,
 `profilesDir`) and are never assembled by hand.
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration
@@ -265,7 +265,7 @@ step on load. Nearly free now; expensive to retrofit once users have saved files
 
 A long-running orchestrator with child processes fails silently by default. Actively fight it:
 
-- Structured, rotated logs in `%APPDATA%/helloweb/logs`.
+- Structured, rotated logs in `%APPDATA%/hecaton/logs`.
 - Infrastructure errors (Chrome did not start, corrupt profile) surface on the slot's card,
   with the log reachable from the UI.
 - A failing game action fails **visibly and by name**, never silently, and never takes the
@@ -293,7 +293,7 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
   Chrome, never inside Electron.
 - **Single-instance lock**: a second launch quits and surfaces the existing panel, so two
   panels cannot orchestrate the same slots or race the config and profiles.
-- **Electron's own userData/cache** is set under `%APPDATA%/helloweb/shell`, not the shared
+- **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
   `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.
 
 ## Privacy

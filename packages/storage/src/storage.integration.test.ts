@@ -13,7 +13,7 @@ let dir: string
 let file: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'helloweb-storage-'))
+  dir = mkdtempSync(join(tmpdir(), 'hecaton-storage-'))
   file = join(dir, 'nested', 'config.json')
 })
 

@@ -15,7 +15,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ProfileArchive } from '@helloweb/core'
+import type { ProfileArchive } from '@hecaton/core'
 
 /** Marks an archived profile. A live profile never contains this. */
 const ARCHIVE_MARKER = '.old-'

@@ -82,7 +82,7 @@ including the `name` field in game definitions, which is UI text.
 
 ## Data locations
 
-Everything the app **persists** goes under `%APPDATA%/helloweb`, **including in development** —
+Everything the app **persists** goes under `%APPDATA%/hecaton`, **including in development** —
 config, logs, and the per-slot browser profiles under `profiles/`. Never the repo directory:
 logs can contain page URLs with session tokens in query strings, and a profile _is_ a
 logged-in session, so a single ignore-rule mistake would leak a real account. Same path in
@@ -96,7 +96,7 @@ discardable data: backup tools skip it and Windows reclaims it, neither of which
 must cover both.
 
 Use `appDataDir()`, `configFilePath()`, `logsDir()` and `profilesDir()` from
-`@helloweb/storage`. Never build these paths by hand.
+`@hecaton/storage`. Never build these paths by hand.
 
 ## Commands
 

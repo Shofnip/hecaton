@@ -28,7 +28,7 @@
  * and the SetParent timing are Windows details it keeps to itself.
  */
 import { createRequire } from 'node:module'
-import type { GridCell, WindowManager } from '@helloweb/core'
+import type { GridCell, WindowManager } from '@hecaton/core'
 import { measureInsets } from './dwm-insets.js'
 import type { Insets } from './dwm-insets.js'
 import { Win32Worker } from './win32-worker.js'

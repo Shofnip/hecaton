@@ -48,7 +48,7 @@ interface Slot {
 }
 
 async function launchTone(): Promise<Slot> {
-  const profile = mkdtempSync(join(tmpdir(), 'helloweb-audio-'))
+  const profile = mkdtempSync(join(tmpdir(), 'hecaton-audio-'))
   const page = join(profile, 'tone.html')
   writeFileSync(page, TONE_HTML)
   const child = spawn(

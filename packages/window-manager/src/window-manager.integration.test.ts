@@ -37,7 +37,7 @@ function browserPidFor(profilePath: string): number | undefined {
 describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
   beforeAll(async () => {
     manager = new NativeWindowManager()
-    profileRoot = mkdtempSync(join(tmpdir(), 'helloweb-wm-'))
+    profileRoot = mkdtempSync(join(tmpdir(), 'hecaton-wm-'))
 
     const child = spawn(
       CHROME!,
@@ -186,7 +186,7 @@ describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
       // A second Chrome window stands in for the Electron panel to embed into —
       // any valid HWND is a valid SetParent target, and this keeps the test out
       // of Electron.
-      parentProfile = mkdtempSync(join(tmpdir(), 'helloweb-panel-'))
+      parentProfile = mkdtempSync(join(tmpdir(), 'hecaton-panel-'))
       const child = spawn(
         CHROME!,
         [

@@ -11,7 +11,7 @@
  * comes from `computeGrid`. Filling it in would look like a promise the app
  * does not keep.
  */
-import type { GameDefinition } from '@helloweb/core'
+import type { GameDefinition } from '@hecaton/core'
 
 export const pokeIdleWorld: GameDefinition = {
   id: 'poke-idleworld',

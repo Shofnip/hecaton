@@ -3,7 +3,7 @@
 # =============================================================================
 
 # Browser profiles: cookies and localStorage of logged-in game accounts.
-# The app never writes here in dev (config/logs live in %APPDATA%/helloweb),
+# The app never writes here in dev (config/logs live in %APPDATA%/hecaton),
 # but profiles are data dirs by design.
 data/
 profiles/

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildChromeArgs } from './chrome-args.js'
-import type { LaunchRequest } from '@helloweb/core'
+import type { LaunchRequest } from '@hecaton/core'
 
 const REQUEST: LaunchRequest = {
   slotId: 1,
@@ -12,7 +12,7 @@ const REQUEST: LaunchRequest = {
   backgroundThrottling: false,
 }
 
-const PROFILE_PATH = 'C:\\Users\\x\\AppData\\Roaming\\helloweb\\profiles\\slot-1'
+const PROFILE_PATH = 'C:\\Users\\x\\AppData\\Roaming\\hecaton\\profiles\\slot-1'
 
 /** The feature names inside --disable-features, which is one comma-separated switch. */
 function disabledFeatures(args: string[]): string[] {

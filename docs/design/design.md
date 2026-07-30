@@ -1,12 +1,12 @@
-# HelloWeb — Especificação de Design (v1.0)
+# Hecaton — Especificação de Design (v1.0)
 
-Documento de referência do rework visual do HelloWeb, baseado no protótipo aprovado (`helloweb-rework.jsx`). Descreve tokens visuais, layout, componentes, estados e comportamentos esperados na implementação real (Electron).
+Documento de referência do rework visual do Hecaton, baseado no protótipo aprovado (`helloweb-rework.jsx`). Descreve tokens visuais, layout, componentes, estados e comportamentos esperados na implementação real (Electron).
 
 ---
 
 ## 1. Visão geral
 
-O HelloWeb é um gerenciador de até **4 telas web independentes** ("Telas"), cada uma rodando uma aplicação web (padrão: Poke IdleWorld). O layout segue o conceito de _video wall_: grade densa com espaçamentos mínimos, controles por tela e uma barra lateral fina de ações globais.
+O Hecaton é um gerenciador de até **4 telas web independentes** ("Telas"), cada uma rodando uma aplicação web (padrão: Poke IdleWorld). O layout segue o conceito de _video wall_: grade densa com espaçamentos mínimos, controles por tela e uma barra lateral fina de ações globais.
 
 Modos de visualização:
 

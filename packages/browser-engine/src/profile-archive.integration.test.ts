@@ -8,7 +8,7 @@ let root: string
 let archive: FileProfileArchive
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'helloweb-archive-'))
+  root = mkdtempSync(join(tmpdir(), 'hecaton-archive-'))
   archive = new FileProfileArchive(root)
 })
 

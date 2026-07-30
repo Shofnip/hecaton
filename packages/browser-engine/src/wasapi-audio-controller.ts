@@ -17,7 +17,7 @@
  * Holds no business rules: which slot is muted or how loud, and when, is the
  * orchestrator's decision. This only carries it out.
  */
-import type { AudioController } from '@helloweb/core'
+import type { AudioController } from '@hecaton/core'
 import { WasapiWorker } from './wasapi-worker.js'
 
 export class WasapiAudioController implements AudioController {

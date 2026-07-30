@@ -4,7 +4,7 @@
  *
  * It is deliberately thin. Every decision it applies was made and tested
  * elsewhere — the security posture in security.ts, the IPC contract and payload
- * validation in @helloweb/core, the seeding rule in first-run.ts. If an `if`
+ * validation in @hecaton/core, the seeding rule in first-run.ts. If an `if`
  * encoding a rule appears here, it is in the wrong file.
  *
  * The liveness timer lives here because a timer is an effect. The orchestrator
@@ -30,11 +30,11 @@ import {
   parseSlotUpdate,
   parseSlotVolume,
   parseTheme,
-} from '@helloweb/core'
-import { DEFAULT_GLOBAL_CONFIG } from '@helloweb/core'
-import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@helloweb/core'
-import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@helloweb/browser-engine'
-import { NativeWindowManager } from '@helloweb/window-manager'
+} from '@hecaton/core'
+import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
+import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
+import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@hecaton/browser-engine'
+import { NativeWindowManager } from '@hecaton/window-manager'
 import {
   FileLogger,
   JsonFileStorage,
@@ -42,8 +42,8 @@ import {
   configFilePath,
   logsDir,
   profilesDir,
-} from '@helloweb/storage'
-import { buildGameRegistry } from '@helloweb/games'
+} from '@hecaton/storage'
+import { buildGameRegistry } from '@hecaton/games'
 import { allowsNavigation, cspHeaders, panelWebPreferences } from './security.js'
 import { firstRunSlots } from './first-run.js'
 
@@ -54,7 +54,7 @@ const PRELOAD = join(HERE, '..', 'preload', 'preload.cjs')
 
 // Keep Electron's own cache under our data dir, not in the generic, shared
 // %APPDATA%/Electron. Two reasons: ADR-0004 says everything the app persists
-// lives under %APPDATA%/helloweb, and the shared folder is where "unable to
+// lives under %APPDATA%/hecaton, and the shared folder is where "unable to
 // move the cache: access denied" comes from - any other Electron app, or a
 // still-closing instance of ours, holds it. Must run before the app is ready,
 // while the paths can still be set.
@@ -440,7 +440,7 @@ function createPanel(): void {
     width: 900,
     height: 640,
     show: false,
-    title: 'helloweb',
+    title: 'Hecaton',
     webPreferences: { ...panelWebPreferences(), preload: PRELOAD },
   })
   lockDownWindow(panel)

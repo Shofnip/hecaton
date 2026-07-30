@@ -1,5 +1,5 @@
 {
-  "name": "@helloweb/window-manager",
+  "name": "@hecaton/window-manager",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,7 +15,7 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@helloweb/core": "*",
+    "@hecaton/core": "*",
     "node-window-manager": "^2.2.4"
   }
 }

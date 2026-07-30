@@ -6,7 +6,7 @@
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { Storage } from '@helloweb/core'
+import type { Storage } from '@hecaton/core'
 
 export class JsonFileStorage<T> implements Storage<T> {
   constructor(private readonly filePath: string) {}

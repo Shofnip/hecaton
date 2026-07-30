@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { ChromeLauncher, findChromeExecutable } from './chrome-launcher.js'
-import type { LaunchRequest } from '@helloweb/core'
+import type { LaunchRequest } from '@hecaton/core'
 
 // Real Chrome, real processes. Windows only, and skipped elsewhere so CI on
 // Linux stays useful for everything else.
@@ -33,7 +33,7 @@ describe.skipIf(!onWindows)('ChromeLauncher', () => {
   })
 
   beforeEach(() => {
-    profilesRoot = mkdtempSync(join(tmpdir(), 'helloweb-chrome-'))
+    profilesRoot = mkdtempSync(join(tmpdir(), 'hecaton-chrome-'))
     launcher = new ChromeLauncher(profilesRoot)
     started.length = 0
   })

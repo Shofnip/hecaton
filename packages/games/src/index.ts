@@ -9,8 +9,8 @@
  * This package holds data and nothing else. Validation belongs to the core, so
  * there is one implementation of the rules and one place to audit them.
  */
-import { buildRegistry } from '@helloweb/core'
-import type { GameDefinition } from '@helloweb/core'
+import { buildRegistry } from '@hecaton/core'
+import type { GameDefinition } from '@hecaton/core'
 import { pokeIdleWorld } from './poke-idleworld.js'
 
 /**

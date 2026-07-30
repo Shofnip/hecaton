@@ -53,7 +53,9 @@ turned out wrong, that is a new ADR, not a correction.
 Only for factual errors. An ADR whose historical context has since changed is not wrong: it
 records what was true when the decision was taken, which is the point of the format.
 
-ADR-0004, ADR-0006 and ADR-0010 carry corrections and show the shape.
+ADR-0004, ADR-0006, ADR-0007 and ADR-0010 carry corrections and show the shape. ADR-0004 carries
+two, which is what a second `[see Correction (YYYY-MM-DD)]` marker is for: with more than one, an
+undated marker no longer says which.
 
 ## Index
 
@@ -65,7 +67,7 @@ ADR-0004, ADR-0006 and ADR-0010 carry corrections and show the shape.
 | [0004](0004-appdata-over-repo-dir.md)                    | All app state in `%APPDATA%`             | Accepted                                                                  |
 | [0005](0005-never-delete-a-persistent-profile.md)        | The app never deletes a profile          | Accepted                                                                  |
 | [0006](0006-games-ship-only-in-the-repository.md)        | No user-supplied game definitions        | Accepted                                                                  |
-| [0007](0007-electron-security-posture.md)                | The Electron security posture            | Accepted                                                                  |
+| [0007](0007-electron-security-posture.md)                | The Electron security posture            | Accepted (with Correction)                                                |
 | [0008](0008-archive-a-removed-slot-profile.md)           | Archive a removed slot's profile         | Accepted                                                                  |
 | [0009](0009-login-is-bound-to-the-tab.md)                | The game's login is bound to the tab     | Accepted                                                                  |
 | [0010](0010-audio-follows-focus-without-a-dependency.md) | Audio follows focus via WASAPI shell-out | Accepted (with Correction)                                                |

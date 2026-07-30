@@ -59,7 +59,7 @@ interface SlotAddition {
   mute?: boolean
 }
 
-interface HellowebApi {
+interface HecatonApi {
   startSlot(id: number): Promise<void>
   stopSlot(id: number): Promise<void>
   focusSlot(id: number): Promise<boolean>
@@ -93,7 +93,7 @@ type OverlayRequest =
 
 declare global {
   interface Window {
-    helloweb: HellowebApi
+    hecaton: HecatonApi
   }
 }
 
@@ -281,7 +281,7 @@ function showError(error: unknown): void {
     configError.textContent = message
     configError.hidden = false
   } else {
-    console.error('[helloweb]', message)
+    console.error('[hecaton]', message)
   }
 }
 
@@ -530,7 +530,7 @@ function viewport(s: SlotSnapshot): HTMLElement {
     b.type = 'button'
     b.title = 'Ligar tela'
     b.append(icon('power', 30), el('span', undefined, 'Ligar'))
-    b.addEventListener('click', () => run(() => window.helloweb.startSlot(s.id)))
+    b.addEventListener('click', () => run(() => window.hecaton.startSlot(s.id)))
     vp.append(b)
   } else if (status === 'loading') {
     const box = el('span', 'viewport-loading')
@@ -544,7 +544,7 @@ function viewport(s: SlotSnapshot): HTMLElement {
     const retry = el('button', 'retry-btn')
     retry.type = 'button'
     retry.append(icon('reload', 13), el('span', undefined, 'Tentar novamente'))
-    retry.addEventListener('click', () => run(() => window.helloweb.startSlot(s.id)))
+    retry.addEventListener('click', () => run(() => window.hecaton.startSlot(s.id)))
     box.append(alert, el('span', undefined, message), retry)
     vp.append(box)
   }
@@ -562,13 +562,13 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
     'power',
     'icon-btn ctrl' + (active ? ' on' : ''),
     active ? 'Desligar' : 'Ligar',
-    () => run(() => (active ? window.helloweb.stopSlot(s.id) : window.helloweb.startSlot(s.id))),
+    () => run(() => (active ? window.hecaton.stopSlot(s.id) : window.hecaton.startSlot(s.id))),
   )
   bar.append(power)
 
   // Reload (disabled while off; icon spins while loading).
   const reload = iconButton('reload', 'icon-btn ctrl', 'Recarregar', () =>
-    run(() => window.helloweb.reloadSlot(s.id)),
+    run(() => window.hecaton.reloadSlot(s.id)),
   )
   reload.disabled = status === 'off'
   if (status === 'loading') reload.firstElementChild?.classList.add('spin')
@@ -606,14 +606,14 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
   // Edit — opens in the overlay window, above the games.
   bar.append(
     iconButton('pencil', 'icon-btn ctrl', 'Editar tela', () =>
-      run(() => window.helloweb.openOverlay({ kind: 'edit', id: s.id })),
+      run(() => window.hecaton.openOverlay({ kind: 'edit', id: s.id })),
     ),
   )
 
   // Delete (always last) — its confirmation opens in the overlay too.
   bar.append(
     iconButton('trash', 'icon-btn ctrl danger', 'Apagar tela', () =>
-      run(() => window.helloweb.openOverlay({ kind: 'confirmRemove', id: s.id })),
+      run(() => window.hecaton.openOverlay({ kind: 'confirmRemove', id: s.id })),
     ),
   )
 
@@ -635,7 +635,7 @@ function volumeControl(s: SlotSnapshot): HTMLElement {
     () => {
       const r = btn.getBoundingClientRect()
       run(() =>
-        window.helloweb.openOverlay({
+        window.hecaton.openOverlay({
           kind: 'volume',
           id: s.id,
           anchor: {
@@ -703,7 +703,7 @@ function volumePopover(s: SlotSnapshot): HTMLElement {
 
   mute.addEventListener('click', () => {
     s.muted = !s.muted
-    run(() => window.helloweb.setSlotMuted(s.id, s.muted))
+    run(() => window.hecaton.setSlotMuted(s.id, s.muted))
     paint()
   })
 
@@ -717,9 +717,9 @@ function applyVolume(s: SlotSnapshot, volume: number): void {
   const shouldMute = volume === 0
   if (s.muted !== shouldMute) {
     s.muted = shouldMute
-    run(() => window.helloweb.setSlotMuted(s.id, shouldMute))
+    run(() => window.hecaton.setSlotMuted(s.id, shouldMute))
   }
-  run(() => window.helloweb.setSlotVolume(s.id, volume))
+  run(() => window.hecaton.setSlotVolume(s.id, volume))
 }
 
 // ---- thumbnails (design §7) ----
@@ -765,7 +765,7 @@ function toggleFocus(id: number): void {
   // Server-authoritative: focusSlot flips the orchestrator's focusedSlotId (the
   // audio policy reads it) and main pushes the new snapshot, whose `focused`
   // flag drives the focus layout here.
-  run(() => window.helloweb.focusSlot(id))
+  run(() => window.hecaton.focusSlot(id))
 }
 
 // How long to let a freshly launched screen open and settle before starting the
@@ -776,12 +776,11 @@ function powerAll(): void {
   // in the launcher blocking the main thread, and those are async now, so four
   // browsers can start (or stop) together without stalling the cursor.
   if (allOn) {
-    for (const s of state.slots)
-      if (s.state !== 'stopped') run(() => window.helloweb.stopSlot(s.id))
+    for (const s of state.slots) if (s.state !== 'stopped') run(() => window.hecaton.stopSlot(s.id))
     showToast('Todas as telas desligadas')
   } else {
     for (const s of state.slots)
-      if (s.state === 'stopped') run(() => window.helloweb.startSlot(s.id))
+      if (s.state === 'stopped') run(() => window.hecaton.startSlot(s.id))
     showToast('Ligando todas as telas…')
   }
 }
@@ -790,7 +789,7 @@ function addScreen(): void {
   const firstGame = state.games[0]
   if (!firstGame) return
   run(async () => {
-    await window.helloweb.addSlot({ gameId: firstGame.id })
+    await window.hecaton.addSlot({ gameId: firstGame.id })
     showToast('Tela adicionada')
   })
 }
@@ -803,7 +802,7 @@ function openConfirmRemove(id: number): void {
     message: REMOVE_DETAIL,
     danger: false,
     confirmLabel: 'Sim, apagar',
-    onYes: () => run(() => window.helloweb.removeSlot(id)),
+    onYes: () => run(() => window.hecaton.removeSlot(id)),
   })
 }
 
@@ -828,7 +827,7 @@ let overlayDepth = 0
 
 /** Hides the overlay window once nothing is left open in it. */
 function overlayClosed(): void {
-  if (--overlayDepth === 0) void window.helloweb.closeOverlay()
+  if (--overlayDepth === 0) void window.hecaton.closeOverlay()
 }
 
 /**
@@ -923,7 +922,7 @@ function openSettings(): void {
         'Áudio apenas na tela em foco',
         'Silencia automaticamente as telas fora de foco',
         state.audioFollowsFocus,
-        (v) => run(() => window.helloweb.setAudioFollowsFocus(v)),
+        (v) => run(() => window.hecaton.setAudioFollowsFocus(v)),
       ),
     )
 
@@ -932,7 +931,7 @@ function openSettings(): void {
     logs.append(icon('logs', 18), el('span', undefined, 'Abrir logs'))
     logs.addEventListener('click', () => {
       showToast('Abrindo logs…')
-      run(() => window.helloweb.revealLogs())
+      run(() => window.hecaton.revealLogs())
     })
     body.append(logs)
 
@@ -953,7 +952,7 @@ function openSettings(): void {
             confirmLabel: 'Sim, apagar',
             onYes: () =>
               run(async () => {
-                await window.helloweb.clearAllCaches()
+                await window.hecaton.clearAllCaches()
                 showToast('Cache das telas limpo')
               }),
           }),
@@ -972,7 +971,7 @@ function openSettings(): void {
             confirmLabel: 'Sim, apagar',
             onYes: () =>
               run(async () => {
-                await window.helloweb.clearArchives()
+                await window.hecaton.clearArchives()
                 showToast('Dados arquivados excluídos')
               }),
           }),
@@ -1001,7 +1000,7 @@ function themeRow(): HTMLElement {
       document.documentElement.dataset.theme = o.key
       for (const btn of seg.children) btn.classList.remove('active')
       b.classList.add('active')
-      run(() => window.helloweb.setTheme(o.key))
+      run(() => window.hecaton.setTheme(o.key))
     })
     seg.append(b)
   }
@@ -1014,7 +1013,7 @@ function themeRow(): HTMLElement {
 function openEditModal(id: number): void {
   const s = slot(id)
   if (!s) {
-    void window.helloweb.closeOverlay()
+    void window.hecaton.closeOverlay()
     return
   }
   openModal((dialog, close) => {
@@ -1030,10 +1029,10 @@ function openEditModal(id: number): void {
     nameInput.placeholder = `Tela ${s.id}`
     nameInput.value = s.name ?? ''
     nameInput.addEventListener('input', () =>
-      run(() => window.helloweb.renameSlot(s.id, nameInput.value)),
+      run(() => window.hecaton.renameSlot(s.id, nameInput.value)),
     )
     nameInput.addEventListener('blur', () => {
-      if (!nameInput.value.trim()) run(() => window.helloweb.renameSlot(s.id, ''))
+      if (!nameInput.value.trim()) run(() => window.hecaton.renameSlot(s.id, ''))
     })
     nameBox.append(nameInput)
     body.append(nameBox)
@@ -1091,7 +1090,7 @@ function openEditModal(id: number): void {
       // A blank custom url is not sent — updateSlot would reject it; the screen
       // just keeps its current target until a valid one is typed.
       if (select.value === 'custom' && update.url === '') return
-      run(() => window.helloweb.updateSlot(update))
+      run(() => window.hecaton.updateSlot(update))
     }
 
     select.addEventListener('change', () => {
@@ -1111,7 +1110,7 @@ function openEditModal(id: number): void {
           confirmLabel: 'Sim, apagar',
           onYes: () =>
             run(async () => {
-              await window.helloweb.clearSlotCache(s.id)
+              await window.hecaton.clearSlotCache(s.id)
               showToast(`Cache da ${slotName(s)} limpo`)
             }),
         }),
@@ -1184,7 +1183,7 @@ interface Anchor {
 function openVolume(id: number, anchor: Anchor): void {
   const s = slot(id)
   if (!s) {
-    void window.helloweb.closeOverlay()
+    void window.hecaton.closeOverlay()
     return
   }
   overlayDepth++
@@ -1272,7 +1271,7 @@ function emitLayout(): void {
       },
     }
   })
-  run(() => window.helloweb.setScreenLayout(placements))
+  run(() => window.hecaton.setScreenLayout(placements))
 }
 
 let layoutFrame: number | undefined
@@ -1297,7 +1296,7 @@ function initWall(): void {
   powerAllBtn.addEventListener('click', powerAll)
   addBtn.addEventListener('click', addScreen)
   settingsBtn.addEventListener('click', () =>
-    run(() => window.helloweb.openOverlay({ kind: 'settings' })),
+    run(() => window.hecaton.openOverlay({ kind: 'settings' })),
   )
 
   // The window resizing moves every viewport, so the embedded windows must
@@ -1305,7 +1304,7 @@ function initWall(): void {
   window.addEventListener('resize', scheduleLayout)
   new ResizeObserver(scheduleLayout).observe(document.getElementById('stage')!)
 
-  window.helloweb.onState((next) => {
+  window.hecaton.onState((next) => {
     // A background push must not redraw the wall out from under a divider drag.
     state = next
     if (!interacting()) {
@@ -1315,7 +1314,7 @@ function initWall(): void {
   })
 
   run(async () => {
-    state = await window.helloweb.readConfig()
+    state = await window.hecaton.readConfig()
     render()
     scheduleLayout()
   })
@@ -1326,10 +1325,10 @@ function initOverlay(): void {
   // It keeps a fresh copy of the state so a modal renders current data, but it
   // never redraws on a push — that would wipe a half-typed field. It only draws
   // when the wall asks it to.
-  window.helloweb.onState((next) => {
+  window.hecaton.onState((next) => {
     state = next
   })
-  window.helloweb.onOverlayOpen((request) => {
+  window.hecaton.onOverlayOpen((request) => {
     switch (request.kind) {
       case 'edit':
         openEditModal(request.id)
@@ -1346,7 +1345,7 @@ function initOverlay(): void {
     }
   })
   run(async () => {
-    state = await window.helloweb.readConfig()
+    state = await window.hecaton.readConfig()
   })
 }
 

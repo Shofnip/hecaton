@@ -67,4 +67,4 @@ const api = {
   },
 }
 
-contextBridge.exposeInMainWorld('helloweb', api)
+contextBridge.exposeInMainWorld('hecaton', api)

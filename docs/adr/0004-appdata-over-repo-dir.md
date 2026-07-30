@@ -22,7 +22,7 @@ failure mode worth naming: it looked settled precisely because three files agree
 ## Decision
 
 **`%APPDATA%/helloweb`, always — the same path in development and in production.**
-[see Correction]
+[see Correction] [see Correction (2026-07-30)]
 
 |                   |                                                            |
 | ----------------- | ---------------------------------------------------------- |
@@ -50,6 +50,7 @@ hand over an account rather than a hint of one.
 
 Paths are resolved by `@helloweb/storage` — `appDataDir()`, `configFilePath()`, `logsDir()`,
 `profilesDir()` — and never assembled by hand, so there is one place to audit.
+[see Correction (2026-07-30)]
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration step
 on load: nearly free now, expensive to retrofit once users have saved files.
@@ -57,8 +58,9 @@ on load: nearly free now, expensive to retrofit once users have saved files.
 ## Consequences
 
 - Inspecting state during development means opening `%APPDATA%/helloweb` — mildly less
-  convenient, and the intended trade.
+  convenient, and the intended trade. [see Correction (2026-07-30)]
 - Logs are structured and rotated under `%APPDATA%/helloweb/logs`.
+  [see Correction (2026-07-30)]
 - The app never writes user state into the working tree, so a stray `git add -A` cannot leak it.
 - `data/` stays in `.gitignore` anyway. It is no longer where anything is written, and the rule
   costs nothing — but a rule that defends a path nothing uses is not what makes this safe.
@@ -97,3 +99,29 @@ app never writes state into the repository**.
 
 Found by the documentation auditor (`/audit-docs`) on its first run. The body is left unchanged
 per the convention in [README](README.md); only the inline `[see Correction]` marker was added.
+
+## Correction (2026-07-30)
+
+**The directory is `%APPDATA%/hecaton`, and the packages are `@hecaton/*`.** Every `helloweb` in
+this file — the path in the Decision, `@helloweb/storage`, the two Consequences, and the mention
+inside the 2026-07-21 Correction — reads a name that no longer exists anywhere in the code.
+
+**This appeared when the code changed; it was not wrong when written.** `helloweb` was a scaffold
+name from the first commit, and the product was named **Hecaton** during Phase 3 planning. The
+rename landed in one mechanical commit, red-first in `packages/storage/src/app-paths.test.ts`.
+Verify in `packages/storage/src/app-paths.ts` — `APP_DIR_NAME` is the single constant everything
+hangs off, which is what made a one-line rename possible.
+
+**The decision itself is untouched.** All persisted state still lives under `%APPDATA%`, in
+development and production alike, for exactly the three reasons in the body, and the temp-directory
+exception in the Correction above still holds. Only the directory's name changed.
+
+One property of the rename is worth recording here, because it is invisible in the code and belongs
+with this ADR rather than in a commit message: **no migration code was written, and none ever will
+be.** The app looks only at `%APPDATA%/hecaton`; the old `%APPDATA%/helloweb` was left untouched for
+the owner to move by hand, once, before the first release. An automatic first-run migration was
+rejected as the friendly-looking, dangerous option — it would create a permanent code path that
+moves live logged-in sessions, with partial-failure states, to solve a problem that existed for one
+user on one day. That reasoning is the strongest reading of
+[ADR-0005](0005-never-delete-a-persistent-profile.md), and it holds only because there was no
+installed base at the time.

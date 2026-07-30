@@ -79,7 +79,7 @@ Turnstile would reject it anyway.
 - The exact Electron pin only stays defensible while the update cadence above is honoured.
 - A single-instance lock and the placement of Electron's own `userData` under
   `%APPDATA%/helloweb/shell` are related hardening, recorded in `architecture.md` and consistent
-  with ADR-0004 rather than decided here.
+  with ADR-0004 rather than decided here. [see Correction (2026-07-30)]
 
 ## Alternatives rejected
 
@@ -99,3 +99,18 @@ The finding that the target game binds its login to the browser tab — which in
 premise behind the `persistProfile` default — is a separate matter, recorded in
 [ADR-0009](0009-login-is-bound-to-the-tab.md). The profile reset/archive feature is
 [ADR-0008](0008-archive-a-removed-slot-profile.md).
+
+## Correction (2026-07-30)
+
+**Electron's `userData` is under `%APPDATA%/hecaton/shell`, not `%APPDATA%/helloweb/shell`.** The
+product was named **Hecaton** during Phase 3 planning and `APP_DIR_NAME` was renamed in one
+mechanical commit; verify in `packages/storage/src/app-paths.ts`. The hardening this Consequence
+describes is unchanged — only the directory's name. This appeared when the code changed rather than
+being wrong when written, and [ADR-0004](0004-appdata-over-repo-dir.md) carries the same correction
+for the same reason.
+
+Nothing about the security posture in this ADR is affected. Note for a reader arriving here from
+Phase 3: the `connect-src 'none'` Consequence above says auto-update would be "a deliberate future
+decision" — that decision has now been taken, and it reverses this ADR's decision 4. It is **not**
+part of this Correction, because a changed decision is not a factual error: it gets its own ADR and
+a `Superseded in part` line at the top of this file, and neither exists yet.

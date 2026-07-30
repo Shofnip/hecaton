@@ -36,7 +36,7 @@ function queryRects(hwnd: number): { window: Insets; extended: Insets } | undefi
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
-public class HellowebFrame {
+public class HecatonFrame {
   [StructLayout(LayoutKind.Sequential)]
   public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
   [DllImport("dwmapi.dll")]
@@ -54,7 +54,7 @@ public class HellowebFrame {
   }
 }
 '@
-[HellowebFrame]::Get([IntPtr]${hwnd})
+[HecatonFrame]::Get([IntPtr]${hwnd})
 `
   let stdout: string
   try {

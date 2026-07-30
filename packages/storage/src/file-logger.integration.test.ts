@@ -7,7 +7,7 @@ import { FileLogger } from './file-logger.js'
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'helloweb-logs-'))
+  dir = mkdtempSync(join(tmpdir(), 'hecaton-logs-'))
 })
 
 afterEach(() => {

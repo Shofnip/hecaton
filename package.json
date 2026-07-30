@@ -1,5 +1,5 @@
 {
-  "name": "helloweb",
+  "name": "hecaton",
   "version": "0.0.0",
   "private": true,
   "description": "Desktop orchestrator for running several web games side by side, each in an isolated browser session.",

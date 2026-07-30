@@ -7,7 +7,7 @@ const ROAMING = 'C:\\Users\\x\\AppData\\Roaming'
 
 describe('appDataDir', () => {
   it('uses APPDATA on Windows', () => {
-    expect(appDataDir(WINDOWS_ENV, 'win32')).toBe(join(ROAMING, 'helloweb'))
+    expect(appDataDir(WINDOWS_ENV, 'win32')).toBe(join(ROAMING, 'hecaton'))
   })
 
   it('fails loudly when APPDATA is missing on Windows', () => {
@@ -16,12 +16,12 @@ describe('appDataDir', () => {
 
   it('falls back to XDG_CONFIG_HOME elsewhere, so CI on Linux works', () => {
     expect(appDataDir({ XDG_CONFIG_HOME: '/home/x/.config' }, 'linux')).toBe(
-      join('/home/x/.config', 'helloweb'),
+      join('/home/x/.config', 'hecaton'),
     )
   })
 
   it('falls back to HOME when XDG_CONFIG_HOME is unset', () => {
-    expect(appDataDir({ HOME: '/home/x' }, 'linux')).toBe(join('/home/x', '.config', 'helloweb'))
+    expect(appDataDir({ HOME: '/home/x' }, 'linux')).toBe(join('/home/x', '.config', 'hecaton'))
   })
 
   it('fails loudly when nothing at all is set', () => {

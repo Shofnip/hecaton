@@ -1,8 +1,8 @@
-# helloweb
+# Hecaton
 
 > Provisional name.
 
-**helloweb is a desktop app for playing several web games at once, in one window.** It launches
+**Hecaton is a desktop app for playing several web games at once, in one window.** It launches
 up to four real Chrome windows — each with its own isolated login — and embeds them into a single
 panel laid out like a video wall: every screen visible at once, and you interact with any of them
 by just moving the mouse and clicking, no selecting first. Think of a security-camera wall, but
@@ -41,7 +41,7 @@ from the source:
 
 ```
 git clone <this repo>
-cd helloweb
+cd hecaton
 npm install
 ```
 
@@ -61,7 +61,7 @@ That builds the app and launches the Electron window. (It is a shortcut for
 `cd apps/shell && npm start`, which runs `npm run build && electron .`.) Close the window to quit;
 the browser screens close with it.
 
-Everything the app saves lives under `%APPDATA%/helloweb` (see [Data](#data-and-privacy) below),
+Everything the app saves lives under `%APPDATA%/hecaton` (see [Data](#data-and-privacy) below),
 so your logins and settings persist between runs.
 
 ## Development
@@ -85,7 +85,7 @@ moves a window or touches disk goes in `*.integration.test.ts`. Strict TDD throu
 
 ## Data and privacy
 
-Everything the app persists lives under `%APPDATA%/helloweb`, **including in development**: config,
+Everything the app persists lives under `%APPDATA%/hecaton`, **including in development**: config,
 rotated logs, and the per-slot browser profiles under `profiles/`. Nothing the app produces is ever
 written into the repository — a profile _is_ a logged-in session (cookies, saved passwords), and
 keeping it out of the working tree removes that risk at the source.
@@ -106,7 +106,7 @@ leaves the machine, and there is no telemetry.
 
 ## A note on game terms of service
 
-helloweb does not automate play and does not inject anything into game pages — it launches ordinary
+Hecaton does not automate play and does not inject anything into game pages — it launches ordinary
 Chrome windows and arranges them. Even so, every screen runs inside **your** logged-in session, so
 check each game's terms before relying on it. Should injection or automation return in a later
 phase, the risk of an account ban is the user's.

@@ -30,7 +30,7 @@ In the repository:
 
 Outside the repository, audit these if they exist and skip silently if they do not:
 
-- `~/.claude/plans/handoff-helloweb.md`
+- `~/.claude/plans/handoff-hecaton.md`
 - `~/.claude/plans/buzzing-humming-quail.md` (the superseded original plan — its job is to be
   historical, so only check that its "superseded" warning is still present and points somewhere
   that exists)

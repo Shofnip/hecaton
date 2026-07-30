@@ -7,7 +7,7 @@
  * real validator over the real data is what turns that into a build failure.
  */
 import { describe, expect, it } from 'vitest'
-import { buildRegistry } from '@helloweb/core'
+import { buildRegistry } from '@hecaton/core'
 import { GAME_DEFINITIONS, buildGameRegistry } from './index.js'
 
 describe('the shipped game registry', () => {

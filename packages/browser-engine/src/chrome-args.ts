@@ -10,7 +10,7 @@
  * flag to unblock a problem is a security decision for the project owner, not
  * an implementation detail, and chrome-args.test.ts enforces that.
  */
-import type { LaunchRequest } from '@helloweb/core'
+import type { LaunchRequest } from '@hecaton/core'
 
 /**
  * Chromium features turned off in every slot, as one comma-separated switch.

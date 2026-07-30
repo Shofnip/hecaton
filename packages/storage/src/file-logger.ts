@@ -13,8 +13,8 @@
  */
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { formatLogRecord } from '@helloweb/core'
-import type { LogEntry, Logger } from '@helloweb/core'
+import { formatLogRecord } from '@hecaton/core'
+import type { LogEntry, Logger } from '@hecaton/core'
 
 export class FileLogger implements Logger {
   constructor(

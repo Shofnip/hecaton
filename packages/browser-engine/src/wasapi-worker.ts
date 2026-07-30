@@ -48,7 +48,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Helloweb {
+namespace Hecaton {
   [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] public class MMDeviceEnumerator {}
 
   [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -188,11 +188,11 @@ while ($true) {
   $a = $line.Trim() -split ' '
   try {
     switch ($a[0]) {
-      'mute'   { Reply ("OK " + [Helloweb.Audio]::Run([int]$a[1], 1, 0.0)) }
-      'unmute' { Reply ("OK " + [Helloweb.Audio]::Run([int]$a[1], 0, 0.0)) }
-      'query'  { Reply ("OK " + [Helloweb.Audio]::Run([int]$a[1], 2, 0.0)) }
-      'vol'    { Reply ("OK " + [Helloweb.Audio]::Run([int]$a[1], 3, [float]([int]$a[2] / 100.0))) }
-      'getvol' { Reply ("OK " + [Helloweb.Audio]::Run([int]$a[1], 4, 0.0)) }
+      'mute'   { Reply ("OK " + [Hecaton.Audio]::Run([int]$a[1], 1, 0.0)) }
+      'unmute' { Reply ("OK " + [Hecaton.Audio]::Run([int]$a[1], 0, 0.0)) }
+      'query'  { Reply ("OK " + [Hecaton.Audio]::Run([int]$a[1], 2, 0.0)) }
+      'vol'    { Reply ("OK " + [Hecaton.Audio]::Run([int]$a[1], 3, [float]([int]$a[2] / 100.0))) }
+      'getvol' { Reply ("OK " + [Hecaton.Audio]::Run([int]$a[1], 4, 0.0)) }
       'exit'   { Reply 'OK'; exit 0 }
       default  { Reply "ERR unknown: $($a[0])" }
     }

@@ -1,5 +1,5 @@
 {
-  "name": "@helloweb/shell",
+  "name": "@hecaton/shell",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,11 +9,11 @@
     "start": "npm run build && electron ."
   },
   "dependencies": {
-    "@helloweb/browser-engine": "*",
-    "@helloweb/core": "*",
-    "@helloweb/games": "*",
-    "@helloweb/storage": "*",
-    "@helloweb/window-manager": "*"
+    "@hecaton/browser-engine": "*",
+    "@hecaton/core": "*",
+    "@hecaton/games": "*",
+    "@hecaton/storage": "*",
+    "@hecaton/window-manager": "*"
   },
   "devDependencies": {
     "electron": "43.2.0"

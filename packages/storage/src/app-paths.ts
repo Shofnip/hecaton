@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path'
 
-export const APP_DIR_NAME = 'helloweb'
+export const APP_DIR_NAME = 'hecaton'
 
 export function appDataDir(
   env: NodeJS.ProcessEnv = process.env,

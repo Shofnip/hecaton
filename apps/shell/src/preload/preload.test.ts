@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { IPC_CHANNELS } from '@helloweb/core'
+import { IPC_CHANNELS } from '@hecaton/core'
 
 const source = readFileSync(fileURLToPath(new URL('./preload.cts', import.meta.url)), 'utf8')
 

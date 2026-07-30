@@ -8,6 +8,39 @@ whose symptom points away from its cause.
 
 ---
 
+## The app starts with no slots, and the old profiles seem gone
+
+**Symptom.** After pulling the commit that renamed the app to Hecaton, the app opens as if it were
+a fresh install: default slots, nobody logged in. `%APPDATA%/hecaton` exists and is nearly empty.
+
+**Cause.** Nothing is lost. `APP_DIR_NAME` changed from `helloweb` to `hecaton`
+(`packages/storage/src/app-paths.ts`), so the app now looks in a directory that did not exist and
+created it. The old state — `config.json`, `logs/`, and `profiles/slot-N`, which **are** the
+logged-in browser sessions — is still sitting in `%APPDATA%/helloweb`.
+
+**Fix — a one-time manual move, and it is a move, never a delete.** With the app closed and no
+Chrome holding a slot profile open:
+
+```powershell
+# Merge is not the intent: if %APPDATA%\hecaton was auto-created and is empty, remove
+# the empty directory first, then rename the old one into its place.
+Move-Item "$env:APPDATA\helloweb" "$env:APPDATA\hecaton"
+```
+
+Same volume, so it is a rename and finishes instantly whatever the size. If `hecaton` already
+exists, `Move-Item` refuses rather than merging — that is the safe behaviour. Delete the _empty_
+auto-created `hecaton` (check it is empty first) and run the move again.
+
+**Why there is no code that does this for you.** A first-run migration is the obvious friendly
+feature and it is the dangerous one: it would be a permanent code path in the shipped app that
+moves live logged-in sessions, with partial-failure states (Chrome running, a file locked,
+permission denied) that leave the data split across two directories. The app has never been
+distributed, so exactly one machine needs this once — see
+[ADR-0004](adr/0004-appdata-over-repo-dir.md)'s 2026-07-30 Correction and
+[ADR-0005](adr/0005-never-delete-a-persistent-profile.md).
+
+---
+
 ## `npm ci` fails on a native module in CI
 
 **Symptom**
@@ -82,7 +115,7 @@ Building them needs Visual Studio Build Tools and Python on the machine.
 **Symptom**
 
 ```
-Error: EPERM, Permission denied: '...\helloweb-clean-XXXX'
+Error: EPERM, Permission denied: '...\hecaton-clean-XXXX'
 ```
 
 right after stopping a slot, often only in tests.

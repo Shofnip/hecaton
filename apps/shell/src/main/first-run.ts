@@ -9,7 +9,7 @@
  * A full grid rather than an empty panel, because v1 has no UI for adding a
  * slot: an empty panel would open dead.
  */
-import type { SlotOverrides } from '@helloweb/core'
+import type { SlotOverrides } from '@hecaton/core'
 
 export function firstRunSlots(gameId: string, count: number): SlotOverrides[] {
   if (gameId.trim() === '') {

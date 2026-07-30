@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import type { BrowserLauncher, LaunchRequest } from '@helloweb/core'
+import type { BrowserLauncher, LaunchRequest } from '@hecaton/core'
 import { buildChromeArgs } from './chrome-args.js'
 
 // Async, never *Sync: these shell out to PowerShell/taskkill, and PowerShell alone
@@ -124,7 +124,7 @@ export class ChromeLauncher implements BrowserLauncher {
     // persistProfile flag can destroy a logged-in session.
     const ephemeral = !request.persistProfile
     const profilePath = ephemeral
-      ? mkdtempSync(join(tmpdir(), 'helloweb-clean-'))
+      ? mkdtempSync(join(tmpdir(), 'hecaton-clean-'))
       : join(this.profilesRoot, request.profileDir)
     if (!ephemeral) mkdirSync(profilePath, { recursive: true })
 
