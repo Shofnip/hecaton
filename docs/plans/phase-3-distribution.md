@@ -957,9 +957,32 @@ plainly to whoever is asked to trust it.
 is clean: the production tree has zero. All sixteen are build-time and collapse to two roots —
 `brace-expansion` (denial of service through unbounded expansion), reached via
 `minimatch` → `glob` → `@electron/asar` → `app-builder-lib` → `electron-builder`, and `ejs` via
-`jake`. This is a **decision for the owner** rather than something an implementing session fixes,
-because `npm audit fix --force` would move `electron-builder` off the exact pin D12 chose
-deliberately. It is recorded here so the release-time dependency review has it in hand.
+`jake`.
+
+**DECIDED 2026-07-30 — accepted as they are.** The owner chose to accept rather than patch. What is
+being accepted is narrow and worth stating precisely: a denial-of-service in a glob library that runs
+on the **build machine**, over patterns the build itself supplies. Nothing feeds hostile glob input
+into this build, and nothing affected reaches a user's disk.
+
+Rejected: npm `overrides` forcing patched transitives under the build tree — it would close the
+advisories while keeping the pin, but it creates an untested combination inside `electron-builder`,
+and a packaging step that breaks subtly is worse than the denial of service it prevents. Also
+rejected: `npm audit fix --force`, which would move `electron-builder` off the exact pin D12 chose
+deliberately — the cheapest thing to type and the most expensive consequence.
+
+**The gap in this decision, stated so it is not mistaken for covered.** Accepting leans on revisiting
+at each release, and D12b did create the standing obligation ("somebody must raise it deliberately
+when there is a fix") — but the **moment** is still only suggested complement 6, undecided. Until
+that is taken, this is an acceptance with no scheduled revisit, which is a weaker thing.
+
+**Proposed, not implemented — the way to make this decision enforceable rather than remembered.**
+Run `npm audit --omit=dev` in CI, so build-time advisories stay accepted while one landing in the
+**shipped** tree fails the build. It turns "all sixteen are build-time" from a fact observed once into
+a property that is checked. The cost is real and is why it is not simply done: `tests/repo-consistency.test.ts`
+requires `npm run check` to cover everything CI runs, so `check` would gain a step that needs the
+network — it is offline today, and a registry outage would turn into a red local run. A separate
+manual or scheduled workflow avoids both, at the price of being a signal nobody is forced to read.
+The owner's call.
 
 ## When the phase lands
 
