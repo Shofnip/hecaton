@@ -104,9 +104,41 @@ leaves the machine, and there is no telemetry.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — problems already hit, by the symptom you see first
 - `CLAUDE.md` — rules that are not derivable from the code
 
-## A note on game terms of service
+## License
 
-Hecaton does not automate play and does not inject anything into game pages — it launches ordinary
-Chrome windows and arranges them. Even so, every screen runs inside **your** logged-in session, so
-check each game's terms before relying on it. Should injection or automation return in a later
-phase, the risk of an account ban is the user's.
+[Apache License 2.0](LICENSE) — see [`NOTICE`](NOTICE). Free to use, modify and redistribute, with
+two obligations worth knowing before you fork: keep the copyright and license notices, and state
+what you changed. The name **Hecaton** is not covered by the grant (section 6 is explicit that no
+trademark rights come with it), so a fork should carry its own name.
+
+The source is public so that an app holding logged-in game sessions can be read rather than
+trusted. It is distributed free, and that is permanent: there is no paid tier planned, now or
+later.
+
+## Read this before you log an account in
+
+Hecaton's whole point — several accounts of the same game side by side — is the thing most game
+terms restrict. It does not automate play and injects nothing into game pages; it launches ordinary
+Chrome windows and arranges them. That does not put it outside the rules, and pretending otherwise
+would be the dishonest way to present it.
+
+**For the first target game, Poke IdleWorld, the rules are specific.** Read on
+[poke.idleworld.online/rules](https://poke.idleworld.online/rules) on 2026-07-30:
+
+- Running **more than four accounts** without authorization previously accepted by the
+  administration can lead to "the permanent deletion of the accounts involved". Hecaton ships with
+  four screens, which sits exactly at that line — **adding a fifth crosses it** unless you have
+  asked and been told yes.
+- "Using any program, script or extension without staff permission is forbidden." Hecaton **is** a
+  program used alongside the game. It does not simulate your presence and runs no macros or
+  auto-clickers, which are called out separately and are what the rule most clearly targets — but
+  the broad wording covers it, and only the game's staff can say whether it is acceptable.
+- Penalties escalate with history: warnings, suspension, item removal, permanent ban.
+
+**The consequence lands on you, not on the author.** Every screen runs inside your own logged-in
+session; there is no shared infrastructure and no way for anyone else to absorb a ban. If an
+account matters to you, ask the game's staff before pointing Hecaton at it.
+
+Terms change, and the summary above is a snapshot with a date on it, not legal advice. Check the
+rules yourself. If injection or automation ever returns in a later phase, this section gets stricter,
+not softer.

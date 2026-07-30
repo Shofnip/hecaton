@@ -140,9 +140,10 @@ Consequences, taken together rather than one at a time:
   rather than conflict.
 - Apache-2.0 turns out to be the right licence for the attribution goal specifically: §4 obliges a
   redistributor to keep the copyright notices and to state their changes, and its trademark clause
-  keeps a fork from calling itself Hecaton. **The copyright holder may be a handle** — `Copyright
-2026 Shofn` is valid and exposes nothing beyond what the GitHub account already shows. A `NOTICE`
-  file is where that line belongs.
+  keeps a fork from calling itself Hecaton. **The copyright holder may be a handle** — and the owner
+  chose **`Copyright 2026 Shofnip`** (2026-07-30), matching the GitHub account exactly, so the notice
+  exposes nothing the account does not already show. `NOTICE` is where that line belongs, and it also
+  states that §6 grants no right to the name Hecaton.
 - D4a was decided **before** this was stated, and was revisited because of it (see D4).
 - D9 and D10 should be re-read against this before being planned: telemetry infrastructure and
   user accounts are shaped very differently for four friends than for a public user base.
@@ -281,9 +282,24 @@ user's decision, because it precedes logging an account in.
 **Consequence that constrains D4:** a licence page requires the **assisted** NSIS installer.
 A one-click installer has nowhere to show it.
 
-**Verification task, still open:** the Poke IdleWorld terms have never been read. `architecture.md`
-lists this as an open risk and it has stayed open. Reading them is a task of this phase, and the
-result decides how strongly the first-run text is worded — not whether it exists.
+**Verification task — DONE 2026-07-30, and the result is sharper than expected.** The Poke IdleWorld
+rules had never been read; `architecture.md` carried it as an open risk. Read on
+[poke.idleworld.online/rules](https://poke.idleworld.online/rules):
+
+- **More than four accounts** without authorization previously accepted by the administration can
+  bring "the permanent deletion of the accounts involved". **The app ships with four screens, exactly
+  at that threshold** — so the default is inside the rule and a fifth screen is outside it.
+- **"Using any program, script or extension without staff permission is forbidden."** This reaches
+  Hecaton itself, regardless of it automating nothing. Macros, auto-clickers and "tools that simulate
+  your presence" are prohibited separately and are what the rule most clearly targets — the app does
+  none of those — but the broad wording covers it and only the game's staff can say otherwise.
+- Penalties escalate with history: warning, suspension, item removal, permanent ban.
+
+So the warning is now specific rather than generic, with the reading date attached, and the README
+section was rewritten around it. It also raises a **product decision that is the owner's** and is not
+taken here: whether the app should say something when a user adds a **fifth** screen, since that is
+the moment a documented line is crossed. Options run from nothing, through a one-time note next to
+the add-screen action, to naming it in the first-run text. Not implemented.
 
 ---
 
@@ -866,7 +882,9 @@ distinction the ADR README draws, so getting it wrong here would be ironic:
 
 `architecture.md` is updated in the same commit as the behaviour: the Privacy section (which
 currently promises no telemetry), Data locations (the directory name), Errors and logging (the
-bug-report bundle), and Phases (Phase 3 from "not started" to done).
+bug-report bundle), and Phases (Phase 3 from "not started" to done). **`README.md` promises "there is
+no telemetry" too**, in its Data and privacy section — both files say it, so both change in the
+commit that lands D9, or the app ships contradicting its own README.
 
 ## Implementation order
 
@@ -877,8 +895,12 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
 2. **The rename** (D1, D2), as one mechanical commit: `@hecaton/*`, root package name, repo, and
    `APP_DIR_NAME` red-first in `packages/storage/src/app-paths.test.ts`. Plus the one-time manual
    step in `docs/troubleshooting.md`, written as a **move**.
-3. **`LICENSE` + `NOTICE`** (Apache-2.0, copyright held under the handle) and the README's terms
-   section.
+3. ~~**`LICENSE` + `NOTICE`** (Apache-2.0, copyright held under the handle) and the README's terms
+   section.~~ **Done 2026-07-30.** Apache-2.0 verbatim from apache.org, `NOTICE` under `Shofnip`, and
+   the README rewritten around the rules actually read (see D3b). **Making the repository public is
+   the remaining half of D3a and is deliberately separate**, since it is the one-way door: it needs a
+   pass over the git history first, because publishing publishes every commit, not just the current
+   tree.
 4. **`electron-builder` config and the first packaged build**, then **P2** and **P3** against it.
    `deleteAppDataOnUninstall: false` from the first line of config, per D4b.
 5. **The delete-user-data path** (D4b): the headless `--delete-user-data` run in the app, red-first
