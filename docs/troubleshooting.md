@@ -56,15 +56,27 @@ gyp ERR! find VS could not find a version of Visual Studio 2017 or newer to use
 image ships. The two native modules (`node-window-manager` and its transitive
 `extract-file-icon`) therefore cannot build there.
 
-**What to do**
+**Resolved on 2026-07-30 — `node-gyp` is 12.4.0 in the lockfile and builds fine on
+`windows-latest`.** It rose when `electron-builder` was installed for the release workflow, not by
+anyone deciding to fix this. Measured: the release workflow runs `npm ci` without
+`--ignore-scripts` on `windows-latest`, packages the app, and the resulting installer runs with both
+`addon.node` files present and loading. `npm` hides install-script output unless a script fails,
+which is why a successful build shows no `gyp` lines at all — absence of gyp output is not evidence
+that nothing was compiled.
 
-Nothing, for now — this is why the integration suite is a separate manual workflow
-(`.github/workflows/integration.yml`) rather than part of CI. The authoritative run is local,
-on Windows, where Visual Studio Build Tools are recognised: `npm run test:integration`.
+The entry is kept rather than deleted because the symptom is worth recognising if it comes back: a
+`node-gyp` that predates the runner's Visual Studio produces exactly the error above, and the fix is
+to raise `node-gyp`, not to reach for `--ignore-scripts`.
 
-If you need it green in CI, the options are pinning an older runner image or waiting for
-`node-gyp` to learn VS 18. Do not add `--ignore-scripts` to make it pass — that produces a
-green run that builds nothing, which this project already had once.
+**What to do if it returns**
+
+Raise `node-gyp` (check `package-lock.json` for the version actually in use), or pin an older runner
+image. Do not add `--ignore-scripts` to make it pass — that produces a green run that builds
+nothing, which this project already had once.
+
+The integration suite stays a manual workflow regardless: its other reason is that it needs an
+interactive desktop session, which no hosted runner has, and that has not changed. The authoritative
+run is local, on Windows: `npm run test:integration`.
 
 ---
 

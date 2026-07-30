@@ -4,18 +4,21 @@
 # left every push reporting "1/2", and an indicator that needs interpreting is an
 # indicator people stop reading.
 #
-# Two reasons it does not run automatically:
+# Why it does not run automatically:
 #
-# 1. It needs an interactive desktop session. Hosted runners have none, so
-#    bringToTop and setBounds would pass or fail for reasons unrelated to the
-#    code. A job nobody can trust is worse than no job at all.
-# 2. It needs node-gyp to build two native modules, which currently fails on the
-#    hosted image: node-gyp 11.5 does not recognise the Visual Studio 18 it finds
-#    there, reporting 'unknown version undefined'.
+#   It needs an interactive desktop session. Hosted runners have none, so
+#   bringToTop and setBounds would pass or fail for reasons unrelated to the code.
+#   A job nobody can trust is worse than no job at all.
+#
+# There used to be a second reason - node-gyp could not build the two native
+# modules on the hosted image, because 11.5 did not recognise Visual Studio 18.
+# That is gone: node-gyp is 12.4.0 in the lockfile since electron-builder was
+# added, and the release workflow now runs `npm ci` and a full packaged build on
+# windows-latest. So `npm ci` here is expected to succeed; if this job fails, it
+# fails on the tests and on the missing desktop, which is the honest reason.
 #
 # The authoritative run is local, on Windows: npm run test:integration
-# This workflow exists so it can also be triggered from the Actions tab, and it
-# is expected to fail on install until reason 2 is resolved upstream.
+# This workflow exists so it can also be triggered from the Actions tab.
 
 name: Integration
 

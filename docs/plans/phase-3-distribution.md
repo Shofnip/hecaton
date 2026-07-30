@@ -927,6 +927,40 @@ config needs `publish: null` or the build fails at its last step computing updat
 `electronDist` at the repo's own `node_modules/electron/dist` avoids downloading a second Electron,
 but then `electronVersion` must be stated explicitly.
 
+### The release workflow — measured 2026-07-30
+
+Run through `workflow_dispatch` on `main`, so the build could be proven before a tag existed. It
+succeeded on `windows-latest` in 3m56s, and the artifact was downloaded and exercised rather than
+trusted:
+
+- `sha256sum -c` accepts the published `.sha256` file, which is the property that matters — a friend
+  checks it with the standard tool and nothing bespoke.
+- The installer from CI installs, both `addon.node` files are unpacked outside the asar, and the app
+  **runs**: the panel renders with its four screens, which it could not do if the native modules had
+  the wrong ABI, since main imports the window manager at module load.
+
+**The blocker everyone expected did not appear, and the reason is worth recording.**
+`docs/troubleshooting.md` and `integration.yml` both said `npm ci` cannot build the two native
+modules on the hosted image, because `node-gyp` 11.5 does not recognise Visual Studio 18. `node-gyp`
+is **12.4.0** in the lockfile now — it rose when `electron-builder` was installed, not because anyone
+set out to fix it. Both documents were corrected. A trap on the way: `npm` hides install-script
+output unless a script fails, so a successful native build shows **no gyp lines at all**, and the
+absence of them is not evidence that nothing compiled.
+
+**The build is not reproducible byte for byte.** The CI artifact hashes
+`2951dce3…` where the same commit built locally hashes `e9b58cae…`. So the provenance D12a buys is
+"this hash came from this public log", not "you can rebuild it and compare". For an unsigned release
+that is still the strongest claim available, but it is weaker than it sounds and should be stated
+plainly to whoever is asked to trust it.
+
+**`npm audit` reports 16 high-severity advisories, and none of them ship.** `npm audit --omit=dev`
+is clean: the production tree has zero. All sixteen are build-time and collapse to two roots —
+`brace-expansion` (denial of service through unbounded expansion), reached via
+`minimatch` → `glob` → `@electron/asar` → `app-builder-lib` → `electron-builder`, and `ejs` via
+`jake`. This is a **decision for the owner** rather than something an implementing session fixes,
+because `npm audit fix --force` would move `electron-builder` off the exact pin D12 chose
+deliberately. It is recorded here so the release-time dependency review has it in hand.
+
 ## When the phase lands
 
 This document is deleted. What survives, and where:
@@ -984,7 +1018,8 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
    the sibling directory untouched; update 0.1.0 → 0.1.1 → data survives; uninstall without ticking →
    data survives. That covers D13's review item 3 by installing and inspecting rather than by reading
    the script.
-6. **The release workflow** on tag, publishing the artifact and its SHA256.
+6. ~~**The release workflow** on tag, publishing the artifact and its SHA256.~~ **Done 2026-07-30**,
+   and exercised through `workflow_dispatch` before any tag exists. Findings below.
 7. **The first-run screen** — the terms warning and the metrics consent, together, since D3b and
    D9a share it.
 8. **The update check** — core validator first, then the adapter, then the UI. **P3 runs here**, once
