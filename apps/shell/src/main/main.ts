@@ -30,16 +30,19 @@ import {
   parseSlotUpdate,
   parseSlotVolume,
   parseTheme,
+  requestsUserDataDeletion,
 } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
 import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@hecaton/browser-engine'
 import { NativeWindowManager } from '@hecaton/window-manager'
 import {
+  APP_DIR_NAME,
   FileLogger,
   JsonFileStorage,
   appDataDir,
   configFilePath,
+  deleteUserData,
   logsDir,
   profilesDir,
 } from '@hecaton/storage'
@@ -59,6 +62,37 @@ const PRELOAD = join(HERE, '..', 'preload', 'preload.cjs')
 // still-closing instance of ours, holds it. Must run before the app is ready,
 // while the paths can still be set.
 app.setPath('userData', join(appDataDir(), 'shell'))
+
+/**
+ * The uninstaller's opt-in "delete all my data" branch (D4b).
+ *
+ * It runs here, before `requestSingleInstanceLock`, and that ordering is the whole
+ * point: a running instance holds the lock, so a headless run placed after the
+ * check would quit without deleting and report success. NSIS closes the app first,
+ * but "the app is somehow still up" must not silently turn into "deleted nothing".
+ *
+ * `process.exit` rather than `app.quit`: Electron would otherwise recreate its own
+ * userData under the directory that was just removed, leaving a stub behind.
+ *
+ * Why the app and not the NSIS script: probe P1 measured that the uninstaller
+ * running during an update is the *previous* release's binary, so a wrong delete
+ * branch written in NSIS could never be repaired for anyone who had installed - and
+ * nothing there is covered by the suite. Here, what gets deleted is decided by
+ * `planUserDataDeletion` in the core and the removal is one adapter call.
+ */
+if (requestsUserDataDeletion(process.argv)) {
+  const target = { path: appDataDir(), leaf: APP_DIR_NAME }
+  try {
+    deleteUserData([target])
+    console.log(`[hecaton] removed ${target.path}`)
+    process.exit(0)
+  } catch (error) {
+    // Visible and non-zero: the uninstaller waits on this exit code, and a
+    // failure the user never hears about is worse than one they do.
+    console.error(`[hecaton] could not remove ${target.path}:`, error)
+    process.exit(1)
+  }
+}
 
 /** How often the shell asks the orchestrator to look for dead browsers. */
 const LIVENESS_INTERVAL_MS = 2000

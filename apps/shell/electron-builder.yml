@@ -79,5 +79,10 @@ nsis:
   # profiles directory itself. D4b's opt-in deletion is a separate, guarded path.
   deleteAppDataOnUninstall: false
 
+  # D4b's opt-in deletion. The checkbox and the ${isUpdated} guard live here; what
+  # actually gets removed is decided in the core and executed by the app, for the
+  # reasons probe P1 measured and the file explains.
+  include: build-resources/installer.nsh
+
   createDesktopShortcut: true
   artifactName: Hecaton-${version}-setup.${ext}
