@@ -131,7 +131,10 @@ recording, because almost every remaining decision is sized by it:
 - **The audience is a handful of friends.** Not a public launch.
 - **The public repository is audit optionality, not a distribution channel** — it exists so the
   code _can_ be read if this ever grows beyond that circle.
-- **The owner does not want personal exposure** in publishing the tool.
+- **The owner does not want personal exposure** in publishing the tool. Scope, after 2026-07-30: this
+  governs a **legal identity** — the subject name on a certificate, shown in a UAC dialog to every
+  user (D5). It does not extend to the commit-author e-mail, which was weighed separately and
+  accepted when the repository went public (see D3a).
 - **Attribution matters**: copying without credit is the thing to prevent.
 
 Consequences, taken together rather than one at a time:
@@ -266,6 +269,22 @@ exist).
 
 The asymmetry to remember: **this decision is one-way.** Closed→open is available at any time;
 open→closed is not, because what has been cloned stays cloned.
+
+**Done 2026-07-30 — the repository is public at `github.com/Shofnip/hecaton`, and one exposure was
+accepted knowingly at the door.** A pass over the history before flipping found it clean in every
+respect but one: no sensitive file was ever committed, no token or private key appears in any of the
+93 commits, no personal e-mail or user path is in the tracked content. But **all 93 commits carry
+`shofnip@gmail.com` in the author field**, and a public repository serves that through the API, where
+it is routinely harvested.
+
+The options were put to the owner, including rewriting the author to
+`Shofnip@users.noreply.github.com` before publishing — cheap while the repository was still private,
+impossible afterwards, and it would have kept attribution working since GitHub links a noreply
+address to its account. **The owner chose to publish as-is.** Recorded here because it qualifies a
+statement made elsewhere in this document: "the owner does not want personal exposure" was the
+premise behind D5, and it still governs **signing**, where the exposure is a legal name in a UAC
+dialog shown to every user. An e-mail address in commit metadata was weighed separately and
+accepted. A future session must not read the D5 sentence as covering this too, nor reopen it.
 
 **(b) The terms-of-service warning appears in three places: first run, README, and a licence page
 in the installer.** The reasoning is honesty rather than liability — free distribution weakens the
