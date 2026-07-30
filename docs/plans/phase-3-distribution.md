@@ -15,7 +15,9 @@ Windows installer · code signing decision · auto-update · license · Electron
 and this document is the fine plan that line stands for, widened by the owner's Phase-3 goals: an
 update mechanism, a real product name, a study of user accounts, and operational logging. (The
 update goal was first stated as a **forced** minimum version and was narrowed by the owner during
-planning — see D8.)
+planning — see D8. **Two of those four goals ended in nothing being built:** the account study
+concluded against accounts (D10), and operational logging was decided in full and then reversed
+before implementation (D9). The local rotated logs the app already had are untouched.)
 
 Out of scope, and to stay out: anti-detection (`architecture.md`, "Anti-detection is out of
 scope"), automation/injection in game pages (Phase 2 dropped the extension path), and any
@@ -78,7 +80,7 @@ Each decision below carries:
 | D6  | Release hosting and the update feed's home                                              | **DECIDED 2026-07-29 — GitHub Releases**              | D3, D5     | folded into D7's ADR                                 |
 | D7  | Update mechanism — the app's first network surface                                      | **DECIDED 2026-07-29**                                | D5, D6     | ADR (reverses ADR-0007's premise)                    |
 | D8  | ~~Minimum-version enforcement ("forced update")~~ → how an available update is surfaced | **DECIDED 2026-07-29 — no enforcement; closed by D7** | D7         | same ADR as D7                                       |
-| D9  | Logging, metrics and telemetry                                                          | **DECIDED 2026-07-29**                                | D6, D7     | ADR (fulfils the "explicit opt-in" clause)           |
+| D9  | ~~Logging, metrics and telemetry~~ → dropped; local logs unchanged                      | **REVERSED 2026-07-30 — nothing built**               | D6, D7     | ADR (a decision taken and dropped before code)       |
 | D10 | User accounts / login — viability, and whether Phase 3 does anything                    | **DECIDED 2026-07-29 — no accounts**                  | D9         | ADR                                                  |
 | D11 | Monetization posture and its liability consequence                                      | **DECIDED 2026-07-29 — never**                        | —          | architecture.md (a recorded non-goal)                |
 | D12 | Supply chain and build provenance                                                       | **DECIDED 2026-07-29**                                | D5         | architecture.md + the distribution ADR               |
@@ -86,7 +88,8 @@ Each decision below carries:
 
 Order of decision is the order above: cheapest and most blocking first (a name and a license gate
 the installer; the installer gates signing; signing gates the update trust chain; the update
-channel gates telemetry; telemetry infrastructure gates any account discussion).
+channel gates telemetry; telemetry infrastructure gates any account discussion). The last two links
+in that chain became moot when D9 was reversed — there is no telemetry to gate anything.
 
 ### Two directions the owner set on 2026-07-29, after D2
 
@@ -149,7 +152,9 @@ Consequences, taken together rather than one at a time:
   states that §6 grants no right to the name Hecaton.
 - D4a was decided **before** this was stated, and was revisited because of it (see D4).
 - D9 and D10 should be re-read against this before being planned: telemetry infrastructure and
-  user accounts are shaped very differently for four friends than for a public user base.
+  user accounts are shaped very differently for four friends than for a public user base. Both were
+  re-read and both ended in nothing being built — D10 as a non-goal on 2026-07-29, D9 reversed on
+  2026-07-30. For four friends, the audience note turned out to argue against each of them.
 
 **A trigger to re-decide, written down so it is not forgotten:** if distribution ever leaves the
 circle of friends, D5 (signing) returns to the table as a security decision, and D3's one-way
@@ -519,21 +524,47 @@ amend this section.
 
 ## D9 — Logging, metrics and bug reports
 
-**Status:** DECIDED (2026-07-29)
+**Status:** DECIDED (2026-07-29) → **REVERSED (2026-07-30). Nothing here is built, and nothing here
+will be built.** The owner dropped metrics and the bug-report tool outright.
 
-The three are separate systems with different destinations, and conflating them is how privacy
-promises get broken by accident:
+### What stands after the reversal
 
-|                                                                      | Where it lives         | Leaves the machine?                                 |
-| -------------------------------------------------------------------- | ---------------------- | --------------------------------------------------- |
-| **Logs** — the existing rotated JSONL under `%APPDATA%/hecaton/logs` | on the machine, always | only inside a bug report the user reviewed and sent |
-| **Metrics** — behavioural counters                                   | sent to the author     | yes, with consent                                   |
-| **Bug reports** — the user asking for help                           | sent to the author     | yes, per report, with the contents shown first      |
+|                                                                      | Where it lives         | Leaves the machine? |
+| -------------------------------------------------------------------- | ---------------------- | ------------------- |
+| **Logs** — the existing rotated JSONL under `%APPDATA%/hecaton/logs` | on the machine, always | **never**           |
+| ~~Metrics~~                                                          | —                      | does not exist      |
+| ~~Bug reports~~                                                      | —                      | does not exist      |
 
-`architecture.md` says "No telemetry (if ever, explicit opt-in)". The "if ever" is now, and the
-parenthesis had already pre-decided the consent model — so this **fulfils** that line rather than
-reversing it. The ADR should say so, because a reader who finds telemetry in an app that promised
-none will otherwise assume the promise was quietly dropped.
+**The local logs are untouched.** `FileLogger`, the rotation, and the redaction at the logger
+boundary all stay exactly as they are: they were never part of what D9 proposed to add, and they
+never leave the machine. Dropping them was offered and rejected — an app with no local diagnostic
+leaves nothing to ask a friend for when something breaks on their machine.
+
+**Three properties this buys, and they are larger than the feature that was dropped:**
+
+1. **The app's only network request is D7's update check**, which happens only when the user asks.
+   There is no second main-process network surface, no endpoint, no third party storing anything.
+2. **`architecture.md`'s "No telemetry (if ever, explicit opt-in)" and `README.md`'s "there is no
+   telemetry" stay true, and stop being conditional.** The "if ever" was opened and closed without a
+   line of code. Neither file needs editing, which is the clearest sign the promise held.
+3. **No pseudonymous id exists.** D9c's UUID is not generated, so the app stores no identifier of
+   any kind, and the LGPD question the original design had to answer does not arise.
+
+**The cost, stated plainly rather than glossed:** the author will have no idea how the app is used —
+how many screens people actually run, which features are touched, how often it crashes. Every future
+decision about what to build or simplify will be made on intuition. And when a friend reports a
+problem, the diagnostic path is entirely manual: ask them to open `%APPDATA%/hecaton/logs` and send
+a file. That is the trade being accepted.
+
+**This is a reversal before implementation, which is the cheap kind.** Nothing has to be removed, no
+user data was ever collected, and no promise has to be walked back. Had it been reversed after
+shipping, the ADR would have had to explain a telemetry endpoint that once existed.
+
+### The design that was decided and then dropped
+
+Kept, not deleted. If metrics ever return, the reasoning below is what it cost to work out — the
+consent model, the allowlist-in-the-core shape, and the specific things ruled out. **None of it is
+built. Do not read past this line as a description of the app.**
 
 **(a) Consent is a forced choice on first run.** The first-run screen D3b already creates asks
 whether to send anonymous usage metrics, with **nothing pre-selected**, and the answer is changeable
@@ -596,20 +627,17 @@ never provably complete — showing the result is what makes the consent real.
 Sending without attaching logs must remain a normal, one-click path. A suggestion is not a
 diagnostic.
 
-### Obligations and open tasks
+### ~~Obligations and open tasks~~ — all cancelled by the reversal
 
-- **Choose the managed service.** Criteria: accepts a plain JSON POST without an SDK, has a free
-  tier at this volume, states its retention, and lets IP collection be turned off or is honest
-  that it cannot. Decide before implementing; it is a dependency-and-data decision, so it comes
-  back to the owner with options.
-- **Metrics must never block anything.** No network at launch beyond what the user consented to,
-  failures are logged locally and forgotten, and no send ever delays the UI.
-- **The metrics request is a second main-process network surface**, alongside D7's. Same rules: the
-  endpoint URL is a hardcoded constant, the response is ignored or validated, and the renderer's
-  CSP is untouched.
-- **Retention and reach.** Decide how long data is kept and write it in the first-run text. Brazil's
-  LGPD is the relevant frame even at this scale: a pseudonymous id plus an IP is personal data, and
-  "friends" is not an exemption.
+Every one of these existed only to serve metrics, and all are void: choosing a managed analytics
+service (the dependency-and-data decision that would have come back to the owner), keeping the send
+off the UI's critical path, the second main-process network surface, and the retention policy that
+would have had to be written into the first-run text under Brazil's LGPD.
+
+That last one is worth noticing. The original design had to answer "how long is this kept, and by
+whom" before the first-run screen could be written truthfully. **With nothing collected, the question
+has no subject** — which is why the first-run screen (step 7) is now a smaller, unblocked piece of
+work rather than one waiting on two open decisions.
 
 ---
 
@@ -624,8 +652,8 @@ better served without one:
 | Purpose                                | Verdict                                                                                                                                                                                                                                 |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Entitlement / licensing                | Dead — monetization is permanently off (D11)                                                                                                                                                                                            |
-| Identifying users in metrics           | Solved by D9c's random UUID, and solved **better**: it answers the question without creating a database of people                                                                                                                       |
-| Attributing a bug report               | An optional contact field in the report form (D9) does it, with no account                                                                                                                                                              |
+| Identifying users in metrics           | Moot since 2026-07-30: D9 was reversed, there are no metrics. It had been solved by a random UUID, which is now not generated either                                                                                                    |
+| Attributing a bug report               | Moot for the same reason — there is no in-app report form. A friend messages the author, which is what four friends were always going to do                                                                                             |
 | Syncing configuration between machines | The only genuine use — and small. `config.json` can be copied by hand, and **profiles cannot be synced at all**: uploading one is literally sending a logged-in session off the machine, which the whole architecture exists to prevent |
 | Restricting use to invited friends     | Futile. The source is public under Apache-2.0 (D3a), so any gate can be removed and rebuilt around                                                                                                                                      |
 
@@ -721,17 +749,20 @@ in `packages/core/src/log.ts` and is applied by `formatLogRecord` at the logger 
 URL ever reaches the file on disk** — the guarantee is enforced on the way in, not on the way out.
 Every other logged field (`slotId`, `gameId`, `pid`) is structured and safe by construction.
 
-This changes D9's bug-report design for the better: the bundle is **safe by construction** rather
-than by a second redaction pass, and the same holds if a friend sends a raw log file by hand
-instead of using the tool. What remains is smaller than it looked — verify the guarantee still
-holds for any field this phase adds to a log entry, and build the show-before-send UI, which stays
-valuable because seeing the contents is what makes the consent real.
+With D9 reversed there is no bug-report tool, and this guarantee matters **more** rather than less:
+sending a log file is now entirely manual, so a friend attaching one by hand gets the same safety a
+show-before-send UI would have given them. Nothing was lost by dropping the tool on this axis,
+because the protection was never in the tool — it is at the logger boundary. What remains is one
+standing obligation: verify the guarantee still holds for any field a later change adds to a log
+entry.
 
 **The security review before the first release covers the surfaces this phase created**, not the
 whole app:
 
-1. Both main-process network calls (update check, metrics POST): hardcoded URLs, responses
-   validated or ignored, failures closed and visible, neither ever blocking the UI.
+1. The app's **one** main-process network call, D7's update check: hardcoded URL, response validated,
+   failure closed and visible, never blocking the UI. It was two until D9 was reversed, and the
+   review is stronger for it — "the app makes exactly one request, only when asked" is a claim that
+   can be checked by grepping for `fetch` in the main process and finding a single call site.
 2. `shell.openExternal` — the URL is a constant; nothing from the renderer or from a fetched
    document can reach it.
 3. The uninstall delete path, now that P1 has measured it: `deleteAppDataOnUninstall` is `false`, the
@@ -739,11 +770,12 @@ whole app:
    launch and never from a renderer, the headless run exits on its own, and an **update** of a real
    installation leaves every profile in place — verified by installing, updating and inspecting, not
    by reading the script.
-4. The metrics allowlist: tests proving the forbidden fields (custom URL, screen name, log
-   content, paths) cannot appear in a built event.
-5. The bug-report bundle: redaction, and that what is shown is what is sent.
-6. The first-run screen: consent is a real choice, nothing pre-selected, and the text matches what
-   the code does.
+4. ~~The metrics allowlist.~~ Void — D9 reversed, no events are built.
+5. ~~The bug-report bundle.~~ Void for the same reason. Instead, confirm the negative: **nothing in
+   the app sends a log anywhere.** A dropped feature leaves no test behind, so this one is checked by
+   looking rather than by a suite.
+6. The first-run screen: the terms text matches what the code does. The consent half is gone with
+   D9, so what is left to review is accuracy, not whether a choice was real.
 7. **What actually ships in the package**: the `packages/core/src/testing/` fakes are excluded from
    the build by design — verify that in the packaged artifact, not in the source tree. Same for the
    `spike/` directory and anything else not meant to travel.
@@ -769,7 +801,8 @@ none is assumed by the plan above.
    directory used by clean-session slots) and opens the folder. It serves D13's accuracy
    obligation, gives the uninstaller's information page somewhere to point, and reuses the existing
    `logs:reveal` pattern of computing the path in main.
-4. **Version and build info visible in-app**, and pre-filled into a bug report. Trivial, and the
+4. **Version and build info visible in-app.** More useful since D9 was reversed, not less: with no
+   report form to pre-fill, a friend has to read the version off the screen and type it. Trivial, and the
    first thing wanted when a friend says "it broke".
 5. **Release notes shown after updating**, not only before. D7 shows the changelog to help decide;
    showing it once after the new version starts closes the loop.
@@ -900,7 +933,8 @@ the packaged artifact, not in the source tree", and the source tree looked perfe
 Fixed with two negations in `files`, after which the asar went from 447 entries to 335: no `src/`, no
 tests, no fakes, no `spike/`, `dist/` intact (34 entries). Source maps went with `src/`, because they
 carry no `sourcesContent` — only a relative path to `../src/*.ts` — so without it they resolve to
-nothing. If readable stack traces are wanted for step 9's bug reports, the fix is `inlineSources` in
+nothing. If readable stack traces are ever wanted (they were going to serve the bug-report tool D9
+dropped, and would now serve a log file a friend sends by hand), the fix is `inlineSources` in
 tsconfig, which makes maps self-contained; it is **not** shipping `src/` again.
 
 **The `file://` and CSP half passes, verified in the artifact rather than in dev:** the `index.html`
@@ -988,12 +1022,12 @@ The owner's call.
 
 This document is deleted. What survives, and where:
 
-| ADR                                                      | Carries                                                                                                                                                                                                                                                                             |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ADR-0012** — the name and the data directory           | D1, D2: `Hecaton`, `APP_DIR_NAME` renamed, and **no migration code, ever**                                                                                                                                                                                                          |
-| **ADR-0013** — the distribution posture                  | D3, D4, D5, D6, D12: Apache-2.0 and a public repo, per-user assisted NSIS, unsigned, GitHub Releases, CI-built, exact pins. These were weighed **together** and each depends on the others — unsigned is what makes per-user right, and a public repo is what makes unsigned costly |
-| **ADR-0014** — the app's first network request           | D7, D8: user-initiated update check, no enforcement, no kill switch, no `electron-updater`                                                                                                                                                                                          |
-| **ADR-0015** — metrics, logs and the absence of accounts | D9, D10, D11: opt-in metrics through a core-built allowlist, logs that stay local, no accounts, no monetization                                                                                                                                                                     |
+| ADR                                                       | Carries                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ADR-0012** — the name and the data directory            | D1, D2: `Hecaton`, `APP_DIR_NAME` renamed, and **no migration code, ever**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **ADR-0013** — the distribution posture                   | D3, D4, D5, D6, D12: Apache-2.0 and a public repo, per-user assisted NSIS, unsigned, GitHub Releases, CI-built, exact pins. These were weighed **together** and each depends on the others — unsigned is what makes per-user right, and a public repo is what makes unsigned costly                                                                                                                                                                                                                                     |
+| **ADR-0014** — the app's first network request            | D7, D8: user-initiated update check, no enforcement, no kill switch, no `electron-updater`                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **ADR-0015** — what the app deliberately does not collect | D9, D10, D11: **no metrics, no bug-report tool, no accounts, no monetization**, and logs that never leave the machine. D9 is the interesting half: opt-in telemetry through a core-built allowlist was designed in full, then dropped before a line was written, so the ADR records a decision **taken and reversed** rather than one implemented. Both alternatives it rejected — opt-out defaults and a machine-derived id — are worth carrying, because they are what someone would reach for if the subject returns |
 
 Two existing ADRs are touched, and **they need different treatments** — which is exactly the
 distinction the ADR README draws, so getting it wrong here would be ironic:
@@ -1007,11 +1041,15 @@ distinction the ADR README draws, so getting it wrong here would be ironic:
   later change, which the README says to record as a Correction stating that it appeared when the
   code changed rather than being wrong from the start.
 
-`architecture.md` is updated in the same commit as the behaviour: the Privacy section (which
-currently promises no telemetry), Data locations (the directory name), Errors and logging (the
-bug-report bundle), and Phases (Phase 3 from "not started" to done). **`README.md` promises "there is
-no telemetry" too**, in its Data and privacy section — both files say it, so both change in the
-commit that lands D9, or the app ships contradicting its own README.
+`architecture.md` is updated in the same commit as the behaviour: Data locations (the directory
+name) and Phases (Phase 3 from "not started" to done).
+
+**Its Privacy section does not change, and neither does `README.md`'s.** Both promise no telemetry,
+and after D9's reversal both are simply still true — the earlier note here, that they would have to
+change in the commit landing D9 "or the app ships contradicting its own README", is void. Worth
+leaving on the record: that contradiction was a real risk right up until the feature was dropped, and
+the reason it never materialised is that the promise was written in two places and both were being
+tracked.
 
 ## Implementation order
 
@@ -1043,14 +1081,20 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
    the script.
 6. ~~**The release workflow** on tag, publishing the artifact and its SHA256.~~ **Done 2026-07-30**,
    and exercised through `workflow_dispatch` before any tag exists. Findings below.
-7. **The first-run screen** — the terms warning and the metrics consent, together, since D3b and
-   D9a share it.
+7. **The first-run screen** — the terms warning, and only that. It was going to carry the metrics
+   consent too, which is why D3b and D9a were paired here; with D9 reversed the screen is one thing,
+   and it is **no longer blocked** on choosing an analytics service or writing a retention policy.
 8. **The update check** — core validator first, then the adapter, then the UI. **P3 runs here**, once
    `shell.openExternal` exists to be measured.
-9. **Metrics** — the pure event builder in the core with its allowlist tests, then the POST adapter.
-10. **The bug report** — bundle, redaction, show-before-send.
+9. ~~**Metrics** — the pure event builder in the core with its allowlist tests, then the POST
+   adapter.~~ **Cancelled 2026-07-30 (D9 reversed).**
+10. ~~**The bug report** — bundle, redaction, show-before-send.~~ **Cancelled 2026-07-30 (D9
+    reversed).**
 11. **The security review** (D13), then the docs: `architecture.md`, the four new ADRs, ADR-0007's
     `Superseded in part` line and ADR-0004's Correction — then delete this file.
+
+**Two steps left after this change**, 7 and 8, plus the review. The phase got materially shorter, and
+the app's whole network surface is now one user-initiated request.
 
 ## Non-decisions — recorded so they are not re-raised
 
@@ -1063,3 +1107,7 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
   data by the NSIS script itself — the uninstaller launches the app, which deletes (D4b).
 - No `electron-updater`, and no automatic update check unless the owner turns on the opt-in variant
   named in D8.
+- **No metrics, no telemetry, no analytics endpoint, no installation id, and no in-app bug-report
+  tool** (D9, reversed 2026-07-30). The app's local logs stay and never leave the machine. The design
+  that was dropped is kept in D9 so it does not have to be re-derived if the subject ever returns —
+  but reopening it is a decision, not a resumption.
