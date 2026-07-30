@@ -801,11 +801,11 @@ an intention.
 Disposable, Phase-0 style, outside the packages, no TDD; findings recorded here and carried into
 the ADRs.
 
-| #   | Question                                                                                                                                                                   | Why it blocks                                                                                                                       |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | **DONE 2026-07-29 — yes to both.** Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                         | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
-| P2  | Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact?                           | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
-| P3  | Does `shell.openExternal` to the hardcoded release URL behave with the navigation handlers ADR-0007 installed (`will-navigate` prevented, `setWindowOpenHandler` denying)? | The deny-everything posture must not have to be weakened to let the update link work                                                |
+| #   | Question                                                                                                                                                                                                           | Why it blocks                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | **DONE 2026-07-29 — yes to both.** Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                                 | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
+| P2  | **DONE 2026-07-30 — it does now, and the first build failed it.** Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
+| P3  | **MOVED to step 7** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                            | The deny-everything posture must not have to be weakened to let the update link work                                                |
 
 ### P1 — findings, measured 2026-07-29
 
@@ -869,6 +869,40 @@ uninstall section, ahead of that guard, so custom code inherits no protection.
 premise); the install directory is `%LOCALAPPDATA%\Programs\<productName>`; the assisted installer's
 licence page appeared and worked (D3b's requirement); and NSIS and the app agree on `%APPDATA%`.
 
+### P2 — findings, measured 2026-07-30
+
+Run against `release/win-unpacked` and its `app.asar`, built by `npm run package -w @hecaton/shell`.
+
+**The first packaged build failed the artifact half, which is exactly why this probe was written.**
+The workspace packages are symlinked into `node_modules`, and `electron-builder` copied them whole —
+`src/` included. `app.asar` therefore contained **`core/src/testing/fakes.ts` and 19 `*.test.ts`
+files**. CLAUDE.md says the fakes are "excluded from the build so they never ship"; that was true of
+`tsc`'s output and false of the thing people install. D13's item 7 asks for this to be checked "in
+the packaged artifact, not in the source tree", and the source tree looked perfect throughout.
+
+Fixed with two negations in `files`, after which the asar went from 447 entries to 335: no `src/`, no
+tests, no fakes, no `spike/`, `dist/` intact (34 entries). Source maps went with `src/`, because they
+carry no `sourcesContent` — only a relative path to `../src/*.ts` — so without it they resolve to
+nothing. If readable stack traces are wanted for step 9's bug reports, the fix is `inlineSources` in
+tsconfig, which makes maps self-contained; it is **not** shipping `src/` again.
+
+**The `file://` and CSP half passes, verified in the artifact rather than in dev:** the `index.html`
+extracted from `app.asar` carries the identical policy (`default-src 'none'` … `connect-src 'none'`),
+the packaged `main.js` still uses `loadFile`, and the packaged `Hecaton.exe` renders the full panel
+with its four screens. That last part is the load-path proof: the screens come from main over IPC, so
+a broken `file://` resolution inside the asar, a CSP that rejected the bundled script, or a preload
+bridge that did not attach would all show up as an empty window.
+
+Also confirmed in the artifact: `will-navigate`, `setWindowOpenHandler` with `action: 'deny'`, and
+`will-attach-webview` are all present in the packaged main — ADR-0007's handlers survive packaging.
+
+**Why P3 could not run here.** It asks how `shell.openExternal` behaves alongside those handlers, and
+**nothing in the app calls `openExternal` yet** — the packaged main uses `shell.openPath` only. There
+is no behaviour to measure, so the probe moves to step 7, where the update check creates the call and
+the test becomes direct. Recorded rather than quietly satisfied by argument: the mechanism suggests no
+conflict, since `openExternal` runs in main and hands the URL to the OS shell while both handlers
+govern renderer-initiated navigation — but that is reasoning, and this project's habit is to measure.
+
 **Packaging facts worth carrying into step 4**, learned building the probe: `electron-builder`
 26.15.3 installs **277 packages**, and pulls `electron-winstaller@5.4.0`, whose install script npm 11
 blocks — the NSIS build succeeded with it unapproved, so it needs no `allowScripts` entry. The
@@ -920,8 +954,11 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
    the remaining half of D3a and is deliberately separate**, since it is the one-way door: it needs a
    pass over the git history first, because publishing publishes every commit, not just the current
    tree.
-4. **`electron-builder` config and the first packaged build**, then **P2** and **P3** against it.
-   `deleteAppDataOnUninstall: false` from the first line of config, per D4b.
+4. ~~**`electron-builder` config and the first packaged build**, then **P2** and **P3** against it.~~
+   **Done 2026-07-30**, `deleteAppDataOnUninstall: false` from the first line as D4b requires. P2
+   passed only after a fix it forced (see its findings); **P3 moved to step 7**, since nothing calls
+   `shell.openExternal` yet. D12's two exact pins are now actually in force: `electron-builder`
+   at 26.15.3 and `node-window-manager` at 2.2.4, which had still been floating at `^2.2.4`.
 5. **The delete-user-data path** (D4b): the headless `--delete-user-data` run in the app, red-first
    like everything else, then the uninstaller's checkbox and its `${isUpdated}`-guarded launch. It
    comes after the first packaged build because it cannot be verified without installing and
@@ -929,7 +966,8 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
 6. **The release workflow** on tag, publishing the artifact and its SHA256.
 7. **The first-run screen** — the terms warning and the metrics consent, together, since D3b and
    D9a share it.
-8. **The update check** — core validator first, then the adapter, then the UI.
+8. **The update check** — core validator first, then the adapter, then the UI. **P3 runs here**, once
+   `shell.openExternal` exists to be measured.
 9. **Metrics** — the pure event builder in the core with its allowlist tests, then the POST adapter.
 10. **The bug report** — bundle, redaction, show-before-send.
 11. **The security review** (D13), then the docs: `architecture.md`, the four new ADRs, ADR-0007's

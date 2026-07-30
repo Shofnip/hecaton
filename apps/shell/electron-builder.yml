@@ -1,0 +1,73 @@
+# Packaging for Hecaton. Every value here that could have gone another way was
+# decided in docs/plans/phase-3-distribution.md, so the reasoning is named rather
+# than repeated.
+#
+# There is no unit test for this file: a YAML config has no behaviour to assert.
+# What verifies it is probes P2 and P3 run against the built artifact - that the
+# renderer still loads from file:// with its CSP, that the core fakes and spike/
+# are absent from the package, and that the navigation handlers still deny
+# everything. Reading the config proves none of that.
+
+# No domain of the owner's exists (D6 made one unnecessary), so the appId uses the
+# GitHub namespace they do control rather than inventing a company domain.
+appId: io.github.shofnip.hecaton
+productName: Hecaton
+copyright: Copyright 2026 Shofnip
+
+directories:
+  output: ../../release
+  buildResources: build
+
+# An explicit list, for the same reason copy-renderer-assets.mjs uses one: the
+# package must never carry a file nobody chose to ship. dist/ is the compiled
+# output; the workspace packages come in as production dependencies.
+files:
+  - dist/**
+  - package.json
+  # Both negations exist because probe P2 caught the first build shipping what it
+  # should not: the workspace packages are symlinked into node_modules, and
+  # electron-builder copied them whole - src/ included. That put
+  # core/src/testing/fakes.ts and 19 *.test.ts files inside app.asar, which makes
+  # CLAUDE.md's "the fakes are excluded from the build so they never ship" true of
+  # tsc's output and false of the artifact people install. Only dist/ is needed to
+  # run.
+  - '!node_modules/@hecaton/*/src/**'
+  # Source maps go with it: they carry no sourcesContent, only a relative path to
+  # ../src/*.ts, so with src/ gone they resolve to nothing. Dead bytes rather than
+  # a debugging aid. If readable stack traces in a bug report are wanted later,
+  # the fix is `inlineSources` in tsconfig, which makes the maps self-contained -
+  # not shipping src/ again.
+  - '!node_modules/@hecaton/*/dist/**/*.map'
+
+# electron-builder's publisher is deliberately unused. D7 rejected
+# electron-updater, so generating latest.yml would advertise an update channel
+# that does not exist. The release workflow (step 5) uploads the artifact and its
+# SHA256 itself. Without this, the build also fails on its last step trying to
+# compute update channels - measured during probe P1.
+publish: null
+
+win:
+  target: nsis
+
+nsis:
+  # Assisted, not one-click: D3b requires a licence page, and a one-click
+  # installer has nowhere to show one.
+  oneClick: false
+  license: ../../LICENSE
+
+  # Per-user, no elevation (D4a). Unsigned (D5) plus per-machine would put the
+  # yellow "Unknown publisher" UAC dialog in front of every install and every
+  # update; per-user raises no UAC at all. This is cheap only because ADR-0004
+  # already keeps every piece of app state outside the install directory.
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: false
+
+  # Never true. The built-in deletes user data on every real uninstall with no
+  # confirmation, which ADR-0005 and ADR-0008 forbid - and probe P1 measured that
+  # it matches %APPDATA%/<package.json name>, which is now `hecaton`: the
+  # profiles directory itself. D4b's opt-in deletion is a separate, guarded path.
+  deleteAppDataOnUninstall: false
+
+  createDesktopShortcut: true
+  artifactName: Hecaton-${version}-setup.${ext}

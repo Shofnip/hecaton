@@ -6,7 +6,8 @@
   "main": "./dist/main/main.js",
   "scripts": {
     "build": "tsc --build && node scripts/copy-renderer-assets.mjs",
-    "start": "npm run build && electron ."
+    "start": "npm run build && electron .",
+    "package": "npm run build && electron-builder --win --x64"
   },
   "dependencies": {
     "@hecaton/browser-engine": "*",
@@ -16,6 +17,7 @@
     "@hecaton/window-manager": "*"
   },
   "devDependencies": {
-    "electron": "43.2.0"
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3"
   }
 }
