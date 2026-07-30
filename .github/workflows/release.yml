@@ -1,0 +1,103 @@
+# Builds and publishes a release from a tag.
+#
+# Why this exists rather than uploading a build from the author's machine (D12a):
+# the artifact is **unsigned** (D5), so a friend has no certificate to check it
+# against. What replaces it is a public log of what went into the binary - a clean
+# checkout, `npm ci` from the committed lockfile, and a SHA256 anyone can compare.
+# That is not a signature; it is the closest substitute this project can have, and
+# it also stops the artifact carrying the state of one machine.
+#
+# No contradiction with ADR-0007 decision 1, which says CI must not fetch the
+# Electron binary: that is about the **verification** pipeline, where `typecheck`
+# works from electron.d.ts and `npm ci --ignore-scripts` downloads nothing. A
+# release job needs the binary by definition. Different job, different rule.
+#
+# Deliberately no third-party actions. `gh` is preinstalled on the runner and
+# maintained by GitHub, so publishing needs no marketplace action - which matters
+# because D12 named build-time packages the largest new surface of this phase: a
+# compromised one injects straight into the binary other people execute, and with
+# no signature nothing downstream would notice.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # So the build can be exercised without creating a release. Publishing is gated
+  # on the ref being a tag, below.
+  workflow_dispatch:
+
+# Least privilege at the top: read-only by default, and the one job that needs to
+# write gets exactly `contents: write` - the minimum that can create a release and
+# upload an asset. No PAT is involved: the ephemeral GITHUB_TOKEN is enough, and a
+# workflow with publish rights is itself a target.
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # No --ignore-scripts here, unlike ci.yml: the two native modules
+      # (node-window-manager and its transitive extract-file-icon) have to compile,
+      # because electron-builder rebuilds them against Electron's ABI and the
+      # packaged app loads them in the main process.
+      - run: npm ci
+
+      # A tag that could not pass CI must not become a release.
+      - run: npm run check
+
+      - name: Check the tag matches the version being packaged
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}' -replace '^v', ''
+          $version = (Get-Content apps/shell/package.json | ConvertFrom-Json).version
+          if ($tag -ne $version) {
+            throw "tag $tag does not match apps/shell version $version - the release would be mislabelled"
+          }
+          "tag and version agree on $version"
+
+      - run: npm run package --workspace @hecaton/shell
+
+      # The hash is the whole point of an unsigned release, so it is written in the
+      # format sha256sum -c reads and published beside the installer.
+      - name: Compute the SHA256
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem release/*-setup.exe | Select-Object -First 1
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash *$($exe.Name)" | Out-File "$($exe.FullName).sha256" -Encoding ascii -NoNewline
+          "$($exe.Name)  $hash"
+
+      # Kept even when not publishing, so a workflow_dispatch run is inspectable.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: |
+            release/*-setup.exe
+            release/*-setup.exe.sha256
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The paths are expanded here on purpose: PowerShell does not glob for
+          # native commands, so gh would receive `release/*-setup.exe` literally.
+          $exe = (Get-ChildItem release/*-setup.exe | Select-Object -First 1).FullName
+          gh release create '${{ github.ref_name }}' $exe "$exe.sha256" `
+            --title 'Hecaton ${{ github.ref_name }}' `
+            --generate-notes
