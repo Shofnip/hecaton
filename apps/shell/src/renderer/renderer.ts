@@ -71,6 +71,8 @@ interface HecatonApi {
   clearArchives(): Promise<void>
   clearSlotCache(id: number): Promise<void>
   clearAllCaches(): Promise<void>
+  revealUserData(): Promise<void>
+  deleteAllUserData(): Promise<void>
   setAudioFollowsFocus(enabled: boolean): Promise<void>
   renameSlot(id: number, name: string): Promise<void>
   setSlotVolume(id: number, volume: number): Promise<void>
@@ -899,7 +901,7 @@ function toggle(
   return b
 }
 
-function dangerButton(label: string, desc: string, onClick: () => void): HTMLElement {
+function dangerButton(label: string, desc: string, onClick: () => void): HTMLButtonElement {
   const b = el('button', 'danger-btn')
   b.type = 'button'
   b.append(icon('alert', 18))
@@ -936,6 +938,10 @@ function openSettings(): void {
     body.append(logs)
 
     body.append(themeRow())
+
+    body.append(el('div', 'risk-divider'))
+    body.append(el('span', 'section-label', 'Seus dados'))
+    body.append(userDataBox())
 
     body.append(el('div', 'risk-divider'))
     body.append(el('span', 'risk-label', 'Zona de risco'))
@@ -977,9 +983,87 @@ function openSettings(): void {
           }),
       ),
     )
+    body.append(deleteEverythingButton())
 
     dialog.append(body)
   })
+}
+
+/**
+ * Where the user's data lives, and a way to open it.
+ *
+ * It names **both** places on purpose. A screen with a clean session does not use
+ * `%APPDATA%`: it gets a throwaway profile in the Windows temp directory, deleted
+ * when the screen stops. A "where is my data" text that mentions only the first is
+ * wrong, and this is the only place in the app that answers the question.
+ *
+ * The button opens the first one only. The temp directory is not the app's to
+ * open, and the throwaway profile inside it is normally gone by the time anyone
+ * looks.
+ */
+function userDataBox(): HTMLElement {
+  const box = el('div', 'field-box')
+  box.append(
+    el(
+      'span',
+      'data-note',
+      'Seus logins, a configuração e os logs ficam em %APPDATA%\\hecaton — fora da pasta do ' +
+        'aplicativo, por isso trocar a pasta por uma versão nova não desloga ninguém.',
+    ),
+  )
+  box.append(
+    el(
+      'span',
+      'data-note',
+      'Uma tela com sessão limpa não usa essa pasta: ela recebe um perfil temporário na pasta ' +
+        'Temp do Windows, apagado quando a tela para. Se o aplicativo for encerrado à força, esse ' +
+        'perfil fica lá até o Windows recolher.',
+    ),
+  )
+
+  const open = el('button', 'neutral-btn')
+  open.type = 'button'
+  open.append(icon('logs', 18), el('span', undefined, 'Abrir pasta dos dados'))
+  open.addEventListener('click', () => {
+    showToast('Abrindo pasta…')
+    run(() => window.hecaton.revealUserData())
+  })
+  box.append(open)
+  return box
+}
+
+/**
+ * The one action in the app that deletes a live profile.
+ *
+ * Disabled while any screen is still open, which is the UX echo of the real
+ * safeguard: main refuses the same thing, because Chrome holds its profile open
+ * and a deletion underneath a running browser only half-succeeds.
+ */
+function deleteEverythingButton(): HTMLElement {
+  const open = state.slots.filter((s) => s.state !== 'stopped').length
+  const button = dangerButton(
+    'Apagar todos os meus dados',
+    open > 0
+      ? `Pare todas as telas primeiro (${open} ainda aberta${open > 1 ? 's' : ''}).`
+      : 'Perfis, configuração e logs. Você sai de todas as contas e o aplicativo fecha.',
+    () =>
+      openConfirm({
+        title: 'Apagar todos os meus dados?',
+        message:
+          'Isto apaga %APPDATA%\\hecaton: os perfis — você sai de todas as contas do jogo —, a ' +
+          'configuração e os logs. É permanente e não pode ser desfeito. O aplicativo fecha em ' +
+          'seguida, e uma pasta com o cache dele continua lá, sem nenhum login dentro.',
+        danger: true,
+        confirmLabel: 'Sim, apagar tudo',
+        onYes: () =>
+          run(async () => {
+            await window.hecaton.deleteAllUserData()
+            showToast('Dados apagados. Fechando o aplicativo…')
+          }),
+      }),
+  )
+  button.disabled = open > 0
+  return button
 }
 
 function themeRow(): HTMLElement {

@@ -373,7 +373,8 @@ it existed only so NSIS could call it.
 Two obligations follow, and both are D13 accuracy obligations rather than new ideas: the README and
 the first-run text must say where the data is, and the panel needs the "your data" entry that
 suggested complement 3 already describes — it stops being a nicety and becomes the only place the
-user can act.
+user can act. **Both halves that 5r owns are done (2026-08-08):** the panel entry exists and the
+README no longer tells the user to delete the directory by hand. The first-run text is step 7's.
 
 **What was built for the installer and is now dropped:** the NSIS custom script
 (`build-resources/installer.nsh`), the uninstaller checkbox, and the `${isUpdated}` guard. It stays
@@ -831,13 +832,16 @@ whole app:
    can be checked by grepping for `fetch` in the main process and finding a single call site.
 2. `shell.openExternal` — the URL is a constant; nothing from the renderer or from a fetched
    document can reach it.
-3. **The in-app delete action** (rewritten 2026-08-08, since there is no uninstaller): it is reachable
-   only through an explicit, confirmed user action in the panel; the paths come from
-   `@hecaton/storage`'s own functions and never from an IPC payload; the core validator still refuses
-   anything that is not the app's own directory; and **no other code path deletes user data** —
-   checked by finding every call site of the adapter and confirming there is one. The old NSIS
-   guards (`deleteAppDataOnUninstall: false`, the `${isUpdated}` branch, the headless flag) are gone
-   with the installer and are not part of this review.
+3. **The in-app delete action** (rewritten 2026-08-08, since there is no uninstaller; **built the
+   same day**, so this item now has code to review rather than a plan): it is reachable only through
+   an explicit, confirmed user action in the panel; the paths come from `@hecaton/storage`'s own
+   functions and never from an IPC payload; the core validator still refuses anything that is not
+   the app's own directory; and **no other code path deletes user data** — checked by finding every
+   call site of the adapter and confirming there is one. Add to the list, since 5r created them: that
+   `data:deleteAll` and `data:reveal` both reject any payload, that the tolerated survivor is only
+   `shell`, and that no argv branch has crept back into `main.ts`. The old NSIS guards
+   (`deleteAppDataOnUninstall: false`, the `${isUpdated}` branch, the headless flag) are gone with
+   the installer and are not part of this review.
 4. ~~The metrics allowlist.~~ Void — D9 reversed, no events are built.
 5. ~~The bug-report bundle.~~ Void for the same reason. Instead, confirm the negative: **nothing in
    the app sends a log anywhere.** A dropped feature leaves no test behind, so this one is checked by
@@ -850,6 +854,36 @@ whole app:
 8. **That the packaged renderer still loads from `file://` with the same CSP.** ADR-0007 decision 2
    rests on "what is tested is what is distributed", and packaging is exactly the step that can
    quietly break it. Verify in the built app, not in dev.
+
+### P4 — findings, measured 2026-08-08
+
+Windows 11 Pro 10.0.26200, Electron 43.2.0. A throwaway Electron app pointed its `userData` at
+`<temp>/hecaton-p4/shell`, seeded the siblings a real installation has (`config.json`, `logs/`,
+`profiles/slot-1/Default/Cookies`), loaded a page that wrote a cookie and a local-storage key, then
+attempted `rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 })` — the
+adapter's exact options.
+
+**It throws `EPERM`, and it throws it after deleting most of the tree.** `config.json`, `logs/` and
+`profiles/` were gone in every run; `shell/` survived, holding what Chromium keeps open — `Network/`
+(`Cookies`, `Trust Tokens`), `Local Storage/leveldb`, `GPUCache/`, `DIPS`, `Shared Dictionary/`.
+Windows refuses to delete a file opened without `FILE_SHARE_DELETE`, and Chromium does not use it.
+
+**Destroying the window does not release them.** A second attempt after `win.destroy()` and 1.5 s
+failed identically, with `Session Storage/` added to the survivors. So there is no "close the panel
+first" variant: only process exit frees those handles, and code cannot run after it.
+
+Two consequences, one of which was not in the question:
+
+1. The adapter must **report** rather than throw, and something must judge the report — otherwise
+   the only two options are lying about a failure or reporting a success as one.
+2. `retryDelay`/`maxRetries` buy nothing here. They exist for the genuine EPERM _race_ in
+   `docs/troubleshooting.md` (Chrome briefly holding handles after exit) and are kept for it; this
+   is not that, and a longer retry would only make the button feel broken for longer.
+
+A useful side finding for tests: a Node `fs.openSync` handle does **not** block deletion (libuv
+passes `FILE_SHARE_DELETE`), so it cannot stand in for this in a test. A process's current directory
+does — which is how `delete-user-data.integration.test.ts` reproduces the partial deletion on real
+disk without needing Electron.
 
 ## Suggested complements — proposed, none decided
 
@@ -865,10 +899,12 @@ none is assumed by the plan above.
    diagnostics, but a friend whose `config.json` got truncated is simply stuck. Suggested shape,
    consistent with the never-delete posture: rename it to `.bad-<timestamp>`, start from defaults,
    and say so in the UI — never silently overwrite, never delete.
-3. **A "your data" entry in the panel.** Names both locations (`%APPDATA%/hecaton` and the temp
+3. ~~**A "your data" entry in the panel.** Names both locations (`%APPDATA%/hecaton` and the temp
    directory used by clean-session slots) and opens the folder. It serves D13's accuracy
    obligation, gives the uninstaller's information page somewhere to point, and reuses the existing
-   `logs:reveal` pattern of computing the path in main.
+   `logs:reveal` pattern of computing the path in main.~~ **Decided and built 2026-08-08 with 5r**,
+   in exactly that shape: it stopped being a nicety when the installer went, since the panel is now
+   the only place a user can act. The folder button opens `%APPDATA%/hecaton` only.
 4. **Version and build info visible in-app.** More useful since D9 was reversed, not less: with no
    report form to pre-fill, a friend has to read the version off the screen and type it. Trivial, and the
    first thing wanted when a friend says "it broke".
@@ -921,6 +957,7 @@ the ADRs.
 | P1  | **DONE 2026-07-29 — yes to both. Historical since 2026-08-08:** there is no installer, so nothing exercises this path. Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
 | P2  | **DONE twice — against the installer 2026-07-30, where the first build failed it, and against the zip 2026-08-08, where it passed.** Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
 | P3  | **MOVED to step 8** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                                                                                               | The deny-everything posture must not have to be weakened to let the update link work                                                |
+| P4  | **DONE 2026-08-08 — no, and it fails in the worst way.** Can the running app delete its own `%APPDATA%/hecaton`, which contains the Electron `userData` it is using?                                                                                                                  | 5r's whole shape: if it half-deletes and throws, "delete my data" cannot be a single `rmSync` with a `try`                          |
 
 ### P1 — findings, measured 2026-07-29
 
@@ -1175,14 +1212,12 @@ longer exists, so each has a remainder rather than being simply undone:
   fakes, zero tests, zero `spike/`, `dist` intact, identical CSP in the extracted `index.html`, both
   `addon.node` unpacked, and the app runs from the extracted folder rendering its four screens. Two
   findings, both caught by looking at the artifact rather than the config — see below.
-- **5r — the in-app delete.** Keep the core validator, the adapter and their tests; they are unchanged
-  and were never installer-specific. ~~Remove the headless `--delete-user-data` branch from main~~ —
-  **done 2026-08-08**, and not as tidying: with the installer gone it was a bare argv flag that wiped
-  every logged-in profile with no confirmation, since the confirmation had only ever lived in NSIS.
-  `main.ts` carries a comment saying so, so nobody re-adds it. **Still outstanding:** the panel action
-  with confirmation, plus the "your data" entry (complement 3) that is now the only place a user can
-  act. Red-first as usual, and the IPC channel is enumerated and validated like
-  every other.
+- ~~**5r — the in-app delete.**~~ **Done 2026-08-08.** The headless `--delete-user-data` branch went
+  first, and not as tidying: with the installer gone it was a bare argv flag that wiped every
+  logged-in profile with no confirmation, since the confirmation had only ever lived in NSIS.
+  `main.ts` carries a comment saying so, so nobody re-adds it. Then the panel action and the "your
+  data" entry (complement 3, now **done**) landed together — see below, including the probe that
+  reshaped them.
 - ~~**6r — the workflow.**~~ **Done 2026-08-08** and exercised through `workflow_dispatch`. It named
   the exe in three places, not two. The CI zip was downloaded and checked: `sha256sum -c` accepts the
   published hash, and the archive carries `Hecaton.exe`, `LICENSE.txt` and `NOTICE.txt`. Least
@@ -1207,6 +1242,52 @@ longer exists, so each has a remainder rather than being simply undone:
 rather than inside a `Hecaton/` folder. Windows Explorer's "Extract All" creates a folder named after
 the zip, so the common path is fine, but a 7-Zip "extract here" would scatter about fifty files into
 whatever directory the user was in. `electron-builder`'s zip target has no wrap-in-folder option.
+
+### 5r — what was built, and the measurement that shaped it
+
+Two channels, both taking no payload for the reason `logs:reveal` takes none: `data:reveal` opens
+`%APPDATA%/hecaton`, `data:deleteAll` removes it. The settings modal gained a **Seus dados** section
+naming both locations (D13's accuracy obligation — `%APPDATA%/hecaton` and the temp directory of a
+clean-session screen) with a button that opens the first, and **Apagar todos os meus dados** in the
+risk zone, behind the same confirmation pattern as `Limpar dados arquivados`.
+
+Rules in the core, as usual: `requireEveryScreenStopped`, `planUserDataDeletion` (unchanged) and
+`verifyUserDataDeletion`. `deleteUserData` gained a return value and lost its throw. ADR-0005 got a
+Correction, because "no live profile is ever deleted" stopped being true the moment this landed.
+
+**Probe P4 changed the design before it was written**, which is the whole point of measuring first.
+It was reasoned that the app could simply delete `%APPDATA%/hecaton` and be done. It cannot: Electron
+holds its own `shell/` sub-directory open until the process exits, so `rmSync` deletes config, logs
+and profiles and **then throws `EPERM`** — a partial deletion reported as a total failure. Measured
+twice, and again after destroying the window, so it is a property of the shape rather than a race
+worth retrying.
+
+Three owner decisions on 2026-08-08, taken against that measurement:
+
+1. **The action refuses while any screen is open** rather than stopping the screens itself. The most
+   conservative of the two: nothing destructive goes near a live browser, and the rule sits in the
+   core where the fast suite holds it. Cost accepted: the user stops the screens first (one click on
+   the sidebar's power-all). `crashed` counts as open, deliberately — `isLive` says no, but
+   auto-restart can put a browser back between the check and the removal.
+2. **One target, the whole directory, tolerating the `EPERM`.** The alternative — three targeted
+   deletions of `profiles/`, `logs/` and `config.json`, which always succeed — was rejected in
+   favour of the simpler promise. What keeps the tolerance honest is that the **result** is checked
+   rather than the error: `verifyUserDataDeletion` accepts `shell` and reports any other survivor by
+   name, so a profile left behind by a browser that was somehow still running is a visible failure.
+3. **The "your data" entry opens the folder** (complement 3 as written), `%APPDATA%/hecaton` only.
+   Never the temp directory: that is outside the app's own data and not the app's to open.
+
+**One consequence not on the list, decided while implementing:** the app **quits** after deleting.
+Staying open would mean the debounced config save, or a single log line, writing part of the
+directory straight back — the user watching "delete everything" put files back. The saves are blocked
+by a flag and both interval timers are cleared before the 1.2 s wait that lets the toast be read.
+
+**Verified against a real Electron, not only in the suite** (probe P4b, `spike/p4-delete-while-running/`):
+with `APPDATA` redirected to a throwaway directory, and the probe _refusing to run_ if `appDataDir()`
+did not resolve inside it, the shipped functions were called exactly as the handler calls them. The
+guard refused with a screen running, allowed it with none, `config.json`/`logs/`/`profiles/` were
+gone, `shell` was the only survivor, and the core accepted it. The real `%APPDATA%/hecaton` and its
+four logged-in accounts were never a candidate — the redirect was asserted rather than assumed.
 
 **Then 7, 8 and the review.** The phase is shorter than it was a week ago on both counts: the app's
 whole network surface is one user-initiated request, and its whole install story is "unzip it".

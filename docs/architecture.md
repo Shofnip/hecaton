@@ -274,7 +274,7 @@ session data can exist in two places, so "where can cookies land on this machine
 answers, and an orphaned throwaway profile survives an abrupt kill until Windows reclaims it.
 
 Paths come from `@hecaton/storage` (`appDataDir`, `configFilePath`, `logsDir`,
-`profilesDir`) and are never assembled by hand.
+`profilesDir`, `electronUserDataDir`) and are never assembled by hand.
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration
 step on load. Nearly free now; expensive to retrofit once users have saved files.
@@ -378,7 +378,9 @@ one deletion of a **persistent** session's data in the app (the browser adapter 
 throwaway clean-session profiles on `stop()`, but never a persistent one), guarded to touch only
 archives and gated behind an in-app confirmation. See
 [ADR-0008](adr/0008-archive-a-removed-slot-profile.md); the property that still holds is that no
-live profile is ever deleted, only an archived one, and only by an explicit user action.
+live profile is ever deleted **by a lifecycle path** — only an archived one, and only by an
+explicit user action. Deleting live profiles is possible in exactly one place, the panel action
+described under Phase 3 below.
 
 A separate **cache clear** frees disk without logging anyone out, and is distinct from the
 session-discarding reset above: it deletes only a profile's cache sub-directories
@@ -423,6 +425,31 @@ NSIS installer was built and then dropped) · unsigned, with a published SHA256 
 repository · releases built by GitHub Actions on a tag · a user-initiated update check, which is the
 app's only network request · no telemetry · Electron security review before the first release. The
 fine plan, and every reversal along the way, is `docs/plans/phase-3-distribution.md`.
+
+### Deleting everything, from the panel
+
+Choosing the zip removed the only moment the app could ever ask "and your logins?": an uninstaller
+runs, an extracted folder deleted in Explorer does not. So the settings modal carries a **Seus
+dados** section — naming both places session data can land, `%APPDATA%/hecaton` and the OS temp
+directory of a clean-session screen, with a button that opens the first — and, in the risk zone,
+**Apagar todos os meus dados**. It is the only action in the app that deletes a live profile;
+[ADR-0005](adr/0005-never-delete-a-persistent-profile.md)'s 2026-08-08 Correction records why it
+exists and why the property that ADR protects is unharmed.
+
+Two channels back it, both taking no payload for the same reason `logs:reveal` does not:
+`data:reveal` and `data:deleteAll`. The rules are in the core and the I/O is not:
+`requireEveryScreenStopped` refuses while any screen is anything but stopped, `planUserDataDeletion`
+still checks the path ends in the app's own directory name, and `verifyUserDataDeletion` judges what
+survived. The panel greying the button out while a screen is open is the UX echo of the first of
+those, exactly as with cache clearing.
+
+**The app cannot delete all of its own directory, and the design accounts for it rather than
+hiding it.** Electron holds `%APPDATA%/hecaton/shell` — its own cache, which contains no game
+session — open until the process exits, so `rmSync` removes config, logs and profiles and then
+raises `EPERM`. Measured (probe P4), twice, including after the window was destroyed. The adapter
+therefore reports what survived instead of throwing, the core tolerates exactly that one entry and
+names any other as a failure, and the app **quits** once the deletion is done — staying open would
+mean writing config.json straight back into the directory the user just emptied.
 
 ## Verification
 

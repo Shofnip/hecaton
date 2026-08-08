@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { join } from 'node:path'
-import { appDataDir, configFilePath, logsDir, profilesDir } from './app-paths.js'
+import {
+  ELECTRON_DIR_NAME,
+  appDataDir,
+  configFilePath,
+  electronUserDataDir,
+  logsDir,
+  profilesDir,
+} from './app-paths.js'
 
 const WINDOWS_ENV = { APPDATA: 'C:\\Users\\x\\AppData\\Roaming' }
 const ROAMING = 'C:\\Users\\x\\AppData\\Roaming'
@@ -34,8 +41,17 @@ describe('paths derived from it', () => {
     ['config', configFilePath, 'config.json'],
     ['logs', logsDir, 'logs'],
     ['profiles', profilesDir, 'profiles'],
+    ['electron state', electronUserDataDir, ELECTRON_DIR_NAME],
   ] as const)('puts %s under the app directory', (_name, resolve, leaf) => {
     expect(resolve(WINDOWS_ENV, 'win32')).toBe(join(appDataDir(WINDOWS_ENV, 'win32'), leaf))
+  })
+
+  it('names the electron directory, because the delete action has to tolerate it', () => {
+    // Not a free-floating constant: `data:deleteAll` cannot remove this one - the
+    // running process holds it open - so the name is what tells a survivor of the
+    // deletion apart from a failure. main and the tolerance list must agree, and
+    // they agree by both reading this.
+    expect(ELECTRON_DIR_NAME).toBe('shell')
   })
 
   it('never resolves anywhere near the repository', () => {

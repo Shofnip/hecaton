@@ -39,6 +39,8 @@ const api = {
   clearArchives: () => ipcRenderer.invoke('profiles:clearArchives'),
   clearSlotCache: (id: number) => ipcRenderer.invoke('profiles:clearSlotCache', id),
   clearAllCaches: () => ipcRenderer.invoke('profiles:clearAllCaches'),
+  revealUserData: () => ipcRenderer.invoke('data:reveal'),
+  deleteAllUserData: () => ipcRenderer.invoke('data:deleteAll'),
 
   // The video-wall runtime controls (UI rework, decision 7).
   renameSlot: (id: number, name: string) => ipcRenderer.invoke('slots:rename', { id, name }),

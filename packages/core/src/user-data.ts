@@ -25,6 +25,7 @@
  * not import. That is not a workaround: every rule below is about the *shape* a
  * path must have to be safe to remove, which is exactly a string property.
  */
+import type { SlotState } from './slot-state.js'
 
 /**
  * A directory the caller intends to delete, plus the name it must end with.
@@ -48,10 +49,10 @@ export interface UserDataTarget {
  * confirmation anywhere — a bare argument that removed every logged-in profile,
  * which is precisely what ADR-0005 means by "never by a flag". It was removed.
  *
- * The caller this function is waiting for is the in-app panel action, behind an
- * explicit confirmation, on an enumerated IPC channel. It passes no path: where to
- * delete comes from `@hecaton/storage`'s own path functions, the same reason
- * `logs:reveal` takes no argument (ADR-0007 decision 3).
+ * The caller is the in-app panel action, behind an explicit confirmation, on the
+ * enumerated `data:deleteAll` channel. It passes no path: where to delete comes
+ * from `@hecaton/storage`'s own path functions, the same reason `logs:reveal`
+ * takes no argument (ADR-0007 decision 3).
  */
 
 /** Below this, a path is not inside a user profile and must not be removed. */
@@ -114,4 +115,60 @@ export function planUserDataDeletion(targets: readonly UserDataTarget[]): string
   }
 
   return targets.map((target) => target.path)
+}
+
+/**
+ * Refuses the deletion unless every screen is stopped, so it is never attempted
+ * underneath a browser.
+ *
+ * Chrome holds files open inside its profile: a removal attempted while a screen
+ * runs deletes part of `%APPDATA%/hecaton` and then fails, which is the worst of
+ * both outcomes — the user is told it did not work while their logins are
+ * already gone. Measured, not assumed (probe P4).
+ *
+ * This is the safeguard; the panel greying the button out while a screen runs is
+ * its UX echo, exactly as the remove confirmation is UX over the archiving that
+ * actually protects the profile.
+ *
+ * Deliberately not `isLive`, which every other guard here uses. isLive answers
+ * "is a browser process expected right now", and for a `crashed` slot the honest
+ * answer is no. This asks something stricter, because auto-restart can put a
+ * browser back between the check and the removal: nothing may be anything but
+ * stopped. It is also what the panel promises the user in so many words.
+ */
+export function requireEveryScreenStopped(states: readonly SlotState[]): void {
+  const open = states.filter((state) => state !== 'stopped').length
+  if (open > 0) {
+    throw new Error(`${open} screen(s) are still open; stop every screen before deleting your data`)
+  }
+}
+
+/**
+ * Judges what survived the removal: the deletion succeeded only if nothing but a
+ * tolerated entry is left.
+ *
+ * The app cannot delete the whole of `%APPDATA%/hecaton` from inside itself.
+ * Electron keeps its own userData directory (a sub-directory of it) open until
+ * the process exits, so `rmSync` removes config, logs and profiles, then throws
+ * `EPERM` on the one directory it may not touch. Probe P4 measured that twice,
+ * including after the window was destroyed — it is a property of the shape, not
+ * a race worth retrying.
+ *
+ * So the *error* is ignored and the *result* is checked instead. That is what
+ * keeps the shrug honest: an entry the caller did not expect — a profile left
+ * behind by a browser that was still running — is reported by name rather than
+ * hidden under the same tolerance that covers Electron's own directory.
+ *
+ * Which entry is tolerated is a path fact and arrives from the caller; that only
+ * a tolerated one may remain is the rule, and it lives here.
+ */
+export function verifyUserDataDeletion(
+  remaining: readonly string[],
+  tolerated: readonly string[],
+): void {
+  const allowed = tolerated.map((entry) => entry.toLowerCase())
+  const unexpected = remaining.filter((entry) => !allowed.includes(entry.toLowerCase()))
+  if (unexpected.length > 0) {
+    throw new Error(`could not delete everything; these were left behind: ${unexpected.join(', ')}`)
+  }
 }

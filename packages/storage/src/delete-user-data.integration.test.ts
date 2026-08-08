@@ -35,6 +35,41 @@ describe('deleteUserData', () => {
     expect(existsSync(dir)).toBe(false)
   })
 
+  it('reports nothing remaining when the directory is gone', () => {
+    const dir = seedAppDir()
+    expect(deleteUserData([{ path: dir, leaf: 'hecaton' }])).toEqual([])
+  })
+
+  it('reports what survived instead of throwing, when part of it cannot be removed', () => {
+    // The real case this exists for, reproduced rather than mocked: the running
+    // app cannot delete its own Electron directory inside %APPDATA%/hecaton, so
+    // rmSync removes config, logs and profiles and *then* throws EPERM. Probe P4
+    // measured that against a real Electron.
+    //
+    // A process's current directory cannot be removed on Windows either, which
+    // is the same lock reached without needing Electron here. What is being
+    // pinned is the contract: the adapter reports the outcome, and judging it is
+    // the core's job (verifyUserDataDeletion).
+    const dir = seedAppDir()
+    const held = join(dir, 'shell')
+    mkdirSync(held, { recursive: true })
+
+    const back = process.cwd()
+    process.chdir(held)
+    let remaining: readonly string[]
+    try {
+      remaining = deleteUserData([{ path: dir, leaf: 'hecaton' }])
+    } finally {
+      process.chdir(back)
+    }
+
+    expect(remaining).toEqual(['shell'])
+    // Everything it *could* remove is really gone: this is a partial deletion
+    // being reported honestly, not an aborted one.
+    expect(existsSync(join(dir, 'config.json'))).toBe(false)
+    expect(existsSync(join(dir, 'profiles'))).toBe(false)
+  })
+
   it('leaves the parent alone, so sibling applications are untouched', () => {
     const dir = seedAppDir()
     const neighbour = join(root, 'Roaming', 'SomeOtherApp')

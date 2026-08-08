@@ -920,6 +920,17 @@ svg {
   border-color: var(--danger);
 }
 
+/* Greyed out while a screen is still open: main refuses the action then, and the
+   button should not invite a click that can only fail. */
+.danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.danger-btn:disabled:hover {
+  border-color: var(--danger-border);
+}
+
 .danger-btn svg {
   flex-shrink: 0;
 }
@@ -949,6 +960,21 @@ svg {
   font-weight: 700;
   letter-spacing: 1px;
   text-transform: uppercase;
+}
+
+/* Same heading as .risk-label, for a section that is not a risk. */
+.section-label {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.data-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 /* ---- edit modal fields (design §8) ---- */

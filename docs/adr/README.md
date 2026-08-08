@@ -53,7 +53,7 @@ turned out wrong, that is a new ADR, not a correction.
 Only for factual errors. An ADR whose historical context has since changed is not wrong: it
 records what was true when the decision was taken, which is the point of the format.
 
-ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009 and ADR-0010 carry corrections and show the shape. ADR-0004 and ADR-0006 carry
+ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009 and ADR-0010 carry corrections and show the shape. ADR-0004, ADR-0005 and ADR-0006 carry
 two each, which is what a dated `[see Correction (YYYY-MM-DD)]` marker is for: with more than one, an
 undated marker no longer says which.
 

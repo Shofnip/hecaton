@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { planUserDataDeletion } from './user-data.js'
+import type { SlotState } from './slot-state.js'
+import {
+  planUserDataDeletion,
+  requireEveryScreenStopped,
+  verifyUserDataDeletion,
+} from './user-data.js'
 
 const APP_DATA = { path: 'C:\\Users\\x\\AppData\\Roaming\\hecaton', leaf: 'hecaton' }
 // A second target purely to exercise the multi-target rules. The app passes exactly
@@ -59,5 +64,64 @@ describe('planUserDataDeletion', () => {
 
   it('refuses an empty target list, so "delete nothing" cannot look like success', () => {
     expect(() => planUserDataDeletion([])).toThrow(/no targets|empty/i)
+  })
+})
+
+describe('requireEveryScreenStopped', () => {
+  it('allows the deletion when every screen is stopped', () => {
+    expect(() => requireEveryScreenStopped(['stopped', 'stopped'])).not.toThrow()
+  })
+
+  it('allows it when there are no screens at all', () => {
+    expect(() => requireEveryScreenStopped([])).not.toThrow()
+  })
+
+  it.each<SlotState>(['starting', 'running', 'restarting', 'crashed'])(
+    'refuses while a screen is %s',
+    (state) => {
+      // Measured, not assumed: Chrome holds files open inside its profile, so a
+      // deletion attempted underneath a running screen removes part of the
+      // directory and then fails - the worst outcome, since the user is told
+      // nothing worked while their logins are already gone.
+      //
+      // `crashed` is in this list although `isLive` excludes it. isLive answers
+      // "is a browser process expected right now", and the honest answer for a
+      // crashed slot is no. The question here is different: auto-restart can put
+      // a browser back between this check and the removal, so what matters is
+      // that the screen is not *stopped*.
+      expect(() => requireEveryScreenStopped(['stopped', state])).toThrow(/stop/i)
+    },
+  )
+
+  it('says how many screens are in the way', () => {
+    expect(() => requireEveryScreenStopped(['running', 'running', 'stopped'])).toThrow(/2/)
+  })
+})
+
+describe('verifyUserDataDeletion', () => {
+  it('accepts an empty remainder: the directory is gone', () => {
+    expect(() => verifyUserDataDeletion([], ['shell'])).not.toThrow()
+  })
+
+  it('accepts a tolerated leftover', () => {
+    // The one entry the running app cannot remove: Electron keeps its own
+    // userData open until the process exits, so `shell` survives the removal by
+    // construction. Measured in probe P4 - it is not a flake to retry.
+    expect(() => verifyUserDataDeletion(['shell'], ['shell'])).not.toThrow()
+  })
+
+  it('rejects a leftover nobody expected, naming it', () => {
+    // This is the check that turns "swallow the EPERM" into something honest:
+    // the error is ignored, the *result* is not, so a profile left behind is
+    // reported rather than hidden by the same shrug that covers `shell`.
+    expect(() => verifyUserDataDeletion(['profiles', 'shell'], ['shell'])).toThrow(/profiles/)
+  })
+
+  it('compares case-insensitively, since Windows paths do', () => {
+    expect(() => verifyUserDataDeletion(['Shell'], ['shell'])).not.toThrow()
+  })
+
+  it('rejects everything when nothing is tolerated', () => {
+    expect(() => verifyUserDataDeletion(['shell'], [])).toThrow(/shell/)
   })
 })

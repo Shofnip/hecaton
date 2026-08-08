@@ -63,3 +63,27 @@ export function profilesDir(
 ): string {
   return join(appDataDir(env, platform), 'profiles')
 }
+
+/**
+ * Where Electron keeps its own state — cache, cookies and local storage for the
+ * panel window itself.
+ *
+ * Under the app's directory rather than the shared `%APPDATA%/Electron`, for
+ * ADR-0004's reason and one practical one: the shared folder is where "unable to
+ * move the cache: access denied" comes from, since any other Electron app holds
+ * it.
+ *
+ * The name is exported because the delete action needs it. The running app
+ * cannot remove this directory — the process holds it open until it exits — so
+ * it is the one entry allowed to survive `data:deleteAll`, and telling that
+ * survivor apart from a real failure means knowing what it is called. It holds
+ * no game session: the panel loads from `file://` and makes no network request.
+ */
+export const ELECTRON_DIR_NAME = 'shell'
+
+export function electronUserDataDir(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return join(appDataDir(env, platform), ELECTRON_DIR_NAME)
+}

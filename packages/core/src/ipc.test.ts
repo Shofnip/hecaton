@@ -41,6 +41,8 @@ describe('the channel list', () => {
       'profiles:clearArchives',
       'profiles:clearSlotCache',
       'profiles:clearAllCaches',
+      'data:reveal',
+      'data:deleteAll',
       'slots:rename',
       'slots:setVolume',
       'slots:setMuted',

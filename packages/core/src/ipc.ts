@@ -57,6 +57,19 @@ export const IPC_CHANNELS = [
   'profiles:clearArchives',
   'profiles:clearSlotCache',
   'profiles:clearAllCaches',
+  // "Your data": where it is, and removing it. Both take no argument, for the
+  // same reason `logs:reveal` does not — the directory comes from
+  // `@hecaton/storage`'s own path functions, never from the renderer. A channel
+  // that accepted a path would be "delete an arbitrary directory" wearing a
+  // friendly name, which is the one thing this app must never expose.
+  //
+  // `data:deleteAll` is the only way to delete a *live* profile in this app, and
+  // deliberately the only one: it exists because a portable zip has no
+  // uninstaller to ask the question in (D4, reversed 2026-08-08). There is no
+  // command-line equivalent — see the note in main.ts about the flag that was
+  // removed.
+  'data:reveal',
+  'data:deleteAll',
   // The video-wall runtime controls (UI rework, decision 7): a fixed contract —
   // any channel beyond these stops the work for the owner (CLAUDE.md rule 2).
   'slots:rename',

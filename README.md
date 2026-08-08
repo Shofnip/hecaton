@@ -27,6 +27,8 @@ isolation by construction. First target game: **Poke IdleWorld**; any `https://`
   at its own volume; focus one and the rest go quiet.
 - **Light/dark themes**, and small tools: clear a screen's cache without logging it out, open the
   logs, and remove/re-add screens (a removed screen's profile is archived, never deleted).
+- **Delete everything**, from the settings modal: where your data lives, and one confirmed action
+  that removes it and closes the app.
 
 ## Requirements
 
@@ -41,9 +43,11 @@ anywhere, run `Hecaton.exe`. No installer, no elevation — and no uninstaller e
 folder is the uninstall.
 
 That leaves your logins and settings behind on purpose: they live in `%APPDATA%/hecaton`, not in the
-extracted folder, so replacing the folder with a newer version keeps them. **To remove them you
-delete that directory yourself** — the app has no button for it yet. A clean-session screen also
-leaves a throwaway profile in your temp directory if the app was killed before it could clean up.
+extracted folder, so replacing the folder with a newer version keeps them. To remove them, use
+**Configurações → Apagar todos os meus dados**, which deletes that directory and closes the app —
+stop every screen first, since Chrome holds its profile open. A folder with the app's own cache
+stays behind; it holds no login. A clean-session screen also leaves a throwaway profile in your temp
+directory if the app was killed before it could clean up.
 
 For now you run it from the source:
 
@@ -118,6 +122,12 @@ directory survives until Windows reclaims it — worth knowing on a shared machi
 
 The app **never stores passwords** — logins live only inside Chrome's own profile. No profile data
 leaves the machine, and there is no telemetry.
+
+**Configurações → Seus dados** names both of those locations and opens the first. Beside it,
+**Apagar todos os meus dados** deletes `%APPDATA%/hecaton` — profiles, config and logs — after an
+explicit confirmation, and closes the app. It is the only way the app deletes a profile that is
+still in use, there is no command-line equivalent, and every screen has to be stopped before it
+will run.
 
 ## Documentation
 

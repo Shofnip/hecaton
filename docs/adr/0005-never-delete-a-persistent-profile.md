@@ -29,7 +29,7 @@ Guarded twice, because deleting profile data is the most destructive thing this 
 2. Before deleting, the path must still sit under `tmpdir()` and not be `tmpdir()` itself.
 
 The result is a property, not a promise: **no code path in the app can delete a logged-in
-session**, so no bug in the flag can either. [see Correction]
+session**, so no bug in the flag can either. [see Correction (2026-07-21)] [see Correction (2026-08-08)]
 
 ## Consequences
 
@@ -37,7 +37,7 @@ session**, so no bug in the flag can either. [see Correction]
   and Chrome does not care where it lives.
 - If the app is killed before `stop()` runs, a throwaway directory is left in `%TEMP%`. That is
   the intended trade, and Windows reclaims it.
-- **There is no way for a user to clear or reset a slot profile from the app.** [see Correction]
+- **There is no way for a user to clear or reset a slot profile from the app.** [see Correction (2026-07-21)]
   Deliberate for
   v1, but it leaves two real gaps — a corrupt profile has no in-app recovery, and per-slot cache
   cannot be reclaimed. Deferred to phase 2, with the recommended shape recorded in
@@ -78,10 +78,53 @@ feature this ADR deferred has been built — see [ADR-0008](0008-archive-a-remov
 
 The property that still holds, in its true form: **no live profile is ever deleted; a removed
 slot's archived session can be deleted only by an explicit, confirmed user action, never by a
-flag, a crash, or a re-used id.** The core protection this ADR exists for — a wrong
+flag, a crash, or a re-used id.** [see Correction (2026-08-08)] The core protection this ADR exists for — a wrong
 `persistProfile` boolean cannot destroy a working session — is unchanged.
 
 This ADR is **not superseded**: its decision holds and ADR-0008 implements the reset in exactly
 the archive-by-renaming shape recommended below. The body is left as written per the convention
 in [README](README.md); only the two `[see Correction]` markers were added. Found while writing
 ADR-0008 after the audit.
+
+## Correction (2026-08-08)
+
+**A live persistent profile can now be deleted from the app**, so the statement above — "no live
+profile is ever deleted" — is no longer true as written. The change is in the code, not in this
+ADR's reasoning: it appeared when the panel gained a **"Apagar todos os meus dados"** action
+(`data:deleteAll` in `apps/shell/src/main/main.ts`), which removes `%APPDATA%/hecaton` whole —
+`profiles/slot-N` included.
+
+**Why the decision this ADR records is still intact.** What it protects against is a _wrong
+boolean_: a `persistProfile` flag that reads `false` and quietly destroys a working session. That
+remains impossible — `stop()` still deletes only a directory it created under `tmpdir()`, and no
+lifecycle path touches `profiles/slot-N`. What was added is a different thing entirely: a
+destination the user has to navigate to, read a warning in, and confirm, whose entire purpose is
+to delete their data.
+
+**Why it exists at all**, because "we added a delete-everything button" deserves a reason rather
+than a shrug: distribution moved from an NSIS installer to a portable zip on the same day. The
+uninstaller had been the one place the question "and your logins?" could be asked, and deleting an
+extracted folder asks nothing. Without this action the honest answer would have been "open
+`%APPDATA%` and delete a directory by hand", which is worse in every respect — no warning, no
+allowlist, no idea what is inside.
+
+Four guards, and none of them is the dialog:
+
+1. **Every screen must be stopped** (`requireEveryScreenStopped`). Chrome holds files open inside
+   its profile, so a deletion attempted underneath a running browser removes part of the directory
+   and then fails — the user told nothing worked, their logins already gone.
+2. **No path crosses IPC.** The channel takes no payload; the directory comes from
+   `appDataDir()`, and `planUserDataDeletion` still refuses anything that does not end in the
+   app's own directory name.
+3. **The result is checked, not the error.** The running app cannot delete Electron's own
+   sub-directory, so `verifyUserDataDeletion` tolerates exactly that one survivor and reports any
+   other by name.
+4. **There is no command-line trigger, and there must never be one.** The `--delete-user-data`
+   flag NSIS used was removed the same day for precisely the reason this ADR gives: with the
+   installer gone, the confirmation had gone with it and the flag was a bare argument that wiped
+   every logged-in profile. `main.ts` carries a comment saying so.
+
+The property in its current true form: **no live profile is deleted by any lifecycle path, any
+flag, any crash or any re-used id; the user can delete all of them at once, from one place in the
+panel, having been told what it costs.** Found while implementing the panel action, not by an
+audit.

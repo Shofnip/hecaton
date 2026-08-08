@@ -30,16 +30,22 @@ import {
   parseSlotUpdate,
   parseSlotVolume,
   parseTheme,
+  requireEveryScreenStopped,
+  verifyUserDataDeletion,
 } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
 import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@hecaton/browser-engine'
 import { NativeWindowManager } from '@hecaton/window-manager'
 import {
+  APP_DIR_NAME,
+  ELECTRON_DIR_NAME,
   FileLogger,
   JsonFileStorage,
   appDataDir,
   configFilePath,
+  deleteUserData,
+  electronUserDataDir,
   logsDir,
   profilesDir,
 } from '@hecaton/storage'
@@ -58,7 +64,7 @@ const PRELOAD = join(HERE, '..', 'preload', 'preload.cjs')
 // move the cache: access denied" comes from - any other Electron app, or a
 // still-closing instance of ours, holds it. Must run before the app is ready,
 // while the paths can still be set.
-app.setPath('userData', join(appDataDir(), 'shell'))
+app.setPath('userData', electronUserDataDir())
 
 // There is deliberately no "--delete-user-data" branch here.
 //
@@ -71,10 +77,9 @@ app.setPath('userData', join(appDataDir(), 'shell'))
 // is ever deleted ... never by a flag", and a flag is exactly what it had become.
 //
 // `planUserDataDeletion` in the core and `deleteUserData` in storage stay: they are
-// tested, they were never installer-specific, and the in-app panel action is what
-// will call them - behind an explicit confirmation, on an enumerated IPC channel.
-// Until that exists, the honest answer to "how do I delete my data" is the one the
-// README gives: remove the directory by hand.
+// tested, they were never installer-specific, and the caller they were waiting for
+// now exists - the `data:deleteAll` handler below, reachable only from the panel,
+// behind an explicit confirmation, on an enumerated channel that takes no path.
 
 /** How often the shell asks the orchestrator to look for dead browsers. */
 const LIVENESS_INTERVAL_MS = 2000
@@ -166,11 +171,29 @@ async function loadConfiguration(): Promise<void> {
 }
 
 async function saveConfiguration(): Promise<void> {
+  // Nothing is written back after the user deleted their data: the app is on its
+  // way out, and a save here would put config.json straight back into a directory
+  // the user just emptied. Blocked at the one place every write goes through
+  // rather than at each caller.
+  if (userDataDeleted) return
   // The orchestrator owns the slot list once running - add and remove change it
   // - so its view is the one that gets persisted, never the startup copy.
   const value: PersistedConfig = { ...globals, slots: orchestrator.slotConfigs() }
   await storage.save(value)
 }
+
+/**
+ * Set once the user has deleted their data, and never cleared.
+ *
+ * Between the deletion and the app closing, everything that writes under
+ * `%APPDATA%/hecaton` has to stay quiet — otherwise a debounced config save or a
+ * log line recreates part of what was just removed, and the user watches their
+ * "delete everything" put files back.
+ */
+let userDataDeleted = false
+/** The two repeating effects, held so the deletion can stop them. */
+let livenessTimer: ReturnType<typeof setInterval> | undefined
+let audioTimer: ReturnType<typeof setInterval> | undefined
 
 // A volume-slider drag fires dozens of changes a second; each applies to audio
 // at once (the persistent WASAPI worker is ~12ms) but persisting every one would
@@ -369,6 +392,40 @@ function registerIpc(): void {
       await orchestrator.clearAllCaches()
     },
 
+    'data:reveal': async (payload) => {
+      // Same shape as logs:reveal, and the same reason it takes no argument:
+      // main computes the directory, so this cannot become "open any folder".
+      // Only %APPDATA%/hecaton — never the temp directory a clean-session screen
+      // uses, which is outside the app's own data and not ours to open.
+      parseNoPayload(payload)
+      mkdirSync(appDataDir(), { recursive: true })
+      await shell.openPath(appDataDir())
+    },
+
+    'data:deleteAll': async (payload) => {
+      // The only path in this app that deletes a live profile, and it exists
+      // because a portable zip has no uninstaller to ask the question in. Three
+      // things guard it, and none of them is the confirmation dialog: the panel's
+      // confirmation is UX.
+      //
+      // 1. Every screen must be stopped. Chrome holds its profile open, so a
+      //    deletion underneath a running browser half-succeeds (probe P4).
+      // 2. The path is computed here, from storage's own function; the channel
+      //    carries no payload at all, so nothing the renderer sends can steer it.
+      //    The leaf is the same constant the path is built from, so the core's
+      //    allowlist is checking main against itself.
+      // 3. What survived is judged by the core. The app cannot remove its own
+      //    Electron directory while it runs, so that one is tolerated and
+      //    anything else is reported as the failure it is.
+      parseNoPayload(payload)
+      requireEveryScreenStopped((orchestrator ? orchestrator.snapshot() : []).map((s) => s.state))
+
+      const remaining = deleteUserData([{ path: appDataDir(), leaf: APP_DIR_NAME }])
+      verifyUserDataDeletion(remaining, [ELECTRON_DIR_NAME])
+
+      quitAfterDeletion()
+    },
+
     'slots:rename': async (payload) => {
       const { id, name } = parseSlotRename(payload)
       orchestrator.renameSlot(id, name)
@@ -443,6 +500,30 @@ function registerIpc(): void {
   for (const channel of IPC_CHANNELS) {
     ipcMain.handle(channel, guard(handlers[channel]))
   }
+}
+
+/** Long enough for the panel's "data deleted" toast to be read, and no longer. */
+const QUIT_AFTER_DELETION_MS = 1200
+
+/**
+ * Closes the app once the user's data is gone.
+ *
+ * Staying open is not an option: the config the panel is showing no longer exists
+ * on disk, and the next change would write it back. Quitting is also what the
+ * confirmation told the user would happen.
+ *
+ * Everything that writes under the deleted directory stops first — the debounced
+ * save, the liveness tick and the audio tick — so that nothing recreates a
+ * fragment of it during the second this waits. The delay is only so the panel can
+ * say what happened before its window disappears; the deletion is already done
+ * when this is called.
+ */
+function quitAfterDeletion(): void {
+  userDataDeleted = true
+  if (saveTimer) clearTimeout(saveTimer)
+  if (livenessTimer) clearInterval(livenessTimer)
+  if (audioTimer) clearInterval(audioTimer)
+  setTimeout(() => app.quit(), QUIT_AFTER_DELETION_MS)
 }
 
 function createPanel(): void {
@@ -569,7 +650,7 @@ if (!app.requestSingleInstanceLock()) {
     createPanel()
 
     if (orchestrator) {
-      setInterval(() => {
+      livenessTimer = setInterval(() => {
         void orchestrator.checkLiveness().then(pushState)
       }, LIVENESS_INTERVAL_MS)
 
@@ -577,7 +658,7 @@ if (!app.requestSingleInstanceLock()) {
       // mute a slot (~270ms), so a busy flag keeps ticks from overlapping rather
       // than stacking PowerShell calls when the interval is shorter than the work.
       let audioBusy = false
-      setInterval(() => {
+      audioTimer = setInterval(() => {
         if (audioBusy) return
         audioBusy = true
         void orchestrator.applyAudio().finally(() => {
