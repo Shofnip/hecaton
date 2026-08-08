@@ -33,7 +33,7 @@ who installs it.
 
 - Adding a game means a pull request. Slower for the user, and the intended trade.
 - The **custom slot** covers the common case without the risk: an arbitrary `https:` URL plus
-  generic options (viewport, profile, mute) [see Correction]. No injected CSS, no actions, nothing
+  generic options (viewport, profile, mute) [see Correction (2026-07-21)]. No injected CSS, no actions, nothing
   game-specific — data the core already understands, not code it must run.
 - The registry contract can stay tiny, because it never has to be a plugin API.
 
@@ -62,7 +62,7 @@ treated as a relaxation of this one.
 
 "generic options (viewport, profile, mute)" overstates what a custom slot accepts.
 
-`SlotOverrides` in `packages/core/src/config.ts` carries `persistProfile` and `mute` only.
+`SlotOverrides` in `packages/core/src/config.ts` carries `persistProfile` and `mute` only. [see Correction (2026-08-08)]
 `viewport` exists on `GameDefinition`, not as a per-slot override, and window size comes from
 the grid (`computeGrid`), never from a viewport. This was already true when the ADR was
 written — `config.ts` predates it — so the enumeration was wrong from the start rather than
@@ -77,3 +77,20 @@ than a UI detail.
 
 Found by the documentation auditor (`/audit-docs`). Body left unchanged per the convention in
 [README](README.md); only the inline `[see Correction]` marker was added.
+
+## Correction (2026-08-08)
+
+The field list in the 2026-07-21 Correction above is out of date. `SlotOverrides` in
+`packages/core/src/config.ts` now carries `id`, `gameId`, `url`, `persistProfile`, `mute`, `name`,
+`volume`, `muted` and `backgroundThrottling`.
+
+**This appeared when the code changed, not at the start.** The four additions — `name`, `volume`,
+`muted` and `backgroundThrottling` — arrived with the video-wall rework and are recorded in
+[ADR-0011](0011-embed-spawned-chrome-into-the-shell.md), which notes they are additive and needed no
+schema bump.
+
+**What is being corrected is the enumeration, not the conclusion.** `viewport` is still absent from
+`SlotOverrides`, window size still comes from the grid, and a custom slot is still data rather than
+code — so the point the 2026-07-21 Correction was making stands untouched. It matters only because
+that Correction closes with advice a panel builder is meant to act on, and the field list is the part
+they would act on.

@@ -39,11 +39,7 @@ export type { IpcChannel, OverlayRequest, ScreenPlacement } from './ipc.js'
 
 export { normalizeUrl } from './normalize-url.js'
 
-export {
-  DELETE_USER_DATA_FLAG,
-  planUserDataDeletion,
-  requestsUserDataDeletion,
-} from './user-data.js'
+export { planUserDataDeletion } from './user-data.js'
 export type { UserDataTarget } from './user-data.js'
 
 export { slotProfileDirName } from './slot-profile.js'

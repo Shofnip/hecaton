@@ -38,8 +38,12 @@ isolation by construction. First target game: **Poke IdleWorld**; any `https://`
 
 There is no published release yet. When there is, it will be a **zip**: download it, extract it
 anywhere, run `Hecaton.exe`. No installer, no elevation — and no uninstaller either, so removing the
-folder is the uninstall, while your logins and settings stay in `%APPDATA%/hecaton` until you delete
-them from inside the app.
+folder is the uninstall.
+
+That leaves your logins and settings behind on purpose: they live in `%APPDATA%/hecaton`, not in the
+extracted folder, so replacing the folder with a newer version keeps them. **To remove them you
+delete that directory yourself** — the app has no button for it yet. A clean-session screen also
+leaves a throwaway profile in your temp directory if the app was killed before it could clean up.
 
 For now you run it from the source:
 
@@ -49,11 +53,25 @@ cd hecaton
 npm install
 ```
 
+**Then fetch the Electron binary, which `npm install` does not do:**
+
+```
+node node_modules/electron/install.js
+```
+
+Electron ships no install script — it exposes the downloader as a bin instead — so `npm install`
+leaves `node_modules/electron/dist/` empty and the app fails to start with `Electron failed to
+install correctly`. This is deliberate on the project's side (see the `allowScripts` note in
+`package.json`), and it is the step most likely to be missed on a fresh clone.
+
 `npm install` also needs to build two native modules (`node-window-manager` and its transitive
 `extract-file-icon`). npm 11+ blocks their build scripts by default; this repo already lists them
 under `allowScripts` in `package.json`, so `npm install` builds them — but the machine needs
 **Visual Studio Build Tools and Python** for that compile to succeed. Without the build the
 install still finishes and the module fails only at runtime.
+
+Both of these have entries in [`docs/troubleshooting.md`](docs/troubleshooting.md) with the exact
+error each produces.
 
 ## Open it on your machine
 

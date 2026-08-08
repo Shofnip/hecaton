@@ -25,7 +25,7 @@ Chrome holds handles briefly after exit. A slot removed before it ever launched 
 archive, and that is a no-op.
 
 **`clearArchives` permanently deletes archived profiles, and only those.** It is the one deletion
-of session data in the whole app. It is guarded to touch only directories carrying the `.old-`
+of session data in the whole app. [see Correction (2026-08-08)] It is guarded to touch only directories carrying the `.old-`
 marker; a live `slot-N`, whatever it is named, never carries the marker and is never a candidate.
 It is reached from the panel through the `profiles:clearArchives` IPC channel, behind an in-app
 confirmation that states the deletion cannot be undone.
@@ -71,3 +71,26 @@ the archive-by-renaming shape ADR-0005 recommended, and adds the deliberate `cle
 deletion on top. ADR-0005 stays Accepted; its absolute wording ("no code path can delete a
 logged-in session", "no way for a user to reset a profile from the app") is now narrower and
 carries a Correction pointing here.
+
+## Correction (2026-08-08)
+
+"It is the one deletion of session data in the whole app" is too broad, and so is "no delete ever
+standing between a working app and a live session" further down. The missing word is **persistent**.
+
+`ChromeLauncher.discard` (`packages/browser-engine/src/chrome-launcher.ts`) permanently deletes a
+**clean-session** slot's throwaway profile under `%TEMP%` on every `stop()`. That profile is real
+session data — cookies written while the user played — and nothing archives it first. It is deleted
+unattended, on an ordinary stop, which is the opposite of the explicit-confirmed-action shape the
+rest of this ADR describes.
+
+**This was wrong from the start, not drift.** `discard` predates this ADR and
+[ADR-0005](0005-never-delete-a-persistent-profile.md)'s own Decision already says so. The sentence
+elided it, and every other place that carries this inventory got it right —
+`docs/architecture.md`, `packages/core/src/ports.ts` and `docs/troubleshooting.md` all name two
+deletion paths and qualify `clearArchives` with "persistent".
+
+**The guarantee itself is untouched:** a live _persistent_ profile is still never deleted, verified
+by the guards in `chrome-launcher.ts` (ephemeral-only, and the path must be under `tmpdir()`) and in
+`FileProfileArchive` (only names containing `.old-`). What is corrected is the inventory, and it
+matters because CLAUDE.md asks for an audit of "where do cookies land" that covers both locations —
+an audit started from this sentence would find one.

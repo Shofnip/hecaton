@@ -60,8 +60,26 @@ toward the present, and evidence belongs somewhere edits cannot quietly tidy it 
 
 ```
 chrome.exe --user-data-dir=<per-slot dir> --no-first-run --no-default-browser-check
+           --hide-scrollbars
+           --disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading
            --window-position=x,y --window-size=w,h --app=<url>
+           --disable-background-timer-throttling         # unless backgroundThrottling
+           --disable-backgrounding-occluded-windows      # is set on the screen
+           --disable-renderer-backgrounding
+           --mute-audio                                  # only when the slot is muted
 ```
+
+**The whole list, deliberately.** `CLAUDE.md` makes "Chromium flags that weaken protections" a
+security-review trigger, so an abridged list here would be worse than none: a reviewer would audit
+what is shown and stop. None of these weakens a protection, and `chrome-args.test.ts` holds that as
+a test rather than a claim — it parses the feature names out of `--disable-features` so a protection
+cannot be smuggled into the comma list, and pins the number of `--disable-features` switches at one,
+because Chromium honours a single value per switch.
+
+The three throttling flags are on **by default** (`backgroundThrottling` defaults to `false`), which
+is worth noticing next to the Playwright measurement below: the cost attributed there to "Playwright
+injects flags that disable Chrome's background throttling" is a cost this app now chooses to pay, on
+purpose, because an embedded screen must keep running while it is not on top.
 
 `--app=<url>` opens an app window rather than a normal tabbed one, which keeps the slot out of
 Chrome's session restore — so it never reopens last time's tabs and never accumulates them (this
@@ -272,7 +290,32 @@ A long-running orchestrator with child processes fails silently by default. Acti
   slot down.
 - An error in one slot never affects another. (Verified in the spike: killing one slot left
   the others untouched.)
-- Be careful what gets logged — page URLs can contain session tokens.
+- **No URL survives into a log message, and that is enforced rather than advised.** Page URLs can
+  carry session tokens in query strings, so `redactUrls` in `packages/core/src/log.ts` strips them
+  and `formatLogRecord` applies it at the logger boundary — on the way in, not on the way out, so a
+  redacted line is the only kind that can be written. `LogEntry` has no url field, and
+  `formatLogRecord` rebuilds the record field by field, so one cannot be smuggled on.
+
+  **The precise scope, because the looser version of this sentence is dangerous:** `redactUrls` is
+  applied to `message` and to nothing else. What makes the other fields safe is their **type**, not
+  where they come from — a distinction worth keeping, because `slotId` does come from the user's
+  `config.json`. `level` and `event` are literals in the app's own code; `pid` comes from the
+  launcher; `slotId` is read from config but forced through `requirePositiveInteger`, so no string
+  can ride there. There are exactly two emitters: `Orchestrator.emit` for every lifecycle entry, and
+  `apps/shell/src/main/main.ts` for one more, `config.error`, whose `message` is whatever
+  `loadConfiguration` threw — usually the config parser's text, sometimes a filesystem error — and is
+  redacted like any other. **`gameId` is copied through unredacted**, and it is not structured —
+  `parse-config.ts` accepts any non-blank string, so a hand-edited `config.json` with a URL as its
+  `gameId` puts that URL in a log line. Only `GameDefinition` ids are constrained to kebab-case, and
+  those are repository data, not user input.
+
+  So the guarantee that holds is: the app's own inputs cannot put a URL in a log, and anything a URL
+  could hide inside — `message` — is redacted. It is a tested control and it is what makes a log file
+  safe to send to the author by hand, which is the whole diagnostic path now that the bug-report tool
+  was cancelled. Two things would undo it quietly: adding a url field to `LogEntry`, and adding
+  another free-string field on the assumption that everything beside `message` is safe by
+  construction. Whether `gameId` should be redacted or constrained at the config boundary is an open
+  decision — CLAUDE.md makes log contents a rule-2 trigger.
 
 ## Electron security (mandatory, because it is distributed)
 

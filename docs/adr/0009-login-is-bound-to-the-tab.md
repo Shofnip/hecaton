@@ -46,7 +46,7 @@ the-login assumption is false — so it is not re-assumed.**
   mitigate but a confirmed, unfixable property of this game; the document is updated to say so.
 - Password help is the browser's own manager, not app-stored credentials (the app never stores
   passwords, and without CDP it could not fill a login form anyway). A one-line panel hint tells
-  the user that saving the password in Chrome speeds re-login, with the risk disclosed.
+  the user that saving the password in Chrome speeds re-login, with the risk disclosed. [see Correction (2026-08-08)]
 - A future game whose login _is_ cookie-based would come back signed in with no change here —
   the profile is preserved regardless. This finding is specific to a tab-bound game, not a
   property of the app.
@@ -66,3 +66,22 @@ the-login assumption is false — so it is not re-assumed.**
 Field-observed against the live game, not derivable from the code (the app cannot see the game's
 `sessionStorage`). Recorded here because a premise the codebase leaned on was tested and refuted,
 which is exactly what an ADR should preserve.
+
+## Correction (2026-08-08)
+
+**The panel hint no longer exists.** It was removed with the video-wall rework (decision 7, commit
+`2aefb4d`, whose message says so outright), and neither
+[ADR-0011](0011-embed-spawned-chrome-into-the-shell.md) nor this file recorded it. Verify by
+searching `apps/shell/src/renderer/` — there is no such string.
+
+What still holds: password help is the browser's own manager, the app stores no passwords, and
+without CDP it could not fill a login form anyway. What no longer holds is the last clause — **the
+app now discloses nothing** about the risk of letting Chrome save a game password. The removed text
+said the password is kept on the user's machine inside the Chrome profile, and that a compromised
+machine can leak it.
+
+**This is not only a documentation defect.** Whether that disclosure should come back is a decision
+about UI text describing a credential risk, and it belongs to the project owner rather than to
+whoever notices the gap. Recorded here so the question survives being noticed once. The absence is
+listed in `docs/plans/phase-3-distribution.md` as an open item for the first-run screen, which is
+where a disclosure would now naturally live.

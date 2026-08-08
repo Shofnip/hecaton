@@ -101,6 +101,7 @@ Use `appDataDir()`, `configFilePath()`, `logsDir()` and `profilesDir()` from
 ## Commands
 
 ```
+node node_modules/electron/install.js   # after any npm install - see below
 npm test                  # fast suite, no I/O - must be green at all times
 npm run test:watch        # the same suite in watch mode, for the red-green loop
 npm run typecheck         # tsc --build, plus tsconfig.test.json for test files
@@ -119,6 +120,11 @@ everything CI runs, that no `*.test.ts` falls outside every Vitest config, and t
 is missing from the root `tsconfig` references. Each of those failed silently here at least
 once — a green signal that covered less than it appeared to. If you add a CI step, a package,
 or a test directory, these will tell you what else needs updating.
+
+`npm install` does **not** fetch the Electron binary. Electron ships no install script — it exposes
+the downloader as a bin — so `node_modules/electron/dist/` stays empty and the app fails to start
+with `Electron failed to install correctly`. Run `node node_modules/electron/install.js` after any
+install that touched it. This is the step most often missed on a fresh clone.
 
 Native modules (`node-window-manager` and its transitive `extract-file-icon`) need
 explicit `allowScripts` entries in the root `package.json`. Approving the parent does

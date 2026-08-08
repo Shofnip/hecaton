@@ -59,8 +59,9 @@ image ships. The two native modules (`node-window-manager` and its transitive
 **Resolved on 2026-07-30 — `node-gyp` is 12.4.0 in the lockfile and builds fine on
 `windows-latest`.** It rose when `electron-builder` was installed for the release workflow, not by
 anyone deciding to fix this. Measured: the release workflow runs `npm ci` without
-`--ignore-scripts` on `windows-latest`, packages the app, and the resulting installer runs with both
-`addon.node` files present and loading. `npm` hides install-script output unless a script fails,
+`--ignore-scripts` on `windows-latest`, packages the app, and the resulting artifact runs with both
+`addon.node` files present and loading. (Measured against an NSIS installer on 2026-07-30 and again
+against the zip that replaced it on 2026-08-08; the release is a zip now.) `npm` hides install-script output unless a script fails,
 which is why a successful build shows no `gyp` lines at all — absence of gyp output is not evidence
 that nothing was compiled.
 
@@ -176,6 +177,11 @@ GITHUB_TOKEN= GH_TOKEN= gh repo create ...
 ```
 
 Nothing needs to be changed permanently.
+
+**It is not only `gh repo create`.** Every command that writes needs the same prefix — measured on
+this repository: `gh repo rename`, `gh repo edit --visibility`, `gh workflow run`, and `git push`
+itself, since git picks the same credential up. Reads mostly work without it, which is what makes
+this confusing: `gh run view` and `gh run list` succeed and then the next write returns HTTP 403.
 
 ---
 

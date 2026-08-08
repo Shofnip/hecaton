@@ -9,13 +9,17 @@
  * tests it and where the copy that runs during an update is the previous release's
  * binary, so a wrong answer could never be repaired for anyone who had installed.
  *
- * Two locations, per D4b: `%APPDATA%/hecaton` (config, logs, and the per-slot
- * profiles, which *are* the logged-in sessions) and `%LOCALAPPDATA%/hecaton-updater`
- * (the installer copy NSIS leaves behind, which no uninstall removes). The
- * throwaway clean-session profiles under the OS temp directory are deliberately
+ * **One location: `%APPDATA%/hecaton`** — config, logs, and the per-slot profiles,
+ * which *are* the logged-in sessions. There were two while the app shipped as an
+ * NSIS installer, the second being the installer copy left in `%LOCALAPPDATA%`; the
+ * installer was dropped for a portable zip on 2026-08-08 and that copy no longer
+ * exists to delete.
+ *
+ * The throwaway clean-session profiles under the OS temp directory are deliberately
  * out of scope: they are removed on `stop()` and only outlive a crash, and finding
  * them would mean deleting by filename pattern inside `%TEMP%`, where a pattern one
- * character too broad destroys a third party's files.
+ * character too broad destroys a third party's files. So a truthful "where is my
+ * data" text still names two places even though this function deletes one.
  *
  * Paths are validated as strings rather than with `node:path`, which the core may
  * not import. That is not a workaround: every rule below is about the *shape* a
@@ -36,20 +40,19 @@ export interface UserDataTarget {
 }
 
 /**
- * The uninstaller's way of asking the app to delete the user's data.
+ * There is deliberately no command-line trigger here any more.
  *
- * The app is launched with this and nothing else: no path is passed, so no
- * argument can redirect the deletion. Where to delete comes from
- * `@hecaton/storage`'s own path functions, which is the same reason
+ * A `--delete-user-data` flag existed so the NSIS uninstaller could ask the app to
+ * delete everything when the user ticked its checkbox. Dropping the installer for a
+ * portable zip took the checkbox with it and left the flag reachable with no
+ * confirmation anywhere — a bare argument that removed every logged-in profile,
+ * which is precisely what ADR-0005 means by "never by a flag". It was removed.
+ *
+ * The caller this function is waiting for is the in-app panel action, behind an
+ * explicit confirmation, on an enumerated IPC channel. It passes no path: where to
+ * delete comes from `@hecaton/storage`'s own path functions, the same reason
  * `logs:reveal` takes no argument (ADR-0007 decision 3).
  */
-export const DELETE_USER_DATA_FLAG = '--delete-user-data'
-
-export function requestsUserDataDeletion(argv: readonly string[]): boolean {
-  // Exact match on a whole argument, never a prefix or a substring: a slot name
-  // or a game URL containing this text must not be able to wipe the machine.
-  return argv.includes(DELETE_USER_DATA_FLAG)
-}
 
 /** Below this, a path is not inside a user profile and must not be removed. */
 const MIN_SEGMENTS = 3

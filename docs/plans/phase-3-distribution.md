@@ -10,9 +10,10 @@
 ## Scope
 
 Phase 3 turns a repository that runs on the author's machine into an application other people
-install and keep running. `architecture.md` sketches it as one line — "`electron-builder` ·
-Windows installer · code signing decision · auto-update · license · Electron security review" —
-and this document is the fine plan that line stands for, widened by the owner's Phase-3 goals: an
+install and keep running. `architecture.md` sketched it as one line — "`electron-builder` ·
+Windows installer · code signing decision · auto-update · license · Electron security review" — and
+this document is the fine plan that line stood for. (It has since been rewritten as the phase moved,
+and no longer says "installer": D4 reversed that. Quoted as it was, because it is what set the scope.), widened by the owner's Phase-3 goals: an
 update mechanism, a real product name, a study of user accounts, and operational logging. (The
 update goal was first stated as a **forced** minimum version and was narrowed by the owner during
 planning — see D8. **Two of those four goals ended in nothing being built:** the account study
@@ -215,7 +216,9 @@ ADR-0005 (no code path may endanger a live persistent profile).
 
 The fact that decides it: **the app has never been distributed.** Version is `0.0.0`, Phase 3 has
 not started, so the only `%APPDATA%/helloweb` in existence is the owner's own, plus any test
-machine. There is no installed base to migrate — and that is only true until the first release,
+machine. (Written 2026-07-29. The version is `0.1.0` now and the phase is well under way, but the
+argument holds for the reason that mattered: `git tag` is still empty, nothing has been released, so
+there is still no installed base.) There is no installed base to migrate — and that is only true until the first release,
 which is what makes this the moment to choose.
 
 **(b) The code-level name.** `@helloweb/*` npm scopes across six workspace packages, the root
@@ -339,8 +342,10 @@ zip.**
 
 `electron-builder` producing a **portable zip**. The user downloads it, extracts it wherever they
 like, and runs `Hecaton.exe`. Updating is replacing the folder. There is no install step, no
-elevation, no Start-menu entry, no uninstall registry entry, and nothing writes outside the extracted
-folder and `%APPDATA%/hecaton`.
+elevation, no Start-menu entry, and no uninstall registry entry. Nothing is _installed_ outside the
+extracted folder — but the app still writes in **two** places, not one: `%APPDATA%/hecaton`, and the
+OS temp directory for a clean-session slot's throwaway profile (ADR-0005). Any "where is my data"
+text that names only the first is wrong; see D13.
 
 **This is the option D4 rejected on 2026-07-29, and three of the four reasons it was rejected for
 were dissolved by later decisions rather than argued away:**
@@ -353,8 +358,8 @@ were dissolved by later decisions rather than argued away:**
 | "misleading, since deleting the folder leaves every logged-in profile in `%APPDATA%`" | **This one still holds**, and is the reason the delete action moves into the app — see below                                                       |
 
 **What makes the zip viable at all is ADR-0004**, and it is worth naming because it was decided long
-before anyone considered a zip: every piece of state already lives in `%APPDATA%/hecaton`, so the
-extracted folder is disposable and can sit anywhere. An app that wrote next to its own binary could
+before anyone considered a zip: nothing the app persists lives beside its binary, so the extracted
+folder is disposable and can sit anywhere. An app that wrote next to its own binary could
 not be shipped this way without redesigning where its data lives.
 
 **The consequence that survives, and what is done about it.** Deleting the folder leaves
@@ -799,15 +804,23 @@ first is wrong.
 **Redaction already exists, and it already runs at the right moment.** An earlier draft of this
 section claimed it would be new work; that was wrong, and the truth is better. `redactUrls` lives
 in `packages/core/src/log.ts` and is applied by `formatLogRecord` at the logger boundary, so **no
-URL ever reaches the file on disk** — the guarantee is enforced on the way in, not on the way out.
-Every other logged field (`slotId`, `gameId`, `pid`) is structured and safe by construction.
+URL survives into a log message** — the guarantee is enforced on the way in, not on the way out.
+
+**Narrowed 2026-08-08, and the narrowing matters.** `redactUrls` is applied to `message` and to
+nothing else. `slotId` and `pid` are numbers set in the core, but **`gameId` is copied through
+unredacted and is not structured**: `parse-config.ts` accepts any non-blank string, so a hand-edited
+`config.json` with a URL as its `gameId` writes that URL to a log file. The earlier wording here said
+every other field was "safe by construction", which is exactly the reasoning that would wave through
+the next free-string field.
 
 With D9 reversed there is no bug-report tool, and this guarantee matters **more** rather than less:
 sending a log file is now entirely manual, so a friend attaching one by hand gets the same safety a
 show-before-send UI would have given them. Nothing was lost by dropping the tool on this axis,
 because the protection was never in the tool — it is at the logger boundary. What remains is one
-standing obligation: verify the guarantee still holds for any field a later change adds to a log
-entry.
+standing obligation, and it is already unmet by an existing field: verify the guarantee holds for any
+field added to a log entry, starting with `gameId`. **Whether to redact it or to constrain it to
+kebab-case at the config boundary (the smaller change, and what `registry.ts` already does for
+shipped ids) is the owner's decision** — CLAUDE.md makes log contents a rule-2 trigger.
 
 **The security review before the first release covers the surfaces this phase created**, not the
 whole app:
@@ -907,7 +920,7 @@ the ADRs.
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | P1  | **DONE 2026-07-29 — yes to both. Historical since 2026-08-08:** there is no installer, so nothing exercises this path. Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
 | P2  | **DONE twice — against the installer 2026-07-30, where the first build failed it, and against the zip 2026-08-08, where it passed.** Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
-| P3  | **MOVED to step 7** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                                                                                               | The deny-everything posture must not have to be weakened to let the update link work                                                |
+| P3  | **MOVED to step 8** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                                                                                               | The deny-everything posture must not have to be weakened to let the update link work                                                |
 
 ### P1 — findings, measured 2026-07-29
 
@@ -1004,7 +1017,7 @@ Also confirmed in the artifact: `will-navigate`, `setWindowOpenHandler` with `ac
 
 **Why P3 could not run here.** It asks how `shell.openExternal` behaves alongside those handlers, and
 **nothing in the app calls `openExternal` yet** — the packaged main uses `shell.openPath` only. There
-is no behaviour to measure, so the probe moves to step 7, where the update check creates the call and
+is no behaviour to measure, so the probe moves to step 8, where the update check creates the call and
 the test becomes direct. Recorded rather than quietly satisfied by argument: the mechanism suggests no
 conflict, since `openExternal` runs in main and hands the URL to the OS shell while both handlers
 govern renderer-initiated navigation — but that is reasoning, and this project's habit is to measure.
@@ -1112,18 +1125,19 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
 
 1. ~~**P1** — the uninstaller probe.~~ **Done 2026-07-29**; it did change D4b's design (see D4b and
    the findings above).
-2. **The rename** (D1, D2), as one mechanical commit: `@hecaton/*`, root package name, repo, and
+2. ~~**The rename** (D1, D2), as one mechanical commit: `@hecaton/*`, root package name, repo, and
    `APP_DIR_NAME` red-first in `packages/storage/src/app-paths.test.ts`. Plus the one-time manual
-   step in `docs/troubleshooting.md`, written as a **move**.
+   step in `docs/troubleshooting.md`, written as a **move**.~~ **Done 2026-07-30**, verified at runtime:
+   the app read and wrote the moved directory and the panel rendered, which is what proved the
+   preload-bridge rename held.
 3. ~~**`LICENSE` + `NOTICE`** (Apache-2.0, copyright held under the handle) and the README's terms
    section.~~ **Done 2026-07-30.** Apache-2.0 verbatim from apache.org, `NOTICE` under `Shofnip`, and
-   the README rewritten around the rules actually read (see D3b). **Making the repository public is
-   the remaining half of D3a and is deliberately separate**, since it is the one-way door: it needs a
-   pass over the git history first, because publishing publishes every commit, not just the current
-   tree.
+   the README rewritten around the rules actually read (see D3b). **The repository was made public on 2026-07-30**,
+   after a pass over the git history — the one-way door is already through, and the single exposure
+   accepted at it is recorded in D3a. Do not re-run that step.
 4. ~~**`electron-builder` config and the first packaged build**, then **P2** and **P3** against it.~~
    **Done 2026-07-30**, `deleteAppDataOnUninstall: false` from the first line as D4b requires. P2
-   passed only after a fix it forced (see its findings); **P3 moved to step 7**, since nothing calls
+   passed only after a fix it forced (see its findings); **P3 moved to step 8**, since nothing calls
    `shell.openExternal` yet. D12's two exact pins are now actually in force: `electron-builder`
    at 26.15.3 and `node-window-manager` at 2.2.4, which had still been floating at `^2.2.4`.
 5. ~~**The delete-user-data path** (D4b).~~ **Done 2026-07-30.** Core validator red-first, sync
@@ -1136,7 +1150,12 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
    the script.
 6. ~~**The release workflow** on tag, publishing the artifact and its SHA256.~~ **Done 2026-07-30**,
    and exercised through `workflow_dispatch` before any tag exists. Findings below.
-7. **The first-run screen** — the terms warning, and only that. It was going to carry the metrics
+7. **The first-run screen** — the terms warning, and only that.
+   **Also open here:** whether the password disclosure removed in the video-wall rework returns. The
+   panel used to tell the user that letting Chrome save a game password speeds re-login, and what the
+   risk was; it went with decision 7 and nothing replaced it (ADR-0009's 2026-08-08 Correction). It is
+   UI text about a credential risk, so it is the owner's call, and the first-run screen is where it
+   would now live. It was going to carry the metrics
    consent too, which is why D3b and D9a were paired here; with D9 reversed the screen is one thing,
    and it is **no longer blocked** on choosing an analytics service or writing a retention policy.
 8. **The update check** — core validator first, then the adapter, then the UI. **P3 runs here**, once
@@ -1157,9 +1176,12 @@ longer exists, so each has a remainder rather than being simply undone:
   `addon.node` unpacked, and the app runs from the extracted folder rendering its four screens. Two
   findings, both caught by looking at the artifact rather than the config — see below.
 - **5r — the in-app delete.** Keep the core validator, the adapter and their tests; they are unchanged
-  and were never installer-specific. Remove the headless `--delete-user-data` branch from main, and
-  add the panel action with confirmation, plus the "your data" entry (complement 3) that is now the
-  only place a user can act. Red-first as usual, and the IPC channel is enumerated and validated like
+  and were never installer-specific. ~~Remove the headless `--delete-user-data` branch from main~~ —
+  **done 2026-08-08**, and not as tidying: with the installer gone it was a bare argv flag that wiped
+  every logged-in profile with no confirmation, since the confirmation had only ever lived in NSIS.
+  `main.ts` carries a comment saying so, so nobody re-adds it. **Still outstanding:** the panel action
+  with confirmation, plus the "your data" entry (complement 3) that is now the only place a user can
+  act. Red-first as usual, and the IPC channel is enumerated and validated like
   every other.
 - ~~**6r — the workflow.**~~ **Done 2026-08-08** and exercised through `workflow_dispatch`. It named
   the exe in three places, not two. The CI zip was downloaded and checked: `sha256sum -c` accepts the
@@ -1196,8 +1218,10 @@ whole network surface is one user-initiated request, and its whole install story
 - No forced update, no minimum-version enforcement, no remote kill switch (D8).
 - No accounts (D10), no monetization (D11).
 - No app-level encryption of profile directories (D13).
-- No sweeping of the OS temp directory for leftover clean-session profiles, and no deletion of user
-  data by the NSIS script itself — the uninstaller launches the app, which deletes (D4b).
+- No sweeping of the OS temp directory for leftover clean-session profiles. (This bullet used to
+  continue "and no deletion of user data by the NSIS script itself — the uninstaller launches the
+  app, which deletes". That split went with the installer on 2026-08-08; see D4 and the bullet
+  below.)
 - No `electron-updater`, and no automatic update check unless the owner turns on the opt-in variant
   named in D8.
 - **No installer.** The release is a zip; extracting it is the install and deleting the folder is the
