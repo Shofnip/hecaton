@@ -375,8 +375,11 @@ Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundTh
 global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,
 `ui:setTheme`, `screens:layout` and `overlay:open`/`overlay:close`.
 
-**Phase 3 — distribution. Not started.** `electron-builder` · Windows installer · code signing
-decision · auto-update · license · Electron security review before the first public release.
+**Phase 3 — distribution. In progress.** `electron-builder` producing a **portable zip** (an assisted
+NSIS installer was built and then dropped) · unsigned, with a published SHA256 · Apache-2.0, public
+repository · releases built by GitHub Actions on a tag · a user-initiated update check, which is the
+app's only network request · no telemetry · Electron security review before the first release. The
+fine plan, and every reversal along the way, is `docs/plans/phase-3-distribution.md`.
 
 ## Verification
 

@@ -75,7 +75,7 @@ Each decision below carries:
 | D1  | Product name and identity                                                               | **DECIDED 2026-07-29 — `Hecaton`**                    | —          | ADR (naming + its consequences)                      |
 | D2  | App identity strings and the fate of `%APPDATA%/helloweb`                               | **DECIDED 2026-07-29**                                | D1         | ADR-0012, plus a Correction to ADR-0004              |
 | D3  | License, EULA and the terms-of-service disclosure                                       | **DECIDED 2026-07-29**                                | —          | `LICENSE` + `NOTICE` + architecture.md, and ADR-0013 |
-| D4  | Packaging target, installer shape, and what an uninstall leaves                         | **DECIDED 2026-07-29**                                | D1, D2     | ADR (uninstall vs ADR-0005 is a real fork)           |
+| D4  | ~~Packaging target, installer shape~~ → a portable zip, no installer                    | **REVERSED 2026-08-08**                               | D1, D2     | ADR (the reversal and what it costs)                 |
 | D5  | Code signing                                                                            | **DECIDED 2026-07-29 — unsigned**                     | D1         | ADR                                                  |
 | D6  | Release hosting and the update feed's home                                              | **DECIDED 2026-07-29 — GitHub Releases**              | D3, D5     | folded into D7's ADR                                 |
 | D7  | Update mechanism — the app's first network surface                                      | **DECIDED 2026-07-29**                                | D5, D6     | ADR (reverses ADR-0007's premise)                    |
@@ -303,8 +303,11 @@ Accepted cost: a warning about bans on first launch is a discouraging first impr
 cost some adoption. Taken deliberately — it is the only moment the warning can still change the
 user's decision, because it precedes logging an account in.
 
-**Consequence that constrains D4:** a licence page requires the **assisted** NSIS installer.
-A one-click installer has nowhere to show it.
+**Consequence that constrained D4** — void since 2026-08-08: a licence page required the **assisted**
+NSIS installer, and there is no installer any more. The warning now appears in **two** places, README
+and first run, and `LICENSE` ships inside the zip. Recorded rather than quietly dropped, because
+"three places" was a deliberate choice and it is now two: the one lost is the one a user could not
+skip past, so the first-run text carries more weight than it did.
 
 **Verification task — DONE 2026-07-30, and the result is sharper than expected.** The Poke IdleWorld
 rules had never been read; `architecture.md` carried it as an open risk. Read on
@@ -329,7 +332,52 @@ the add-screen action, to naming it in the first-run text. Not implemented.
 
 ## D4 — Packaging target, installer shape, and what an uninstall leaves
 
-**Status:** DECIDED (2026-07-29)
+**Status:** DECIDED (2026-07-29) → **REVERSED (2026-08-08). There is no installer. The release is a
+zip.**
+
+### The zip, decided 2026-08-08
+
+`electron-builder` producing a **portable zip**. The user downloads it, extracts it wherever they
+like, and runs `Hecaton.exe`. Updating is replacing the folder. There is no install step, no
+elevation, no Start-menu entry, no uninstall registry entry, and nothing writes outside the extracted
+folder and `%APPDATA%/hecaton`.
+
+**This is the option D4 rejected on 2026-07-29, and three of the four reasons it was rejected for
+were dissolved by later decisions rather than argued away:**
+
+| Original objection                                                                    | Why it no longer holds                                                                                                                             |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "incompatible with D3b (no licence page)"                                             | D3b wanted the warning in three places; the installer was one of them. Two remain — README and first run — and the licence itself ships in the zip |
+| "no uninstall entry"                                                                  | Accepted deliberately: deleting the folder is the uninstall                                                                                        |
+| "no update path"                                                                      | D7 already decided the app never installs anything — it opens the release page and the user downloads. That works identically for a zip            |
+| "misleading, since deleting the folder leaves every logged-in profile in `%APPDATA%`" | **This one still holds**, and is the reason the delete action moves into the app — see below                                                       |
+
+**What makes the zip viable at all is ADR-0004**, and it is worth naming because it was decided long
+before anyone considered a zip: every piece of state already lives in `%APPDATA%/hecaton`, so the
+extracted folder is disposable and can sit anywhere. An app that wrote next to its own binary could
+not be shipped this way without redesigning where its data lives.
+
+**The consequence that survives, and what is done about it.** Deleting the folder leaves
+`%APPDATA%/hecaton` behind — the persistent profiles, which **are** logged-in sessions, plus config
+and logs — with nothing prompting about it. With an installer, the uninstaller was the moment to ask.
+That moment no longer exists, so **the "delete all my data" action moves into the app's panel**
+(decided 2026-08-08), with explicit confirmation, reusing the core validator and the adapter that
+already exist and are tested. The headless `--delete-user-data` flag is removed with the installer:
+it existed only so NSIS could call it.
+
+Two obligations follow, and both are D13 accuracy obligations rather than new ideas: the README and
+the first-run text must say where the data is, and the panel needs the "your data" entry that
+suggested complement 3 already describes — it stops being a nicety and becomes the only place the
+user can act.
+
+**What was built for the installer and is now dropped:** the NSIS custom script
+(`build-resources/installer.nsh`), the uninstaller checkbox, and the `${isUpdated}` guard. It stays
+in git history. Probe P1's findings keep their value as a record of _why_ the delete branch was never
+written in NSIS, but they now describe a mechanism this project does not use.
+
+### The installer decision, superseded 2026-08-08
+
+Kept for the trail. **None of this is built any more.**
 
 `electron-builder` producing an **assisted NSIS installer** — the shape was already forced by D3b,
 since a licence page has nowhere to live in a one-click installer.
@@ -420,7 +468,12 @@ path, and misleading besides, since deleting the unzipped folder leaves every lo
 
 ## D5 — Code signing
 
-**Status:** DECIDED (2026-07-29) — **the installer is not signed.**
+**Status:** DECIDED (2026-07-29) — **nothing is signed.** The decision stands unchanged after D4's
+reversal on 2026-08-08; only its wording ages, since there is no installer to sign. Two of the three
+arguments that had raised signing's value are now gone with it — there is no UAC dialog, and D7 never
+downloaded or ran an installer in the first place. What remains is D3a: the source is public, so
+anyone can build a lookalike zip. The SHA256 published beside each release is still the only thing
+that distinguishes an authentic build, and a zip makes checking it no harder.
 
 Three earlier decisions had raised the value of signing: D4a put a UAC dialog in front of every
 user, D3a made the source public so anyone can build a lookalike, and D7 will download and run an
@@ -765,11 +818,13 @@ whole app:
    can be checked by grepping for `fetch` in the main process and finding a single call site.
 2. `shell.openExternal` — the URL is a constant; nothing from the renderer or from a fetched
    document can reach it.
-3. The uninstall delete path, now that P1 has measured it: `deleteAppDataOnUninstall` is `false`, the
-   app launch is guarded by `${isUpdated}`, the `--delete-user-data` flag is reachable only from that
-   launch and never from a renderer, the headless run exits on its own, and an **update** of a real
-   installation leaves every profile in place — verified by installing, updating and inspecting, not
-   by reading the script.
+3. **The in-app delete action** (rewritten 2026-08-08, since there is no uninstaller): it is reachable
+   only through an explicit, confirmed user action in the panel; the paths come from
+   `@hecaton/storage`'s own functions and never from an IPC payload; the core validator still refuses
+   anything that is not the app's own directory; and **no other code path deletes user data** —
+   checked by finding every call site of the adapter and confirming there is one. The old NSIS
+   guards (`deleteAppDataOnUninstall: false`, the `${isUpdated}` branch, the headless flag) are gone
+   with the installer and are not part of this review.
 4. ~~The metrics allowlist.~~ Void — D9 reversed, no events are built.
 5. ~~The bug-report bundle.~~ Void for the same reason. Instead, confirm the negative: **nothing in
    the app sends a log anywhere.** A dropped feature leaves no test behind, so this one is checked by
@@ -848,11 +903,11 @@ an intention.
 Disposable, Phase-0 style, outside the packages, no TDD; findings recorded here and carried into
 the ADRs.
 
-| #   | Question                                                                                                                                                                                                           | Why it blocks                                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | **DONE 2026-07-29 — yes to both.** Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                                 | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
-| P2  | **DONE 2026-07-30 — it does now, and the first build failed it.** Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
-| P3  | **MOVED to step 7** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                            | The deny-everything posture must not have to be weakened to let the update link work                                                |
+| #   | Question                                                                                                                                                                                                                                                                                                            | Why it blocks                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | **DONE 2026-07-29 — yes to both. Historical since 2026-08-08:** there is no installer, so nothing exercises this path. Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                                              | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
+| P2  | **DONE 2026-07-30 against the installer; must be RE-RUN against the zip** (2026-08-08), since it is a different artifact even though the `files` config is shared. Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
+| P3  | **MOVED to step 7** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                                                                                                                             | The deny-everything posture must not have to be weakened to let the update link work                                                |
 
 ### P1 — findings, measured 2026-07-29
 
@@ -1022,12 +1077,12 @@ The owner's call.
 
 This document is deleted. What survives, and where:
 
-| ADR                                                       | Carries                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **ADR-0012** — the name and the data directory            | D1, D2: `Hecaton`, `APP_DIR_NAME` renamed, and **no migration code, ever**                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **ADR-0013** — the distribution posture                   | D3, D4, D5, D6, D12: Apache-2.0 and a public repo, per-user assisted NSIS, unsigned, GitHub Releases, CI-built, exact pins. These were weighed **together** and each depends on the others — unsigned is what makes per-user right, and a public repo is what makes unsigned costly                                                                                                                                                                                                                                     |
-| **ADR-0014** — the app's first network request            | D7, D8: user-initiated update check, no enforcement, no kill switch, no `electron-updater`                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **ADR-0015** — what the app deliberately does not collect | D9, D10, D11: **no metrics, no bug-report tool, no accounts, no monetization**, and logs that never leave the machine. D9 is the interesting half: opt-in telemetry through a core-built allowlist was designed in full, then dropped before a line was written, so the ADR records a decision **taken and reversed** rather than one implemented. Both alternatives it rejected — opt-out defaults and a machine-derived id — are worth carrying, because they are what someone would reach for if the subject returns |
+| ADR                                                       | Carries                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ADR-0012** — the name and the data directory            | D1, D2: `Hecaton`, `APP_DIR_NAME` renamed, and **no migration code, ever**                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **ADR-0013** — the distribution posture                   | D3, D4, D5, D6, D12: Apache-2.0 and a public repo, **a portable zip and no installer**, unsigned, GitHub Releases, CI-built, exact pins. The assisted per-user NSIS installer was built, verified and then dropped on 2026-08-08 in favour of the zip — the ADR carries that reversal, because the installer's reasoning is what explains why the delete-data action lives in the panel rather than in an uninstaller, and because "no installer" is the kind of decision someone later reads as an omission rather than a choice |
+| **ADR-0014** — the app's first network request            | D7, D8: user-initiated update check, no enforcement, no kill switch, no `electron-updater`                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **ADR-0015** — what the app deliberately does not collect | D9, D10, D11: **no metrics, no bug-report tool, no accounts, no monetization**, and logs that never leave the machine. D9 is the interesting half: opt-in telemetry through a core-built allowlist was designed in full, then dropped before a line was written, so the ADR records a decision **taken and reversed** rather than one implemented. Both alternatives it rejected — opt-out defaults and a machine-derived id — are worth carrying, because they are what someone would reach for if the subject returns           |
 
 Two existing ADRs are touched, and **they need different treatments** — which is exactly the
 distinction the ADR README draws, so getting it wrong here would be ironic:
@@ -1093,8 +1148,23 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
 11. **The security review** (D13), then the docs: `architecture.md`, the four new ADRs, ADR-0007's
     `Superseded in part` line and ADR-0004's Correction — then delete this file.
 
-**Two steps left after this change**, 7 and 8, plus the review. The phase got materially shorter, and
-the app's whole network surface is now one user-initiated request.
+**Reopened on 2026-08-08 by D4's reversal.** Steps 4, 5 and 6 were done against an installer that no
+longer exists, so each has a remainder rather than being simply undone:
+
+- **4r — the zip.** Switch the `electron-builder` target from `nsis` to `zip`, drop the `nsis` block
+  and delete `build-resources/installer.nsh`. The `files` negations that probe P2 forced stay exactly
+  as they are; they are what keeps the fakes and the tests out, and they apply to any target. **Re-run
+  P2 against the zip** — same questions, different artifact.
+- **5r — the in-app delete.** Keep the core validator, the adapter and their tests; they are unchanged
+  and were never installer-specific. Remove the headless `--delete-user-data` branch from main, and
+  add the panel action with confirmation, plus the "your data" entry (complement 3) that is now the
+  only place a user can act. Red-first as usual, and the IPC channel is enumerated and validated like
+  every other.
+- **6r — the workflow.** It globs `release/*-setup.exe` in two places; both become the zip. Everything
+  else — least privilege, the tag/version check, the SHA256, no third-party actions — is unaffected.
+
+**Then 7, 8 and the review.** The phase is shorter than it was a week ago on both counts: the app's
+whole network surface is one user-initiated request, and its whole install story is "unzip it".
 
 ## Non-decisions — recorded so they are not re-raised
 
@@ -1107,6 +1177,9 @@ the app's whole network surface is now one user-initiated request.
   data by the NSIS script itself — the uninstaller launches the app, which deletes (D4b).
 - No `electron-updater`, and no automatic update check unless the owner turns on the opt-in variant
   named in D8.
+- **No installer.** The release is a zip; extracting it is the install and deleting the folder is the
+  uninstall (D4, reversed 2026-08-08). No Start-menu entry, no uninstall registry key, no elevation.
+  Deleting user data is an action **inside the app**, because a zip has no uninstaller to host it.
 - **No metrics, no telemetry, no analytics endpoint, no installation id, and no in-app bug-report
   tool** (D9, reversed 2026-07-30). The app's local logs stay and never leave the machine. The design
   that was dropped is kept in D9 so it does not have to be re-derived if the subject ever returns —

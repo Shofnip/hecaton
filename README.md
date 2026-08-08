@@ -36,8 +36,12 @@ isolation by construction. First target game: **Poke IdleWorld**; any `https://`
 
 ## Install
 
-There is no packaged installer yet — a Windows installer is a future phase — so for now you run it
-from the source:
+There is no published release yet. When there is, it will be a **zip**: download it, extract it
+anywhere, run `Hecaton.exe`. No installer, no elevation — and no uninstaller either, so removing the
+folder is the uninstall, while your logins and settings stay in `%APPDATA%/hecaton` until you delete
+them from inside the app.
+
+For now you run it from the source:
 
 ```
 git clone <this repo>
