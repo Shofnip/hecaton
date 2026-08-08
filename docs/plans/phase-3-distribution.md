@@ -903,11 +903,11 @@ an intention.
 Disposable, Phase-0 style, outside the packages, no TDD; findings recorded here and carried into
 the ADRs.
 
-| #   | Question                                                                                                                                                                                                                                                                                                            | Why it blocks                                                                                                                       |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | **DONE 2026-07-29 — yes to both. Historical since 2026-08-08:** there is no installer, so nothing exercises this path. Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                                              | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
-| P2  | **DONE 2026-07-30 against the installer; must be RE-RUN against the zip** (2026-08-08), since it is a different artifact even though the `files` config is shared. Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
-| P3  | **MOVED to step 7** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                                                                                                                             | The deny-everything posture must not have to be weakened to let the update link work                                                |
+| #   | Question                                                                                                                                                                                                                                                                              | Why it blocks                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | **DONE 2026-07-29 — yes to both. Historical since 2026-08-08:** there is no installer, so nothing exercises this path. Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
+| P2  | **DONE twice — against the installer 2026-07-30, where the first build failed it, and against the zip 2026-08-08, where it passed.** Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
+| P3  | **MOVED to step 7** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                                                                                               | The deny-everything posture must not have to be weakened to let the update link work                                                |
 
 ### P1 — findings, measured 2026-07-29
 
@@ -1151,17 +1151,40 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
 **Reopened on 2026-08-08 by D4's reversal.** Steps 4, 5 and 6 were done against an installer that no
 longer exists, so each has a remainder rather than being simply undone:
 
-- **4r — the zip.** Switch the `electron-builder` target from `nsis` to `zip`, drop the `nsis` block
-  and delete `build-resources/installer.nsh`. The `files` negations that probe P2 forced stay exactly
-  as they are; they are what keeps the fakes and the tests out, and they apply to any target. **Re-run
-  P2 against the zip** — same questions, different artifact.
+- ~~**4r — the zip.**~~ **Done 2026-08-08.** Target switched, `nsis` block and `installer.nsh` gone,
+  `files` negations untouched. **P2 re-run against the zip and it passes**: 337 asar entries, zero
+  fakes, zero tests, zero `spike/`, `dist` intact, identical CSP in the extracted `index.html`, both
+  `addon.node` unpacked, and the app runs from the extracted folder rendering its four screens. Two
+  findings, both caught by looking at the artifact rather than the config — see below.
 - **5r — the in-app delete.** Keep the core validator, the adapter and their tests; they are unchanged
   and were never installer-specific. Remove the headless `--delete-user-data` branch from main, and
   add the panel action with confirmation, plus the "your data" entry (complement 3) that is now the
   only place a user can act. Red-first as usual, and the IPC channel is enumerated and validated like
   every other.
-- **6r — the workflow.** It globs `release/*-setup.exe` in two places; both become the zip. Everything
-  else — least privilege, the tag/version check, the SHA256, no third-party actions — is unaffected.
+- ~~**6r — the workflow.**~~ **Done 2026-08-08** and exercised through `workflow_dispatch`. It named
+  the exe in three places, not two. The CI zip was downloaded and checked: `sha256sum -c` accepts the
+  published hash, and the archive carries `Hecaton.exe`, `LICENSE.txt` and `NOTICE.txt`. Least
+  privilege, the tag/version check and the no-third-party-actions rule are unaffected.
+
+**Two findings from packaging as a zip, 2026-08-08:**
+
+1. **The first zip shipped no licence at all.** It carried `LICENSE.electron.txt` and
+   `LICENSES.chromium.html` — Electron's and Chromium's obligation, not this project's — while the
+   Apache-2.0 `LICENSE` and `NOTICE` were absent. Apache-2.0 §4 obliges whoever distributes the binary
+   to include them, and the installer's licence page had been quietly satisfying that. A zip has no
+   page. They now travel as `extraFiles`, named `.txt` because Windows has no handler for an
+   extensionless `LICENSE`. **This is the kind of thing the installer was hiding:** dropping it
+   removed a mechanism that was carrying an obligation nobody had written down as its job.
+2. **The zip is 134 MB where the installer was 96 MB**, and there is no lever. `compression: maximum`
+   was measured and rejected: 380 KB saved, 0.27%, for 3.5 minutes of build time, because it drives
+   LZMA for 7z and NSIS targets and leaves the zip's deflate alone. A 7z target would close the gap
+   and is rejected — Windows cannot extract `.7z` unaided, which defeats the point of choosing a zip.
+   So a friend downloads 40% more than they would have. Accepted as the price of no installer.
+
+**One rough edge, not fixed:** the zip extracts **flat** — `Hecaton.exe` sits at the archive root
+rather than inside a `Hecaton/` folder. Windows Explorer's "Extract All" creates a folder named after
+the zip, so the common path is fine, but a 7-Zip "extract here" would scatter about fifty files into
+whatever directory the user was in. `electron-builder`'s zip target has no wrap-in-folder option.
 
 **Then 7, 8 and the review.** The phase is shorter than it was a week ago on both counts: the app's
 whole network surface is one user-initiated request, and its whole install story is "unzip it".
