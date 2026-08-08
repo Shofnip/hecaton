@@ -34,6 +34,13 @@ export interface GlobalConfig {
   audioFollowsFocus: boolean
   /** The panel's colour theme, persisted so it survives a restart. Default dark. */
   theme: Theme
+  /**
+   * The version of the terms warning the user has acknowledged; 0 for nobody.
+   *
+   * A number, not a flag, so a materially changed warning can be shown again —
+   * see `terms.ts`, which owns the current version and the rule.
+   */
+  termsAcknowledged: number
 }
 
 /** What a slot may override. Everything except the id is optional. */
@@ -89,6 +96,10 @@ export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   audioFollowsFocus: true,
   // Dark shipped as the default, per the design spec (§2).
   theme: 'dark',
+  // Nobody has been shown the terms warning yet. The cautious default is the
+  // only correct one: reading absence as "already seen" would silently skip the
+  // one moment the warning can still change a decision.
+  termsAcknowledged: 0,
 }
 
 export function resolveSlotConfig(globals: GlobalConfig, slot: SlotOverrides): ResolvedSlotConfig {

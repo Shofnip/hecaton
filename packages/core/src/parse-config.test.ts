@@ -37,6 +37,7 @@ describe('parseConfig on a valid file', () => {
         mute: false,
         audioFollowsFocus: true,
         theme: 'dark',
+        termsAcknowledged: 0,
       },
       slots: [
         { id: 1, gameId: 'poke-idleworld' },
@@ -64,6 +65,18 @@ describe('parseConfig on a valid file', () => {
       },
     ]
     expect(parseConfig({ ...valid, slots }).slots).toEqual(slots)
+  })
+
+  it('reads an acknowledged terms version', () => {
+    expect(parseConfig({ ...valid, termsAcknowledged: 1 }).globals.termsAcknowledged).toBe(1)
+  })
+
+  it('treats a file that predates the setting as never acknowledged', () => {
+    // Additive like audioFollowsFocus and theme, and the default has to be the
+    // *cautious* one: an older file means nobody was ever shown the warning, so
+    // absent must read as 0 and not as "already seen".
+    expect('termsAcknowledged' in valid).toBe(false)
+    expect(parseConfig(valid).globals.termsAcknowledged).toBe(0)
   })
 
   it('reads an explicit audioFollowsFocus', () => {
@@ -113,6 +126,8 @@ describe('parseConfig refuses a file it cannot fully understand', () => {
     ['a non-boolean mute', { ...valid, mute: 1 }],
     ['a non-boolean audioFollowsFocus', { ...valid, audioFollowsFocus: 'on' }],
     ['an unknown theme', { ...valid, theme: 'sepia' }],
+    ['a non-integer termsAcknowledged', { ...valid, termsAcknowledged: 1.5 }],
+    ['a negative termsAcknowledged', { ...valid, termsAcknowledged: -1 }],
     ['slots that are not an array', { ...valid, slots: {} }],
   ])('rejects %s', (_case, input) => {
     expect(() => parseConfig(input)).toThrow()

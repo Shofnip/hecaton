@@ -37,6 +37,7 @@ const GLOBAL_KEYS = [
   'mute',
   'audioFollowsFocus',
   'theme',
+  'termsAcknowledged',
   'slots',
 ] as const
 const SLOT_KEYS = [
@@ -84,6 +85,15 @@ function requireBoolean(value: unknown, field: string, context: string): boolean
 function requirePositiveInteger(value: unknown, field: string, context: string): number {
   if (!Number.isInteger(value) || (value as number) < 1) {
     throw new Error(`${context}${field} must be a positive integer, got ${JSON.stringify(value)}`)
+  }
+  return value as number
+}
+
+function requireNonNegativeInteger(value: unknown, field: string, context: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0) {
+    throw new Error(
+      `${context}${field} must be a non-negative integer, got ${JSON.stringify(value)}`,
+    )
   }
   return value as number
 }
@@ -273,6 +283,13 @@ export function parseConfig(input: unknown): ParsedConfig {
       input['theme'] === undefined
         ? DEFAULT_GLOBAL_CONFIG.theme
         : requireTheme(input['theme'], 'config: '),
+    // Additive too, and the default matters more than the others': absent means
+    // this file predates the warning, so nobody has read it. Reading absence as
+    // "acknowledged" would skip the one moment it can still change a decision.
+    termsAcknowledged:
+      input['termsAcknowledged'] === undefined
+        ? DEFAULT_GLOBAL_CONFIG.termsAcknowledged
+        : requireNonNegativeInteger(input['termsAcknowledged'], 'termsAcknowledged', 'config: '),
   }
 
   const rawSlots = input['slots']

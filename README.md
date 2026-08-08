@@ -174,3 +174,8 @@ account matters to you, ask the game's staff before pointing Hecaton at it.
 Terms change, and the summary above is a snapshot with a date on it, not legal advice. Check the
 rules yourself. If injection or automation ever returns in a later phase, this section gets stricter,
 not softer.
+
+**The app says this too, before you can use it.** The first launch opens on that warning with a
+single button, because it is the last moment it can still change what you decide — after the first
+login it is advice about a decision already taken. Afterwards it stays readable under
+**Configurações → Aviso sobre os termos do jogo**.

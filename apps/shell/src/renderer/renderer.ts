@@ -49,6 +49,8 @@ interface PanelState {
   maxSlots: number
   audioFollowsFocus: boolean
   theme: Theme
+  /** Whether the terms warning is still owed. Main compares the versions. */
+  needsTerms: boolean
   configError?: string
 }
 
@@ -73,6 +75,7 @@ interface HecatonApi {
   clearAllCaches(): Promise<void>
   revealUserData(): Promise<void>
   deleteAllUserData(): Promise<void>
+  acknowledgeTerms(): Promise<void>
   setAudioFollowsFocus(enabled: boolean): Promise<void>
   renameSlot(id: number, name: string): Promise<void>
   setSlotVolume(id: number, volume: number): Promise<void>
@@ -311,6 +314,9 @@ let state: PanelState = {
   maxSlots: 4,
   audioFollowsFocus: true,
   theme: 'dark',
+  // False until main says otherwise, so a stray frame before the first push
+  // cannot flash the warning at someone who has already read it.
+  needsTerms: false,
 }
 
 // UI-only state main does not own. The modal/editor flags moved to the overlay
@@ -346,9 +352,100 @@ function showToast(message: string): void {
   }, 2600)
 }
 
+// ============================ the terms warning (D3b) ============================
+
+/**
+ * The warning the app shows before the first login, and the only text a user
+ * cannot miss.
+ *
+ * It was to appear in three places. The installer's licence page was the one that
+ * could not be skipped past, and it went with the installer; a zip carries
+ * `LICENSE.txt` and `NOTICE.txt` but no README. So this is the whole of it, which
+ * is why the same text is also reachable from Configurações afterwards rather
+ * than shown once and lost.
+ *
+ * What it must not do is soften. The product's central capability is what most
+ * game terms restrict, the consequence lands on the user and never on the author,
+ * and saying so plainly is the point — the rules summarised here were read on
+ * 2026-07-30 and the date travels with them.
+ */
+const TERMS_PARAGRAPHS = [
+  'O Hecaton abre várias contas do mesmo jogo lado a lado. É justamente isso que a maioria ' +
+    'dos termos de jogos restringe.',
+  'O aplicativo não automatiza nada e não injeta nada nas páginas: ele abre janelas comuns do ' +
+    'Chrome e as organiza. Isso não o coloca fora das regras.',
+  'Nas regras do Poke IdleWorld, lidas em 30/07/2026: usar qualquer programa, script ou extensão ' +
+    'sem permissão da equipe é proibido. O Hecaton é um programa usado junto com o jogo. Ele não ' +
+    'simula sua presença e não roda macros nem auto-clickers — que são citados à parte e são o ' +
+    'alvo mais claro da regra —, mas o texto é amplo o bastante para alcançá-lo, e só a equipe do ' +
+    'jogo pode dizer se aceita.',
+  'As punições aumentam com o histórico: advertência, suspensão, remoção de itens, banimento ' +
+    'permanente.',
+  'A consequência é sua, não do autor. Cada tela roda dentro da sua própria sessão logada; não ' +
+    'há infraestrutura compartilhada e ninguém pode absorver um banimento por você. Se a conta ' +
+    'importa, pergunte à equipe do jogo antes de apontar o Hecaton para ela.',
+  'Os termos mudam, e o resumo acima é uma fotografia com data — não é orientação jurídica. ' +
+    'Confira as regras você mesmo.',
+]
+
+function termsBody(): HTMLElement {
+  const box = el('div', 'terms-body')
+  for (const paragraph of TERMS_PARAGRAPHS) box.append(el('p', 'terms-p', paragraph))
+  return box
+}
+
+/**
+ * The first-run gate: the warning over everything, with one way past it.
+ *
+ * It covers the sidebar too, deliberately. D3b took the cost of a discouraging
+ * first impression on purpose, because this is the last moment the warning can
+ * still change what the user does — it precedes logging an account in, and after
+ * that it is advice about a decision already taken.
+ *
+ * Drawn in the wall's own DOM rather than the overlay window: at startup no
+ * screen is running, so nothing is embedded over the panel and there is nothing
+ * to paint above.
+ */
+function renderTermsGate(): void {
+  const existing = document.getElementById('terms-gate')
+  if (!state.needsTerms) {
+    existing?.remove()
+    return
+  }
+  if (existing) return // already up; redrawing would scroll it back to the top
+
+  const gate = el('div', 'terms-gate')
+  gate.id = 'terms-gate'
+  const sheet = el('div', 'terms-sheet')
+  sheet.setAttribute('role', 'dialog')
+  sheet.setAttribute('aria-modal', 'true')
+
+  const head = el('div', 'terms-head')
+  head.append(icon('alert', 22), el('h2', undefined, 'Leia antes de logar uma conta'))
+  sheet.append(head)
+  sheet.append(termsBody())
+
+  const actions = el('div', 'terms-actions')
+  const accept = el('button', 'btn primary', 'Entendi, continuar')
+  accept.type = 'button'
+  accept.addEventListener('click', () => run(() => window.hecaton.acknowledgeTerms()))
+  actions.append(accept)
+  sheet.append(actions)
+
+  gate.append(sheet)
+  document.body.append(gate)
+  // preventScroll matters here and was found by looking at the thing rather than
+  // at the code: the text is taller than the default window, so a plain focus()
+  // scrolls the button into view and the warning opens halfway down, title off
+  // screen. The keyboard still lands on the button; the eye still starts at the
+  // top.
+  accept.focus({ preventScroll: true })
+}
+
 // ============================ the board ============================
 
 function render(): void {
+  renderTermsGate()
   document.documentElement.dataset.theme = state.theme
   if (configError) {
     configError.hidden = state.configError === undefined
@@ -937,6 +1034,12 @@ function openSettings(): void {
     })
     body.append(logs)
 
+    const terms = el('button', 'neutral-btn')
+    terms.type = 'button'
+    terms.append(icon('alert', 18), el('span', undefined, 'Aviso sobre os termos do jogo'))
+    terms.addEventListener('click', openTerms)
+    body.append(terms)
+
     body.append(themeRow())
 
     body.append(el('div', 'risk-divider'))
@@ -990,6 +1093,23 @@ function openSettings(): void {
 }
 
 /**
+ * The same warning, re-readable.
+ *
+ * The gate is shown once and then never again; without this the text would be
+ * visible exactly one time in the app's life, and a zip carries no README to fall
+ * back on. Reading it later changes no decision, which is why the gate exists —
+ * but "I remember something about bans" deserves somewhere to go.
+ */
+function openTerms(): void {
+  openModal((dialog, close) => {
+    modalHead(dialog, 'Aviso sobre os termos do jogo', close)
+    const body = el('div', 'modal-body')
+    body.append(termsBody())
+    dialog.append(body)
+  })
+}
+
+/**
  * Where the user's data lives, and a way to open it.
  *
  * It names **both** places on purpose. A screen with a clean session does not use
@@ -1018,6 +1138,22 @@ function userDataBox(): HTMLElement {
       'Uma tela com sessão limpa não usa essa pasta: ela recebe um perfil temporário na pasta ' +
         'Temp do Windows, apagado quando a tela para. Se o aplicativo for encerrado à força, esse ' +
         'perfil fica lá até o Windows recolher.',
+    ),
+  )
+
+  // The password disclosure (ADR-0009, Correction of 2026-08-08). It lived in the
+  // panel, went with the video-wall rework, and nothing replaced it. Here rather
+  // than on the first-run gate because it is about a decision the user takes at
+  // every login, not once — and this is the section that already talks about what
+  // the profiles hold.
+  box.append(
+    el(
+      'span',
+      'data-note',
+      'Deixar o Chrome salvar a senha do jogo acelera bastante o relogin, que neste jogo acontece ' +
+        'toda vez que a tela reinicia. Em troca, a senha fica guardada na sua máquina, dentro do ' +
+        'perfil do Chrome: quem tiver acesso à máquina pode extraí-la. O Hecaton nunca guarda ' +
+        'senhas nem preenche formulários — quem faz isso é o gerenciador do próprio Chrome.',
     ),
   )
 

@@ -70,6 +70,10 @@ export const IPC_CHANNELS = [
   // removed.
   'data:reveal',
   'data:deleteAll',
+  // The terms warning (D3b), acknowledged once. No payload: what version was
+  // read is the main process's to know, not the renderer's to assert — a channel
+  // that accepted a number would let the panel claim any of them.
+  'terms:acknowledge',
   // The video-wall runtime controls (UI rework, decision 7): a fixed contract —
   // any channel beyond these stops the work for the owner (CLAUDE.md rule 2).
   'slots:rename',

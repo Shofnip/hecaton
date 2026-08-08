@@ -426,6 +426,25 @@ repository · releases built by GitHub Actions on a tag · a user-initiated upda
 app's only network request · no telemetry · Electron security review before the first release. The
 fine plan, and every reversal along the way, is `docs/plans/phase-3-distribution.md`.
 
+### The terms warning, on first run
+
+The product's central capability — several accounts of one game side by side — is what most game
+terms restrict, and the ban lands on the user rather than on the author (D3b). So the first launch
+opens on a gate over the whole panel, sidebar included, carrying that warning and one button. It was
+to appear in three places; the installer's licence page was the one that could not be skipped, and a
+zip carries no README, so this is the only one left that a user cannot miss. The same text stays
+reachable from Configurações afterwards.
+
+The rule lives in `packages/core/src/terms.ts` — `TERMS_VERSION` and `needsTermsAcknowledgement` —
+and the text, being UI, lives in the renderer in Portuguese. What is persisted is
+`termsAcknowledged`, the **version** last acknowledged rather than a flag, so a materially changed
+warning can be shown again; absent reads as 0, because absence means nobody was ever shown it. Main
+sends the panel the answer, not the number: comparing versions is the core's rule.
+
+Beside it, in Configurações → Seus dados, the app discloses what letting Chrome save a game password
+buys and costs — restored there on 2026-08-08 after going missing in the UI rework
+([ADR-0009](adr/0009-login-is-bound-to-the-tab.md), second Correction).
+
 ### Deleting everything, from the panel
 
 Choosing the zip removed the only moment the app could ever ask "and your logins?": an uninstaller

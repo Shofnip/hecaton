@@ -39,6 +39,8 @@ export type { IpcChannel, OverlayRequest, ScreenPlacement } from './ipc.js'
 
 export { normalizeUrl } from './normalize-url.js'
 
+export { TERMS_VERSION, needsTermsAcknowledgement } from './terms.js'
+
 export {
   planUserDataDeletion,
   requireEveryScreenStopped,

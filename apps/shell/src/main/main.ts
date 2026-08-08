@@ -33,6 +33,7 @@ import {
   requireEveryScreenStopped,
   verifyUserDataDeletion,
 } from '@hecaton/core'
+import { TERMS_VERSION, needsTermsAcknowledgement } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
 import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@hecaton/browser-engine'
@@ -214,6 +215,12 @@ interface PanelState {
   maxSlots: number
   audioFollowsFocus: boolean
   theme: Theme
+  /**
+   * Whether the terms warning is still owed. Sent as the answer rather than as
+   * the stored number, because comparing it against the current version is the
+   * core's rule and the renderer has no business holding a copy of it.
+   */
+  needsTerms: boolean
   configError?: string
 }
 
@@ -225,6 +232,7 @@ function currentState(): PanelState {
     maxSlots: globals.maxSlots,
     audioFollowsFocus: globals.audioFollowsFocus,
     theme: globals.theme,
+    needsTerms: needsTermsAcknowledgement(globals.termsAcknowledged),
   }
   if (configError !== undefined) state.configError = configError
   return state
@@ -424,6 +432,16 @@ function registerIpc(): void {
       verifyUserDataDeletion(remaining, [ELECTRON_DIR_NAME])
 
       quitAfterDeletion()
+    },
+
+    'terms:acknowledge': async (payload) => {
+      // The panel says "the user pressed the button", not "the user has read
+      // version N" — which version was on screen is main's own knowledge, since
+      // main is what decided to show it.
+      parseNoPayload(payload)
+      globals = { ...globals, termsAcknowledged: TERMS_VERSION }
+      await saveConfiguration()
+      pushState()
     },
 
     'slots:rename': async (payload) => {

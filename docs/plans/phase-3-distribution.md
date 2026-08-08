@@ -326,10 +326,15 @@ rules had never been read; `architecture.md` carried it as an open risk. Read on
 - Penalties escalate with history: warning, suspension, item removal, permanent ban.
 
 So the warning is now specific rather than generic, with the reading date attached, and the README
-section was rewritten around it. It also raises a **product decision that is the owner's** and is not
-taken here: whether the app should say something when a user adds a **fifth** screen, since that is
-the moment a documented line is crossed. Options run from nothing, through a one-time note next to
-the add-screen action, to naming it in the first-run text. Not implemented.
+section was rewritten around it. It also raised a **product decision that is the owner's**: whether
+the app should say something when a user adds a **fifth** screen, since that is the moment a
+documented line is crossed.
+
+**Closed 2026-08-08 with step 7 — the app says nothing, and the reason is better than a preference.**
+The question assumed a fifth screen was reachable; it is not. `maxSlots` is 4, the add button
+disables at the cap and `addSlot` throws, so passing four means hand-editing `config.json`. The
+default is inside the rule by construction rather than by a warning nobody would see. The first-run
+text therefore stays on what the user _can_ do, and the README keeps the rule in full.
 
 ---
 
@@ -1187,14 +1192,8 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
    the script.
 6. ~~**The release workflow** on tag, publishing the artifact and its SHA256.~~ **Done 2026-07-30**,
    and exercised through `workflow_dispatch` before any tag exists. Findings below.
-7. **The first-run screen** — the terms warning, and only that.
-   **Also open here:** whether the password disclosure removed in the video-wall rework returns. The
-   panel used to tell the user that letting Chrome save a game password speeds re-login, and what the
-   risk was; it went with decision 7 and nothing replaced it (ADR-0009's 2026-08-08 Correction). It is
-   UI text about a credential risk, so it is the owner's call, and the first-run screen is where it
-   would now live. It was going to carry the metrics
-   consent too, which is why D3b and D9a were paired here; with D9 reversed the screen is one thing,
-   and it is **no longer blocked** on choosing an analytics service or writing a retention policy.
+7. ~~**The first-run screen** — the terms warning, and only that.~~ **Done 2026-08-08**, and it
+   closed the two open questions that were parked here rather than leaving them. See below.
 8. **The update check** — core validator first, then the adapter, then the UI. **P3 runs here**, once
    `shell.openExternal` exists to be measured.
 9. ~~**Metrics** — the pure event builder in the core with its allowlist tests, then the POST
@@ -1289,7 +1288,49 @@ guard refused with a screen running, allowed it with none, `config.json`/`logs/`
 gone, `shell` was the only survivor, and the core accepted it. The real `%APPDATA%/hecaton` and its
 four logged-in accounts were never a candidate — the redirect was asserted rather than assumed.
 
-**Then 7, 8 and the review.** The phase is shorter than it was a week ago on both counts: the app's
+### Step 7 — the first-run screen, done 2026-08-08
+
+A gate over the whole panel, sidebar included, on first launch: the terms warning and one button,
+`Entendi, continuar`. D3b took the cost of a discouraging first impression deliberately, because
+this is the last moment the warning can still change what the user does — after the first login it
+is advice about a decision already taken.
+
+Persisted as **`termsAcknowledged`, a version rather than a flag**, additive like `audioFollowsFocus`
+and `theme` before it, so no schema bump. Absent reads as 0, and that default is the only correct
+one: reading absence as "already seen" would skip the warning for exactly the people who have never
+had it. The version exists so a materially changed text — new rules read, a different game — can be
+shown again instead of being assumed read. `terms:acknowledge` carries no payload: which version was
+on screen is main's knowledge, since main is what decided to show it.
+
+Three owner decisions, 2026-08-08:
+
+1. **The password disclosure returns, in Configurações → Seus dados** — not on the gate. It is
+   about a choice the user makes at every login rather than once, and that section already talks
+   about what a profile holds. This closes the open item ADR-0009's Correction recorded.
+2. **The gate says nothing about the four-account rule.** The app caps at four (`maxSlots`), the add
+   button disables there, and `addSlot` throws — a fifth screen is only reachable by hand-editing
+   `config.json`. The cap keeps the user inside the rule by construction, so D3b's "should the app
+   say something at the fifth" is answered by there not being a fifth. **D3b's open product question
+   is closed**, and the README still carries the rule in full for anyone who goes looking.
+3. **The warning stays re-readable**, as an entry in Configurações that opens the same text. Without
+   it the text would be visible exactly once in the app's life: the installer's licence page was the
+   one a user could not skip, it went with the installer, and a zip carries `LICENSE.txt` and
+   `NOTICE.txt` but no README.
+
+**One defect found by looking at the running app rather than at the code**, and it is the kind no
+test would have caught: the warning is taller than the default window, so focusing the button
+scrolled the sheet and the gate opened _halfway down its own text_, title off screen. Fixed with
+`focus({ preventScroll: true })` — the keyboard still lands on the button, the eye still starts at
+the top.
+
+**Verified end to end against the real app** with `APPDATA` redirected to a throwaway directory: the
+gate rendered over the sidebar; acknowledging wrote `termsAcknowledged: 1` to `config.json` and
+revealed the panel; the settings modal showed the terms entry, the two data locations and the
+password disclosure. **Step 5r was exercised through the real UI in the same run** — the delete
+button, its confirmation, then the app closing itself with `shell` as the only survivor, which is
+what the code had only been shown to do from a probe until now.
+
+**Then 8 and the review.** The phase is shorter than it was a week ago on both counts: the app's
 whole network surface is one user-initiated request, and its whole install story is "unzip it".
 
 ## Non-decisions — recorded so they are not re-raised

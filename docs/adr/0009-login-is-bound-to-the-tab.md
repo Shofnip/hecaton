@@ -84,4 +84,18 @@ machine can leak it.
 about UI text describing a credential risk, and it belongs to the project owner rather than to
 whoever notices the gap. Recorded here so the question survives being noticed once. The absence is
 listed in `docs/plans/phase-3-distribution.md` as an open item for the first-run screen, which is
-where a disclosure would now naturally live.
+where a disclosure would now naturally live. [see Correction (2026-08-08, second)]
+
+## Correction (2026-08-08, second)
+
+**The disclosure is back**, so the sentence above — "the app now discloses nothing" — is true only
+of the period between the video-wall rework and this. The owner decided it on 2026-08-08 with the
+first-run screen (step 7 of the phase-3 plan), and chose **Configurações → Seus dados** over the
+first-run gate the correction above expected: the choice it describes is one the user makes at every
+login rather than once, and that section is already where the app explains what a profile holds.
+
+The text says what the removed hint said and a little more: saving the password in Chrome speeds the
+re-login this ADR shows is unavoidable; in exchange the password sits on the machine inside the
+Chrome profile, where anyone with access to the machine can extract it; and the app itself never
+stores a password or fills a form — the browser's own manager does. Verify in
+`apps/shell/src/renderer/renderer.ts`, in `userDataBox`.
