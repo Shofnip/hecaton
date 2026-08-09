@@ -41,6 +41,14 @@ export interface GlobalConfig {
    * see `terms.ts`, which owns the current version and the rule.
    */
   termsAcknowledged: number
+  /**
+   * The version whose release notes have already been shown, if any.
+   *
+   * A version string rather than a flag, so each new one is shown once and only
+   * once — see `changelog.ts`, which owns the rule. Absent means unseen, the
+   * same reading `termsAcknowledged` takes.
+   */
+  releaseNotesShownFor?: string
 }
 
 /** What a slot may override. Everything except the id is optional. */

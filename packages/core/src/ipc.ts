@@ -81,6 +81,13 @@ export const IPC_CHANNELS = [
   // fetched, or `shell.openExternal` stops being safe.
   'update:check',
   'update:openPage',
+  // The release notes for the version now running, dismissed once (decided by
+  // the owner 2026-08-09, which is what adding a channel takes here). No payload,
+  // for exactly the reason `terms:acknowledge` has none: which version was on
+  // screen is main's own knowledge, since main is what decided to show it. A
+  // channel that accepted a version string would let the panel mark any of them
+  // read.
+  'notes:acknowledge',
   // The video-wall runtime controls (UI rework, decision 7): a fixed contract —
   // any channel beyond these stops the work for the owner (CLAUDE.md rule 2).
   'slots:rename',

@@ -42,6 +42,7 @@ const api = {
   revealUserData: () => ipcRenderer.invoke('data:reveal'),
   deleteAllUserData: () => ipcRenderer.invoke('data:deleteAll'),
   acknowledgeTerms: () => ipcRenderer.invoke('terms:acknowledge'),
+  acknowledgeReleaseNotes: () => ipcRenderer.invoke('notes:acknowledge'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   openReleasesPage: () => ipcRenderer.invoke('update:openPage'),
 

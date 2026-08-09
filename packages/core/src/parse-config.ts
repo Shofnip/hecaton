@@ -39,6 +39,7 @@ const GLOBAL_KEYS = [
   'audioFollowsFocus',
   'theme',
   'termsAcknowledged',
+  'releaseNotesShownFor',
   'slots',
 ] as const
 const SLOT_KEYS = [
@@ -318,6 +319,17 @@ export function parseConfig(input: unknown): ParsedConfig {
       input['termsAcknowledged'] === undefined
         ? DEFAULT_GLOBAL_CONFIG.termsAcknowledged
         : requireNonNegativeInteger(input['termsAcknowledged'], 'termsAcknowledged', 'config: '),
+  }
+
+  // Optional with no default: absent is a meaningful value here — nobody has
+  // been shown any release notes — and writing a placeholder would make the
+  // first version's notes look already seen.
+  if (input['releaseNotesShownFor'] !== undefined) {
+    globals.releaseNotesShownFor = requireString(
+      input['releaseNotesShownFor'],
+      'releaseNotesShownFor',
+      'config: ',
+    )
   }
 
   const rawSlots = input['slots']

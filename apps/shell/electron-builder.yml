@@ -94,8 +94,16 @@ artifactName: Hecaton-${version}-win-${arch}.${ext}
 #
 # `.txt` because Windows has no handler for an extensionless LICENSE, and a file a
 # user cannot open by double-clicking may as well not be there.
+# The changelog travels twice, and the two copies do different jobs. Inside the
+# asar (copied into dist/ by the build) it is what the app reads to show what
+# changed after an update, at a path identical in development and in the package.
+# Beside the exe it is readable without opening the app at all - which matters
+# for a zip, where there is no store page and no release notes to read on the way
+# in.
 extraFiles:
   - from: ../../LICENSE
     to: LICENSE.txt
   - from: ../../NOTICE
     to: NOTICE.txt
+  - from: ../../CHANGELOG.md
+    to: CHANGELOG.txt

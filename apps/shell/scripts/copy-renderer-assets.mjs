@@ -36,3 +36,14 @@ for (const asset of ASSETS) {
   copyFileSync(join(FROM, asset), target)
 }
 console.log(`copied ${ASSETS.length} renderer assets to dist/renderer`)
+
+// The changelog is copied in for the same reason as the assets above, and it
+// buys one more thing: the path is then identical in development and in the
+// packaged app, so reading it needs no `app.isPackaged` branch - the load path
+// that is tested is the load path that ships (ADR-0007 decision 2, applied to a
+// data file rather than to the renderer). It also travels beside the exe as an
+// extraFile, so it can be read without opening the app at all.
+const CHANGELOG = join(HERE, '..', '..', '..', 'CHANGELOG.md')
+mkdirSync(join(HERE, '..', 'dist'), { recursive: true })
+copyFileSync(CHANGELOG, join(HERE, '..', 'dist', 'CHANGELOG.md'))
+console.log('copied CHANGELOG.md to dist')

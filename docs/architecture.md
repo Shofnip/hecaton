@@ -602,12 +602,38 @@ is a reminder, not a process.
 
 ### Open decisions left by Phase 3
 
-It does not block a release, and it was raised by the phase and is the owner's to take. Three others
-were taken on 2026-08-09: `gameId` in log lines and log retention (both under _Errors and logging_),
-and corrupt-config recovery (below).
+All four were taken on 2026-08-09, so nothing is left open here: `gameId` in log lines and log
+retention (both under _Errors and logging_), corrupt-config recovery and the release notes (both
+below). The heading stays because the next phase will leave its own, and because a section that once
+listed four open decisions and now lists none is worth seeing rather than deleting.
 
-- **Release notes shown after updating**, not only before. The update check shows a changelog to help
-  the user decide; showing it once after the new version starts closes the loop.
+### What changed, shown once after updating
+
+Decided 2026-08-09. The update check shows a changelog **before** updating, to help the user decide;
+this is the other half, and the design was settled by a constraint rather than by taste. Notes for
+the version **already running** could only come from a request at launch, and
+[ADR-0014](adr/0014-the-apps-first-network-request.md) is precisely the decision that the app makes
+no request the user did not ask for. So they come from a file.
+
+`CHANGELOG.md` travels twice and the copies do different jobs: inside the asar, copied into `dist/`
+by the build, which is what the app reads — one path, identical in development and in the package,
+no `app.isPackaged` branch — and beside the exe as `CHANGELOG.txt`, readable without opening the app
+at all, which matters for a zip that has no store page.
+
+`changelogSection` in the core takes the body under the heading for the running version;
+`needsReleaseNotes` says whether it is still owed. **Absent reads as unseen**, the same choice
+`termsAcknowledged` makes and for the same reason: nobody running today carries
+`releaseNotesShownFor`, so reading its absence as "already seen" would skip the notes for exactly
+the release that introduces them. The cost is one dismissal on a fresh install.
+
+A **modal, not a gate**: the terms warning precedes a decision the user is about to take, and this
+precedes nothing — it is news. It waits until the terms gate is answered, and dismissing it is what
+marks it read, so closing the app without opening it leaves the notes owed. `notes:acknowledge`
+carries no payload for the reason `terms:acknowledge` does not: which version was on screen is
+main's knowledge, since main is what read the file.
+
+Missing file, unreadable file, or a version nobody wrote notes for are all the same ordinary answer
+— nothing to show. That is what keeps the changelog optional rather than a file the app depends on.
 
 ### A config that cannot be read at all
 

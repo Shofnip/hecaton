@@ -13,7 +13,7 @@
  */
 import { BrowserWindow, Menu, app, ipcMain, screen, session, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   IPC_CHANNELS,
@@ -34,6 +34,7 @@ import {
   verifyUserDataDeletion,
 } from '@hecaton/core'
 import { TERMS_VERSION, interpretUpdateCheck, needsTermsAcknowledgement } from '@hecaton/core'
+import { changelogSection, needsReleaseNotes } from '@hecaton/core'
 import type { UpdateCheck } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
@@ -58,6 +59,10 @@ import { firstRunSlots } from './first-run.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RENDERER_DIR = join(HERE, '..', 'renderer')
+// Copied into dist by the build, so this one path is right in development and in
+// the packaged app alike - no `app.isPackaged` branch, and no second load path
+// that only exists after packaging.
+const CHANGELOG = join(HERE, '..', 'CHANGELOG.md')
 // .cjs, not .js: a sandboxed preload must be CommonJS, and this package is ESM.
 const PRELOAD = join(HERE, '..', 'preload', 'preload.cjs')
 
@@ -316,6 +321,14 @@ interface PanelState {
   configError?: string
   /** File name a corrupt config was kept under; the panel phrases the rest. */
   configQuarantinedAs?: string
+  /**
+   * What changed in the version now running, sent only until it is dismissed.
+   *
+   * Read from a file in the package, never from the network: the notes for the
+   * version already running would need a request at launch, and ADR-0014 is
+   * precisely the decision that the app makes none the user did not ask for.
+   */
+  releaseNotes?: string
 }
 
 /** Everything the renderer is allowed to know. */
@@ -331,6 +344,8 @@ function currentState(): PanelState {
   }
   if (configError !== undefined) state.configError = configError
   if (configQuarantinedAs !== undefined) state.configQuarantinedAs = configQuarantinedAs
+  const notes = pendingReleaseNotes()
+  if (notes !== undefined) state.releaseNotes = notes
   return state
 }
 
@@ -540,6 +555,16 @@ function registerIpc(): void {
       pushState()
     },
 
+    'notes:acknowledge': async (payload) => {
+      // Same shape as terms:acknowledge, and no payload for the same reason:
+      // which version's notes were on screen is main's knowledge, since main is
+      // what read the file and decided to send them.
+      parseNoPayload(payload)
+      globals = { ...globals, releaseNotesShownFor: version() }
+      await saveConfiguration()
+      pushState()
+    },
+
     'update:check': async (payload) => {
       parseNoPayload(payload)
       return checkForUpdates()
@@ -676,6 +701,23 @@ async function checkForUpdates(): Promise<UpdateCheck> {
   }
 
   return interpretUpdateCheck(200, parsed, version())
+}
+
+/**
+ * The notes for the running version, while they are still owed.
+ *
+ * Missing file, unreadable file, or a version nobody wrote notes for are all the
+ * same ordinary answer: nothing to show. That is what keeps the changelog
+ * optional rather than a file the app depends on - a release whose notes were
+ * not written says nothing instead of failing.
+ */
+function pendingReleaseNotes(): string | undefined {
+  if (!needsReleaseNotes(globals.releaseNotesShownFor, version())) return undefined
+  try {
+    return changelogSection(readFileSync(CHANGELOG, 'utf8'), version())
+  } catch {
+    return undefined
+  }
 }
 
 /** The running version, which is what a published tag is compared against. */

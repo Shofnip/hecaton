@@ -55,6 +55,7 @@ interface PanelState {
   version: string
   configError?: string
   configQuarantinedAs?: string
+  releaseNotes?: string
 }
 
 /** What an update check came back with (mirrors the core's UpdateCheck). */
@@ -89,6 +90,7 @@ interface HecatonApi {
   revealUserData(): Promise<void>
   deleteAllUserData(): Promise<void>
   acknowledgeTerms(): Promise<void>
+  acknowledgeReleaseNotes(): Promise<void>
   checkForUpdates(): Promise<UpdateCheck>
   openReleasesPage(): Promise<void>
   setAudioFollowsFocus(enabled: boolean): Promise<void>
@@ -476,10 +478,45 @@ function configRecoveredMessage(savedAs: string | undefined): string | undefined
   )
 }
 
+/**
+ * What changed in the version now running, shown once after an update.
+ *
+ * A modal rather than a gate: the terms warning precedes a decision the user is
+ * about to take, and this precedes nothing — it is news. Dismissing is what marks
+ * it read, so closing the app without opening it leaves the notes owed.
+ *
+ * It waits for the terms gate, which does have to be answered first.
+ */
+let releaseNotesShown = false
+function renderReleaseNotes(): void {
+  if (releaseNotesShown || state.needsTerms || state.releaseNotes === undefined) return
+  releaseNotesShown = true
+
+  const notes = state.releaseNotes
+  openModal(
+    (dialog, close) => {
+      modalHead(dialog, `Novidades da versão ${state.version}`, close)
+      const body = el('div', 'modal-body')
+      // textContent, like the update check's notes. This text comes from a file
+      // in the package rather than the network, and rendering it as markup would
+      // still be a habit worth not forming.
+      const pre = el('pre', 'update-notes')
+      pre.textContent = notes
+      body.append(pre)
+      dialog.append(body)
+    },
+    // onClose rather than the X button's handler: Escape and a click on the
+    // backdrop close it too, and a dismissal that did not count as one would
+    // bring the notes back at every launch.
+    { onClose: () => run(() => window.hecaton.acknowledgeReleaseNotes()) },
+  )
+}
+
 // ============================ the board ============================
 
 function render(): void {
   renderTermsGate()
+  renderReleaseNotes()
   document.documentElement.dataset.theme = state.theme
   if (configError) {
     // Two different things share the banner, and the error wins: if the load
