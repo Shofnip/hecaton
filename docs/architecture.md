@@ -326,8 +326,9 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
   communication only through `contextBridge` with a fixed set of named methods.
 - **Enumerated IPC channels**, every payload validated in the main process by calling the core's
   pure validators — never trust the renderer, whose input arrives as `unknown`.
-- **Restrictive CSP** (`default-src 'none'`, no `unsafe-inline`, `connect-src 'none'` so the app
-  makes no network request in v1), delivered by **header from the `file://` renderer**. The
+- **Restrictive CSP** (`default-src 'none'`, no `unsafe-inline`, `connect-src 'none'` so **the
+  renderer** reaches nothing — not the app, which makes one main-process request; see the update
+  check below), delivered by **header from the `file://` renderer**. The
   header is _merged_ with the headers `file://` already returns, never replaced — replacing drops
   the implicit `Content-Type` and fails the load. (A custom `app://` scheme was chosen first and
   reversed by measurement; see the ADR.)
@@ -430,11 +431,20 @@ Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundTh
 global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,
 `ui:setTheme`, `screens:layout` and `overlay:open`/`overlay:close`.
 
-**Phase 3 — distribution. In progress.** `electron-builder` producing a **portable zip** (an assisted
-NSIS installer was built and then dropped) · unsigned, with a published SHA256 · Apache-2.0, public
-repository · releases built by GitHub Actions on a tag · a user-initiated update check, which is the
-app's only network request · no telemetry · Electron security review before the first release. The
-fine plan, and every reversal along the way, is `docs/plans/phase-3-distribution.md`.
+**Phase 3 — distribution. Done, and not yet released.** `electron-builder` producing a **portable
+zip** (an assisted NSIS installer was built and then dropped) · unsigned, with a published SHA256 ·
+Apache-2.0, public repository · releases built by GitHub Actions on a tag · a user-initiated update
+check, which is the app's only network request · no telemetry, no accounts, no monetization. The
+security review of the surfaces this phase created was done on 2026-08-09 and its findings are
+below. What remains is the owner's: cutting the `v0.1.0` tag.
+
+The planning document that carried the phase was deleted when it landed, as it said it would be.
+What survives is four ADRs — [0012](adr/0012-hecaton-and-the-data-directory.md) (the name and the
+data directory), [0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md) (the distribution
+posture), [0014](adr/0014-the-apps-first-network-request.md) (the update check) and
+[0015](adr/0015-what-the-app-deliberately-does-not-collect.md) (the three non-goals) — plus this
+document. Each ADR carries the alternatives that were rejected, which is the part a commit message
+would have lost.
 
 ### The update check — the app's only network request
 
@@ -508,6 +518,39 @@ therefore reports what survived instead of throwing, the core tolerates exactly 
 names any other as a failure, and the app **quits** once the deletion is done — staying open would
 mean writing config.json straight back into the directory the user just emptied.
 
+### The pre-release security review, 2026-08-09
+
+It covered the surfaces this phase created, not the whole app, and it was run against the **built
+artifact** wherever the question was about what ships. Recorded here because a review whose result
+lives only in a session transcript is a review nobody can re-run.
+
+What was checked and held: the app's main process contains **exactly one** `fetch`, at one call site,
+reached only from `update:check`, with both urls as constants and no url read out of the response.
+`shell.openExternal` has one call site and receives a constant. `deleteUserData` has one call site in
+the whole product. `data:deleteAll`, `data:reveal`, `logs:reveal` and `terms:acknowledge` all reject
+any payload, and **no argv branch has crept back into `main.ts`** — the comment saying why is still
+there. The preload exposes a fixed set of named methods and no channel taken from the caller.
+Nothing in the app reads a log file, and nothing sends one anywhere: the diagnostic path is a friend
+attaching a file by hand, which is safe because redaction is at the logger boundary rather than in
+any feature.
+
+In the packaged zip (`electron-builder` 26.15.3, Electron 43.2.0, 339 asar entries): no `src/`, no
+`*.test.ts`, no `core/src/testing/` fakes, no `spike/` — the exclusions
+[ADR-0007](adr/0007-electron-security-posture.md) decision 2 rests on, verified in the artifact
+because the source tree looked perfect on the build where they _were_ shipping. The packaged
+`index.html` carries the identical CSP, the packaged main still uses `loadFile`, `LICENSE.txt` and
+`NOTICE.txt` are present at the archive root, and `Hecaton.exe` reports `NotSigned`, which is the
+decision and not an accident. The packaged app was launched with `APPDATA` redirected to a throwaway
+directory — asserted, not assumed, before it ran — showed its window, wrote only inside that
+directory, and exited on `WM_CLOSE` leaving no process and no orphaned worker behind.
+
+Two things it found, both documentation rather than code, both fixed in the same commit: an
+`architecture.md` bullet still said `connect-src 'none'` meant the app made no network request, four
+lines above the section describing the request, and a test in `security.test.ts` was still **named**
+"forbids the app from making network requests at all" while asserting something narrower and true.
+Neither weakened a control; both are exactly the confusion ADR-0014 exists to prevent, arriving
+within a day of the decision it describes.
+
 ## Verification
 
 - The test suite is the primary check. `npm test` runs the core in seconds and stays green.
@@ -518,6 +561,47 @@ mean writing config.json straight back into the directory the user just emptied.
 - **Crash:** kill a Chrome from Task Manager; confirm the panel notices and restarts.
 - **Registry:** add a second fictitious game pointing elsewhere and confirm it shows up
   **without touching the core** — the real test of the contract.
+
+### Checks no test performs, and the moment they belong to
+
+Three obligations have no failing test to hold them, and each fails the same way — silently, between
+versions. They are written here because the document that recorded them was deleted, and because an
+obligation with no moment attached is one nobody performs. **The cheapest moment that already exists
+is each release**, but tying them to it is a decision the owner has not taken; until then this list
+is a reminder, not a process.
+
+1. **Raise the three exact pins deliberately** — `electron`, `node-window-manager` and
+   `electron-builder`. The Electron pin only stays defensible while its cadence is honoured
+   ([ADR-0007](adr/0007-electron-security-posture.md) decision 1), and Chromium's security fixes
+   arrive as Electron patch releases.
+2. **Confirm `OptGuideOnDeviceModel` has not reappeared** in a profile directory. Every slot launches
+   with `--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading` because
+   Chrome was otherwise downloading a 4 GB AI model **per profile** — 16.3 GB of a 17.4 GB data
+   directory, arriving roughly two days after a profile is created. Chromium ignores feature names it
+   does not recognise, so a rename upstream turns the switch into a no-op whose only symptom is the
+   disk filling again.
+3. **Re-check that the build-time advisories are still build-time.** `npm audit --omit=dev` is clean
+   and `npm audit` is not; the acceptance of the remainder
+   ([ADR-0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md)) rests on none of them reaching a
+   user's disk. Running `npm audit --omit=dev` in CI would make that a checked property rather than
+   an observed fact, and is not done: `tests/repo-consistency.test.ts` requires `npm run check` to
+   cover everything CI runs, so `check` would gain a step that needs the network and a registry
+   outage would turn into a red local run.
+
+### Open decisions left by Phase 3
+
+None blocks a release; all four were raised by the phase and are the owner's to take.
+
+- **`gameId` in log lines** — redact it, or constrain it to kebab-case at the config boundary. See
+  the scope note under _Errors and logging_; log contents are a rule-2 trigger.
+- **Log retention.** `packages/storage/src/file-logger.ts` says outright that old files are never
+  pruned. A daily file per day, forever, is a different proposition on someone else's disk — and it
+  is a **deleting** path, which this project keeps deliberate.
+- **Corrupt-config recovery.** `JsonFileStorage.load` throws with the file named, which is good
+  diagnostics and leaves a friend with a truncated `config.json` stuck. The shape consistent with the
+  never-delete posture: rename it to `.bad-<timestamp>`, start from defaults, say so in the UI.
+- **Release notes shown after updating**, not only before. The update check shows a changelog to help
+  the user decide; showing it once after the new version starts closes the loop.
 
 ## Open risks
 
@@ -531,6 +615,12 @@ mean writing config.json straight back into the directory the user just emptied.
   cookie and a password saved in Chrome survive, which a clean session loses every launch.
 - **Chrome dependency.** The app now requires installed Chrome rather than shipping a browser.
   A Chrome update could change flag behaviour, as it already did with `--load-extension`.
+  **Discovery is the sharper edge of this, and it blocks handing the zip to someone else.**
+  `ChromeLauncher` looks in exactly two places, both machine-wide: `C:\Program Files\Google\Chrome\
+Application\chrome.exe` and its `(x86)` sibling. Chrome installed **without administrator** lands
+  in `%LOCALAPPDATA%\Google\Chrome\Application\`, which is not searched, so that user gets "Chrome
+  executable not found" and has no way to point at their own copy — the constructor takes an optional
+  path, but nothing in the config or the UI passes one.
 - **Terms of service.** Anything injected runs in the user's logged-in session; a ban lands on
   them. Verify each integrated game's terms and be explicit in the UI/README.
 - **Disk.** Persistent profiles accumulate cache, once per slot.

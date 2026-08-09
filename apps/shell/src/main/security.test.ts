@@ -49,10 +49,16 @@ describe('the content security policy', () => {
     expect(CONTENT_SECURITY_POLICY).not.toContain('unsafe-eval')
   })
 
-  it('forbids the app from making network requests at all', () => {
-    // connect-src 'none' is the whole of decision 4A's network stance: no
-    // update check, no telemetry, no remote asset. Anything that needs the
-    // network in a later phase has to change this line, on purpose.
+  it('forbids the renderer from making network requests at all', () => {
+    // connect-src 'none' says one thing and it is worth saying precisely: *the
+    // renderer* reaches nothing - no telemetry, no remote asset, which is why
+    // the font and the favicon are bundled files.
+    //
+    // It used to say more. Until 2026-08-09 the app made no request at all and
+    // this test was named for that, listing "no update check" among what the
+    // line bought. ADR-0014 changed it: the check is a fetch in the main
+    // process, where no CSP applies, and it needed nothing here touched. The
+    // assertion was right the whole time; the name was not.
     expect(directive('connect-src')).toBe("connect-src 'none'")
   })
 })

@@ -1,6 +1,12 @@
 # ADR-0007 — The Electron security posture
 
-**Status:** Accepted · **Date:** 2026-07-21
+**Status:** Superseded in part by [ADR-0014](0014-the-apps-first-network-request.md) · **Date:** 2026-07-21
+
+Decision 4's conclusion — that the app makes no network request at all in v1 — was reversed on
+2026-07-29 and implemented on 2026-08-09: the app now makes exactly one, when the user asks for it.
+**Its mechanism was not touched.** `default-src 'none'` / `connect-src 'none'` stand exactly as
+written below, because the request is a `fetch` in the main process where no CSP applies. Decisions
+1, 2, 3 and 5 stand in full.
 
 ## Context
 

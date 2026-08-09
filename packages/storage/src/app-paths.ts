@@ -77,7 +77,10 @@ export function profilesDir(
  * cannot remove this directory — the process holds it open until it exits — so
  * it is the one entry allowed to survive `data:deleteAll`, and telling that
  * survivor apart from a real failure means knowing what it is called. It holds
- * no game session: the panel loads from `file://` and makes no network request.
+ * no game session, and that survives the update check (ADR-0014): the panel
+ * loads from `file://` under `connect-src 'none'`, and the one request the app
+ * makes is a `fetch` in the main process, which uses neither this session nor
+ * this directory.
  */
 export const ELECTRON_DIR_NAME = 'shell'
 
