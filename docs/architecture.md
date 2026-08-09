@@ -283,7 +283,11 @@ step on load. Nearly free now; expensive to retrofit once users have saved files
 
 A long-running orchestrator with child processes fails silently by default. Actively fight it:
 
-- Structured, rotated logs in `%APPDATA%/hecaton/logs`.
+- Structured, rotated logs in `%APPDATA%/hecaton/logs` — one file per day, and **the newest 14
+  kept**, pruned once at startup (decided 2026-08-09). Startup is the only safe moment: today's file
+  is open for appends the rest of the time. Which names may go is `expiredLogFiles` in the core, and
+  it returns only files the logger itself could have written — the panel opens this directory for
+  the user, so anything at all can be sitting in it.
 - Infrastructure errors (Chrome did not start, corrupt profile) surface on the slot's card,
   with the log reachable from the UI.
 - A failing game action fails **visibly and by name**, never silently, and never takes the
@@ -598,12 +602,10 @@ is a reminder, not a process.
 
 ### Open decisions left by Phase 3
 
-None blocks a release; all three were raised by the phase and are the owner's to take. A fourth,
-`gameId` in log lines, was taken on 2026-08-09 — see _Errors and logging_.
+Neither blocks a release; both were raised by the phase and are the owner's to take. Two others
+were taken on 2026-08-09: `gameId` in log lines (see _Errors and logging_) and log retention (the
+same section).
 
-- **Log retention.** `packages/storage/src/file-logger.ts` says outright that old files are never
-  pruned. A daily file per day, forever, is a different proposition on someone else's disk — and it
-  is a **deleting** path, which this project keeps deliberate.
 - **Corrupt-config recovery.** `JsonFileStorage.load` throws with the file named, which is good
   diagnostics and leaves a friend with a truncated `config.json` stuck. The shape consistent with the
   never-delete posture: rename it to `.bad-<timestamp>`, start from defaults, say so in the UI.

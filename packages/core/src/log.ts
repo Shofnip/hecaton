@@ -51,6 +51,37 @@ export function redactUrls(text: string): string {
   return text.replace(URL_PATTERN, '[url]')
 }
 
+/**
+ * How many daily files survive a prune. Fourteen is two weeks of history, which
+ * is longer than any "it broke yesterday" conversation and short enough that the
+ * directory does not grow without end on someone else's disk.
+ */
+export const LOG_FILES_KEPT = 14
+
+/** Exactly what `FileLogger` writes: `app-YYYY-MM-DD.log` and nothing else. */
+const LOG_FILE = /^app-\d{4}-\d{2}-\d{2}\.log$/
+
+/**
+ * Which files in the logs directory may be deleted, newest kept.
+ *
+ * A deleting path, so the decision is here rather than in the adapter, and it
+ * says **which names** rather than "everything older than N". That matters more
+ * than it looks: the panel offers a button that opens this directory, so a user
+ * can have anything sitting in it — a copy they made, a file a friend sent to
+ * compare. Only a name this logger itself could have written is ever returned,
+ * whatever the keep count is.
+ *
+ * Sorted by name, which is sorting by date, because the name is an ISO date.
+ * `readdir` order is the filesystem's business and not a promise.
+ */
+export function expiredLogFiles(names: readonly string[], keep: number): string[] {
+  return names
+    .filter((name) => LOG_FILE.test(name))
+    .sort()
+    .reverse()
+    .slice(keep)
+}
+
 /** A written log line: a plain object, ready to serialise. */
 export interface LogRecord {
   ts: string

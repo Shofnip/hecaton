@@ -775,6 +775,12 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     lockDownSession()
 
+    // Retention, at the one moment it is safe: today's file is not open yet, and
+    // nothing is racing the writer. A day per file forever is a directory that
+    // only grows on someone else's disk, and the rule for which files may go is
+    // the core's, not this adapter's.
+    logger.prune()
+
     try {
       await loadConfiguration()
     } catch (error) {

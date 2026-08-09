@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatLogRecord, redactUrls } from './log.js'
+import { expiredLogFiles, formatLogRecord, redactUrls } from './log.js'
 
 describe('redactUrls', () => {
   it('replaces an http(s) url with a placeholder', () => {
@@ -87,5 +87,36 @@ describe('formatLogRecord', () => {
       ts,
     )
     expect(record).not.toHaveProperty('url')
+  })
+})
+
+describe('expiredLogFiles', () => {
+  const day = (d: string): string => `app-2026-08-${d}.log`
+
+  it('keeps the newest files and names the rest for deletion', () => {
+    const files = [day('01'), day('02'), day('03'), day('04'), day('05')]
+    expect(expiredLogFiles(files, 3)).toEqual([day('02'), day('01')])
+  })
+
+  it('deletes nothing while there are no more files than the limit', () => {
+    expect(expiredLogFiles([day('01'), day('02')], 2)).toEqual([])
+    expect(expiredLogFiles([], 14)).toEqual([])
+  })
+
+  it('sorts by the date in the name, not by the order the directory listed', () => {
+    // readdirSync order is the filesystem's business, not a promise. The names
+    // are ISO dates, so sorting them as strings is sorting them as dates - which
+    // is the whole reason the file is named this way.
+    expect(expiredLogFiles([day('03'), day('01'), day('02')], 1)).toEqual([day('02'), day('01')])
+  })
+
+  it('never names a file it does not recognise', () => {
+    // The safety property, and the reason this is a rule rather than a glob in
+    // the adapter: the logs directory is opened by the user from the panel, so
+    // anything at all can be sitting in it - a copy they made, a file they were
+    // sent to compare. Only files this logger itself could have written may be
+    // deleted, whatever the keep count is.
+    const strangers = ['notes.txt', 'app-2026-08-01.log.bak', 'app-old.log', 'config.json']
+    expect(expiredLogFiles([...strangers, day('01'), day('02')], 0)).toEqual([day('02'), day('01')])
   })
 })

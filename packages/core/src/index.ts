@@ -18,7 +18,7 @@ export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides, Theme } from './c
 export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
 
-export { formatLogRecord, redactUrls } from './log.js'
+export { LOG_FILES_KEPT, expiredLogFiles, formatLogRecord, redactUrls } from './log.js'
 export type { LogEntry, LogLevel, LogRecord, Logger } from './log.js'
 
 export {

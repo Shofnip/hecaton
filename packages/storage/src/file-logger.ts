@@ -7,13 +7,14 @@
  * at this boundary no matter what a caller put in the entry.
  *
  * One file per day (`app-YYYY-MM-DD.log`). That is the rotation: a new file each
- * day rather than one growing without bound. Old files are not pruned yet —
- * deleting is a destructive path this project keeps deliberate, so retention is
- * left to a later decision rather than slipped in here.
+ * day rather than one growing without bound. `prune` is the retention half,
+ * decided on 2026-08-09 and deliberately not a default that slipped in: which
+ * files may go is `expiredLogFiles` in the core, and this only unlinks what it
+ * names.
  */
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
-import { formatLogRecord } from '@hecaton/core'
+import { LOG_FILES_KEPT, expiredLogFiles, formatLogRecord } from '@hecaton/core'
 import type { LogEntry, Logger } from '@hecaton/core'
 
 export class FileLogger implements Logger {
@@ -34,6 +35,38 @@ export class FileLogger implements Logger {
       // Logging is diagnostic, not critical. A failed write is dropped rather
       // than thrown: it must never take down the slot lifecycle it describes,
       // and there is nowhere better than this file to report a logging failure.
+    }
+  }
+
+  /**
+   * Deletes the daily files beyond the newest `keep`.
+   *
+   * Called once, at startup, and never while the app runs: the file for today is
+   * open for appends, and a prune that raced the writer would be chasing a
+   * handle it just invalidated. Startup is also the only moment where the newest
+   * file is not yet the one being written.
+   *
+   * Holds no rule of its own — `expiredLogFiles` decides which names may go, so
+   * a file this logger did not write is not a candidate at any limit. Failures
+   * are swallowed for the same reason a failed write is: retention is
+   * housekeeping, and it must never be the thing that stops the app starting.
+   */
+  prune(keep: number = LOG_FILES_KEPT): void {
+    let names: string[]
+    try {
+      names = readdirSync(this.dir)
+    } catch {
+      // No directory yet, which is the ordinary state on a first run.
+      return
+    }
+
+    for (const name of expiredLogFiles(names, keep)) {
+      try {
+        unlinkSync(join(this.dir, name))
+      } catch {
+        // A file held open by something else stays. It will be a candidate again
+        // at the next startup, and one surviving log is not worth a failure here.
+      }
     }
   }
 }

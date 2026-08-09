@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { FileLogger } from './file-logger.js'
@@ -83,5 +83,35 @@ describe('FileLogger', () => {
     // is not a valid directory, so the write fails.
     const logger = new FileLogger('', at('2026-07-21T18:00:00.000Z'))
     expect(() => logger.log({ level: 'info', event: 'slot.start', slotId: 1 })).not.toThrow()
+  })
+})
+
+describe('FileLogger.prune', () => {
+  const write = (day: string): void => {
+    new FileLogger(dir, at(`2026-08-${day}T12:00:00.000Z`)).log({ level: 'info', event: 'x' })
+  }
+
+  it('removes the oldest daily files and keeps the newest', () => {
+    for (const day of ['01', '02', '03', '04']) write(day)
+
+    new FileLogger(dir).prune(2)
+
+    expect(readdirSync(dir).sort()).toEqual(['app-2026-08-03.log', 'app-2026-08-04.log'])
+  })
+
+  it('leaves a file it did not write, whatever the limit', () => {
+    // The panel opens this directory for the user, so anything can be in it.
+    write('01')
+    writeFileSync(join(dir, 'notes-from-a-friend.txt'), 'keep me', 'utf8')
+
+    new FileLogger(dir).prune(0)
+
+    expect(readdirSync(dir)).toEqual(['notes-from-a-friend.txt'])
+  })
+
+  it('says nothing and does nothing when the directory does not exist', () => {
+    // The ordinary state on a first run: prune happens at startup, before
+    // anything has been logged.
+    expect(() => new FileLogger(join(dir, 'not-created-yet')).prune(14)).not.toThrow()
   })
 })
