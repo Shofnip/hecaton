@@ -54,6 +54,7 @@ interface PanelState {
   /** The running version, shown beside the update check. */
   version: string
   configError?: string
+  configQuarantinedAs?: string
 }
 
 /** What an update check came back with (mirrors the core's UpdateCheck). */
@@ -457,14 +458,36 @@ function renderTermsGate(): void {
   accept.focus({ preventScroll: true })
 }
 
+/**
+ * What to say when the config file could not be read at all.
+ *
+ * It names the file it was kept as, because that file is the only copy of what
+ * the user had configured and "we started fresh" without it reads as "we threw
+ * your settings away". Two consequences are stated rather than left to be
+ * discovered: the screens are back to one, and the terms warning appears again
+ * because the acknowledgement was in the file that went.
+ */
+function configRecoveredMessage(savedAs: string | undefined): string | undefined {
+  if (savedAs === undefined) return undefined
+  return (
+    `Sua configuração não pôde ser lida e o aplicativo começou do zero. O arquivo antigo foi ` +
+    `guardado como ${savedAs}, na mesma pasta (Configurações → Seus dados) — nada foi apagado. ` +
+    `Suas contas continuam logadas; só a lista de telas e as preferências voltaram ao padrão.`
+  )
+}
+
 // ============================ the board ============================
 
 function render(): void {
   renderTermsGate()
   document.documentElement.dataset.theme = state.theme
   if (configError) {
-    configError.hidden = state.configError === undefined
-    if (state.configError !== undefined) configError.textContent = state.configError
+    // Two different things share the banner, and the error wins: if the load
+    // failed outright there is nothing reassuring to say. The recovery message
+    // is phrased here rather than in main because it is text the user reads.
+    const banner = state.configError ?? configRecoveredMessage(state.configQuarantinedAs)
+    configError.hidden = banner === undefined
+    if (banner !== undefined) configError.textContent = banner
   }
 
   // Sidebar reflects the running set.

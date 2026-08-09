@@ -1,8 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { JsonFileStorage } from './json-file-storage.js'
+import { CorruptJsonError, JsonFileStorage } from './json-file-storage.js'
 
 interface Shape {
   schemaVersion: number
@@ -85,3 +93,55 @@ describe('JsonFileStorage', () => {
 
 // Path resolution is pure string work, so it lives in app-paths.test.ts and runs
 // in the fast suite, where CI actually covers it.
+
+describe('JsonFileStorage recovery', () => {
+  const corrupt = (): JsonFileStorage<Shape> => {
+    mkdirSync(dirname(file), { recursive: true })
+    // What a kill during a save used to be able to leave, before save became
+    // write-to-temp-and-rename. A friend can still arrive here by editing the
+    // file by hand, or by a disk that lied about a flush.
+    writeFileSync(file, '{"schemaVersion": 1, "maxSl', 'utf8')
+    return new JsonFileStorage<Shape>(file)
+  }
+
+  it('tells a corrupt file apart from every other failure', async () => {
+    // The distinction the recovery rests on: only a file that is not JSON at all
+    // may be set aside. A missing file is a first run, and an unreadable one is
+    // a problem with the disk, not with the contents.
+    await expect(corrupt().load()).rejects.toBeInstanceOf(CorruptJsonError)
+
+    const missing = new JsonFileStorage<Shape>(join(dir, 'nothing-here.json'))
+    expect(await missing.load()).toBeUndefined()
+  })
+
+  it('renames the file beside itself and leaves nothing at the original path', async () => {
+    const storage = corrupt()
+    const saved = await storage.quarantine('2026-08-09T11:30:00.000Z')
+
+    expect(saved).toBe('config.bad-2026-08-09T11-30-00-000Z.json')
+    expect(existsSync(file)).toBe(false)
+    expect(readFileSync(join(dirname(file), saved), 'utf8')).toBe('{"schemaVersion": 1, "maxSl')
+  })
+
+  it('starts clean once the bad file is out of the way', async () => {
+    const storage = corrupt()
+    await storage.quarantine('2026-08-09T11:30:00.000Z')
+
+    // undefined, not a throw: to the loader this is now indistinguishable from a
+    // first run, which is exactly what "start from defaults" means.
+    expect(await storage.load()).toBeUndefined()
+  })
+
+  it('never overwrites an earlier quarantine taken in the same millisecond', async () => {
+    // Two corrupt starts inside one millisecond is not realistic; silently
+    // destroying the first evidence if it happened is not acceptable either.
+    const storage = corrupt()
+    await storage.quarantine('2026-08-09T11:30:00.000Z')
+    writeFileSync(file, 'still not json', 'utf8')
+
+    await expect(storage.quarantine('2026-08-09T11:30:00.000Z')).rejects.toThrow(/exists/)
+    expect(
+      readFileSync(join(dirname(file), 'config.bad-2026-08-09T11-30-00-000Z.json'), 'utf8'),
+    ).toBe('{"schemaVersion": 1, "maxSl')
+  })
+})

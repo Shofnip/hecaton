@@ -43,6 +43,7 @@ import {
   APP_DIR_NAME,
   ELECTRON_DIR_NAME,
   FileLogger,
+  CorruptJsonError,
   JsonFileStorage,
   appDataDir,
   configFilePath,
@@ -164,6 +165,13 @@ let panel: BrowserWindow | undefined
 let overlay: BrowserWindow | undefined
 /** Surfaced on the panel rather than thrown away when config cannot be read. */
 let configError: string | undefined
+/**
+ * The name a corrupt `config.json` was kept under, once it has been set aside.
+ *
+ * Sent to the panel as a name rather than a sentence: what to tell the user is
+ * the renderer's, in Portuguese, like every other string they read.
+ */
+let configQuarantinedAs: string | undefined
 // The two adapters that own a persistent PowerShell worker. Held here, not just
 // inside the orchestrator, so shutdown can dispose them — an undisposed worker
 // leaves an orphaned powershell.exe behind after the app closes.
@@ -187,7 +195,7 @@ function panelHwnd(): number | undefined {
 
 async function loadConfiguration(): Promise<void> {
   const registry = buildGameRegistry()
-  const raw = await storage.load()
+  const raw = await readConfigOrRecover()
   const parsed = parseConfig(raw)
   globals = parsed.globals
   slots = parsed.slots
@@ -217,6 +225,36 @@ async function loadConfiguration(): Promise<void> {
     profiles,
     audio: audioController,
   })
+}
+
+/**
+ * Reads `config.json`, and gets out of a hole if it is not JSON at all.
+ *
+ * The hole was real: the file was named in an error, the slots did not start,
+ * and there was nothing the user could do from inside the app. Now it is
+ * renamed beside itself and the app starts from defaults — the bad file is kept,
+ * because it is the only copy of what they had configured.
+ *
+ * Only for a file that will not parse. A config that is valid JSON with a
+ * rejected setting in it still stops the load and is left untouched, so a typo
+ * costs one line rather than the whole file (see `config-recovery.ts`).
+ *
+ * If the rename itself fails there is nothing clever to do: the original error
+ * stands, and the panel shows it as before.
+ */
+async function readConfigOrRecover(): Promise<unknown> {
+  try {
+    return await storage.load()
+  } catch (error) {
+    if (!(error instanceof CorruptJsonError)) throw error
+    configQuarantinedAs = await storage.quarantine(new Date().toISOString())
+    logger.log({
+      level: 'warn',
+      event: 'config.quarantined',
+      message: `config.json was not valid JSON; kept as ${configQuarantinedAs}`,
+    })
+    return undefined
+  }
 }
 
 async function saveConfiguration(): Promise<void> {
@@ -276,6 +314,8 @@ interface PanelState {
    */
   version: string
   configError?: string
+  /** File name a corrupt config was kept under; the panel phrases the rest. */
+  configQuarantinedAs?: string
 }
 
 /** Everything the renderer is allowed to know. */
@@ -290,6 +330,7 @@ function currentState(): PanelState {
     version: version(),
   }
   if (configError !== undefined) state.configError = configError
+  if (configQuarantinedAs !== undefined) state.configQuarantinedAs = configQuarantinedAs
   return state
 }
 

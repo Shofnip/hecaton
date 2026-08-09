@@ -7,6 +7,6 @@ export {
   logsDir,
   profilesDir,
 } from './app-paths.js'
-export { JsonFileStorage } from './json-file-storage.js'
+export { CorruptJsonError, JsonFileStorage } from './json-file-storage.js'
 export { FileLogger } from './file-logger.js'
 export { deleteUserData } from './delete-user-data.js'

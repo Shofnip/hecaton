@@ -19,6 +19,7 @@ export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
 
 export { LOG_FILES_KEPT, expiredLogFiles, formatLogRecord, redactUrls } from './log.js'
+export { quarantineFileName } from './config-recovery.js'
 export type { LogEntry, LogLevel, LogRecord, Logger } from './log.js'
 
 export {

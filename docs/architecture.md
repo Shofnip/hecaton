@@ -602,15 +602,35 @@ is a reminder, not a process.
 
 ### Open decisions left by Phase 3
 
-Neither blocks a release; both were raised by the phase and are the owner's to take. Two others
-were taken on 2026-08-09: `gameId` in log lines (see _Errors and logging_) and log retention (the
-same section).
+It does not block a release, and it was raised by the phase and is the owner's to take. Three others
+were taken on 2026-08-09: `gameId` in log lines and log retention (both under _Errors and logging_),
+and corrupt-config recovery (below).
 
-- **Corrupt-config recovery.** `JsonFileStorage.load` throws with the file named, which is good
-  diagnostics and leaves a friend with a truncated `config.json` stuck. The shape consistent with the
-  never-delete posture: rename it to `.bad-<timestamp>`, start from defaults, say so in the UI.
 - **Release notes shown after updating**, not only before. The update check shows a changelog to help
   the user decide; showing it once after the new version starts closes the loop.
+
+### A config that cannot be read at all
+
+Decided 2026-08-09. `JsonFileStorage.load` named the file and threw, which is good diagnostics and
+left a friend with a truncated `config.json` no way out from inside the app. Now that file is
+**renamed beside itself** — `config.bad-<timestamp>.json`, the name computed by `quarantineFileName`
+in the core — and the app starts from defaults and says so in the panel.
+
+Renamed, never deleted or overwritten: the bad file is the only copy of what the user had
+configured, and anyone who can read JSON gets it back from there. The same posture as archiving a
+removed slot's profile ([ADR-0008](adr/0008-archive-a-removed-slot-profile.md)). If that name is
+somehow already taken the recovery refuses rather than clobbering, because the file already sitting
+there is evidence too.
+
+**Only a file that is not JSON at all.** A config that parses but carries a rejected setting still
+stops the load and is left exactly as the user wrote it — setting the whole file aside over a typo
+would throw away their intent along with the mistake, and one line is what they have to fix. The
+distinction is carried by a type, `CorruptJsonError`, so it cannot be lost by a caller catching too
+broadly.
+
+Two consequences the panel states rather than leaving to be discovered: the screens are back to one,
+and the terms warning appears again, because `termsAcknowledged` was in the file that went. Sessions
+are untouched — the profiles are not in `config.json`.
 
 ## Open risks
 
