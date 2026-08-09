@@ -166,6 +166,28 @@ describe('parseConfig refuses a file it cannot fully understand', () => {
     expect(() => parseConfig({ ...valid, slots })).toThrow()
   })
 
+  it('rejects a gameId that is not kebab-case, so a url cannot ride in one', () => {
+    // The one field on a slot that was free text. `slot.start` logs gameId as a
+    // structured field, and redaction only ever touched `message` — so a
+    // hand-edited config with a url here wrote that url, query string included,
+    // into a log file. Constraining it at the boundary is what makes the rest of
+    // the log record safe *by type*, which is what the guarantee already claimed.
+    expect(() =>
+      parseConfig({
+        ...valid,
+        slots: [{ id: 1, gameId: 'https://example.com/?session=secret' }],
+      }),
+    ).toThrow(/kebab-case/)
+  })
+
+  it('accepts the ids the registry itself ships', () => {
+    // The constraint has to be the registry's, not a stricter one invented here:
+    // a gameId names a game, so a value the registry would accept must load.
+    expect(() =>
+      parseConfig({ ...valid, slots: [{ id: 1, gameId: 'poke-idleworld' }] }),
+    ).not.toThrow()
+  })
+
   it('accepts the volume bounds 0 and 100', () => {
     expect(() =>
       parseConfig({ ...valid, slots: [{ id: 1, gameId: 'g', volume: 0 }] }),

@@ -24,6 +24,7 @@ import {
 } from './config.js'
 import type { GlobalConfig, SlotOverrides, Theme } from './config.js'
 import { normalizeUrl } from './normalize-url.js'
+import { isGameId } from './registry.js'
 
 export interface ParsedConfig {
   globals: GlobalConfig
@@ -112,6 +113,31 @@ function requireString(value: unknown, field: string, context: string): string {
   return value
 }
 
+/**
+ * A gameId, held to the same shape the registry holds its own ids to.
+ *
+ * This is the field that made the log guarantee narrower than it read. Every
+ * other value on a log record is safe by **type** — `slotId` and `pid` are
+ * numbers, `level` and `event` are literals in the app's own code — while
+ * `gameId` was any non-blank string, copied through unredacted because redaction
+ * only ever applied to `message`. A hand-edited config naming a url here put that
+ * url, query string and any session token in it, into a log file, and the same
+ * line would show it redacted in `message` and in the clear in `gameId`.
+ *
+ * Constraining it here rather than redacting it later is the smaller change and
+ * the one that keeps the invariant sayable in one sentence: nothing on a log
+ * record can hold a url except `message`, which is redacted. It also fails at the
+ * moment the user can act on it — a named error on load rather than a slot that
+ * crashes later on an unknown game.
+ */
+function requireGameId(value: unknown, context: string): string {
+  const id = requireString(value, 'gameId', context)
+  if (!isGameId(id)) {
+    throw new Error(`${context}gameId must be kebab-case, got ${JSON.stringify(id)}`)
+  }
+  return id
+}
+
 function requireIntegerInRange(
   value: unknown,
   field: string,
@@ -170,7 +196,9 @@ function readSlotFields(
   into: SlotOverrides,
   context: string,
 ): void {
-  if (input['gameId'] !== undefined) into.gameId = requireString(input['gameId'], 'gameId', context)
+  if (input['gameId'] !== undefined) {
+    into.gameId = requireGameId(input['gameId'], context)
+  }
   if (input['url'] !== undefined) {
     // Normalised here, at the boundary, so the value that is validated, stored
     // and shown is the same one - a bare host the user typed becomes https.

@@ -15,6 +15,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { BrowserLauncher, LaunchRequest } from '@hecaton/core'
 import { buildChromeArgs } from './chrome-args.js'
+import { chromeSearchPaths } from './chrome-paths.js'
 
 // Async, never *Sync: these shell out to PowerShell/taskkill, and PowerShell alone
 // takes a few hundred ms to start. execFileSync would block the Electron main
@@ -24,13 +25,8 @@ import { buildChromeArgs } from './chrome-args.js'
 // CLIXML noise PowerShell prints never reaches the app's console.
 const execFileAsync = promisify(execFile)
 
-const DEFAULT_CHROME_PATHS = [
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-]
-
 export function findChromeExecutable(): string | undefined {
-  return DEFAULT_CHROME_PATHS.find((path) => existsSync(path))
+  return chromeSearchPaths().find((path) => existsSync(path))
 }
 
 interface ChromeProcess {

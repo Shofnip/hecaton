@@ -25,6 +25,18 @@ export interface GameDefinition {
 /** Lowercase words joined by single hyphens. The id becomes a directory name and a config key. */
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
+/**
+ * Whether a string is shaped like a game id.
+ *
+ * Exported because `parse-config.ts` applies the same rule to the `gameId` a
+ * user's config names, and a second copy of this regex is a rule that drifts.
+ * The direction of the dependency is the right way round: a `gameId` refers to a
+ * game, and what a game id looks like is this module's to say.
+ */
+export function isGameId(value: string): boolean {
+  return KEBAB_CASE.test(value)
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -77,7 +89,7 @@ export function validateGameDefinition(input: unknown): GameDefinition {
 
   // Validate the id first so every later message can name the offending game.
   const id = requireNonBlankString(input['id'], 'id', 'game definition ')
-  if (!KEBAB_CASE.test(id)) {
+  if (!isGameId(id)) {
     throw new Error(`game id must be kebab-case, got ${JSON.stringify(id)}`)
   }
 

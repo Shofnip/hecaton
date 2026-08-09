@@ -304,18 +304,26 @@ A long-running orchestrator with child processes fails silently by default. Acti
   can ride there. There are exactly two emitters: `Orchestrator.emit` for every lifecycle entry, and
   `apps/shell/src/main/main.ts` for one more, `config.error`, whose `message` is whatever
   `loadConfiguration` threw — usually the config parser's text, sometimes a filesystem error — and is
-  redacted like any other. **`gameId` is copied through unredacted**, and it is not structured —
-  `parse-config.ts` accepts any non-blank string, so a hand-edited `config.json` with a URL as its
-  `gameId` puts that URL in a log line. Only `GameDefinition` ids are constrained to kebab-case, and
-  those are repository data, not user input.
+  redacted like any other. **`gameId` is safe by type too, since 2026-08-09**, and it is the field
+  that shows why the distinction is worth stating: it used to accept any non-blank string, so a
+  hand-edited `config.json` naming a URL there wrote that URL — query string and all — into a log
+  line, and the following `slot.crash` showed the same URL redacted in `message` and in the clear in
+  `gameId`. It is now held to the registry's own kebab-case rule at the config boundary
+  (`requireGameId` in `parse-config.ts`, calling `isGameId` from `registry.ts` so there is one copy
+  of the rule).
+
+  Constraining it was chosen over redacting it: it is the smaller change, it keeps the invariant
+  sayable in one sentence, and it fails at the moment the user can act — a named error on load rather
+  than a slot that crashes later. The cost is that a config with a malformed `gameId` no longer
+  loads at all, which is this file's rule for every other field.
 
   So the guarantee that holds is: the app's own inputs cannot put a URL in a log, and anything a URL
   could hide inside — `message` — is redacted. It is a tested control and it is what makes a log file
   safe to send to the author by hand, which is the whole diagnostic path now that the bug-report tool
   was cancelled. Two things would undo it quietly: adding a url field to `LogEntry`, and adding
   another free-string field on the assumption that everything beside `message` is safe by
-  construction. Whether `gameId` should be redacted or constrained at the config boundary is an open
-  decision — CLAUDE.md makes log contents a rule-2 trigger.
+  construction — which is exactly the assumption `gameId` had been quietly breaking. CLAUDE.md makes
+  log contents a rule-2 trigger, so a new field on a log record is the owner's call, not a detail.
 
 ## Electron security (mandatory, because it is distributed)
 
@@ -590,10 +598,9 @@ is a reminder, not a process.
 
 ### Open decisions left by Phase 3
 
-None blocks a release; all four were raised by the phase and are the owner's to take.
+None blocks a release; all three were raised by the phase and are the owner's to take. A fourth,
+`gameId` in log lines, was taken on 2026-08-09 — see _Errors and logging_.
 
-- **`gameId` in log lines** — redact it, or constrain it to kebab-case at the config boundary. See
-  the scope note under _Errors and logging_; log contents are a rule-2 trigger.
 - **Log retention.** `packages/storage/src/file-logger.ts` says outright that old files are never
   pruned. A daily file per day, forever, is a different proposition on someone else's disk — and it
   is a **deleting** path, which this project keeps deliberate.
@@ -615,12 +622,15 @@ None blocks a release; all four were raised by the phase and are the owner's to 
   cookie and a password saved in Chrome survive, which a clean session loses every launch.
 - **Chrome dependency.** The app now requires installed Chrome rather than shipping a browser.
   A Chrome update could change flag behaviour, as it already did with `--load-extension`.
-  **Discovery is the sharper edge of this, and it blocks handing the zip to someone else.**
-  `ChromeLauncher` looks in exactly two places, both machine-wide: `C:\Program Files\Google\Chrome\
-Application\chrome.exe` and its `(x86)` sibling. Chrome installed **without administrator** lands
-  in `%LOCALAPPDATA%\Google\Chrome\Application\`, which is not searched, so that user gets "Chrome
-  executable not found" and has no way to point at their own copy — the constructor takes an optional
-  path, but nothing in the config or the UI passes one.
+  **Discovery searches three places since 2026-08-09**, in `chromeSearchPaths`: the two machine-wide
+  directories (`C:\Program Files\...` and its `(x86)` sibling) and then
+  `%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe`, which is where Chrome's installer puts
+  itself for a user who cannot elevate. Only the first two were searched before, so that user — a
+  common case, and the one thing that blocked handing the zip to anyone else — met "Chrome executable
+  not found" with nowhere to point the app. Machine-wide keeps priority deliberately, so nobody the
+  app already works for finds it launching a different browser. There is still **no way to name a
+  path by hand**: `ChromeLauncher` takes an optional one and nothing passes it, so a Chrome installed
+  somewhere else entirely is still not found.
 - **Terms of service.** Anything injected runs in the user's logged-in session; a ban lands on
   them. Verify each integrated game's terms and be explicit in the UI/README.
 - **Disk.** Persistent profiles accumulate cache, once per slot.
