@@ -57,6 +57,19 @@ jobs:
       # A tag that could not pass CI must not become a release.
       - run: npm run check
 
+      # The shipped tree, and only it. Build-time advisories are accepted
+      # deliberately (ADR-0013): they are denial-of-service issues in tooling
+      # that runs here, over patterns this build itself supplies, and none of it
+      # reaches a user's disk. That acceptance leaned on somebody remembering to
+      # re-check; this is what makes it a property instead.
+      #
+      # It lives in the release job rather than in `check`: repo-consistency
+      # requires `check` to cover everything CI runs, `check` is offline today,
+      # and a registry outage must not turn into a red local run. This job
+      # already needs the network and already runs npm ci.
+      - name: Refuse to publish an advisory that ships
+        run: npm audit --omit=dev
+
       - name: Check the tag matches the version being packaged
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh

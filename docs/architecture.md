@@ -576,29 +576,18 @@ within a day of the decision it describes.
 
 ### Checks no test performs, and the moment they belong to
 
-Three obligations have no failing test to hold them, and each fails the same way — silently, between
-versions. They are written here because the document that recorded them was deleted, and because an
-obligation with no moment attached is one nobody performs. **The cheapest moment that already exists
-is each release**, but tying them to it is a decision the owner has not taken; until then this list
-is a reminder, not a process.
+Some obligations have no failing test to hold them, and each fails the same way — silently, between
+versions. **They are tied to cutting a release** (decided 2026-08-09), because that is the cheapest
+moment that already exists and an obligation with no moment attached is one nobody performs. The
+list, and what to do about each, is [`docs/releasing.md`](releasing.md): raising the three exact
+pins, and confirming Chrome has not started re-downloading its on-device model into every profile.
 
-1. **Raise the three exact pins deliberately** — `electron`, `node-window-manager` and
-   `electron-builder`. The Electron pin only stays defensible while its cadence is honoured
-   ([ADR-0007](adr/0007-electron-security-posture.md) decision 1), and Chromium's security fixes
-   arrive as Electron patch releases.
-2. **Confirm `OptGuideOnDeviceModel` has not reappeared** in a profile directory. Every slot launches
-   with `--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading` because
-   Chrome was otherwise downloading a 4 GB AI model **per profile** — 16.3 GB of a 17.4 GB data
-   directory, arriving roughly two days after a profile is created. Chromium ignores feature names it
-   does not recognise, so a rename upstream turns the switch into a no-op whose only symptom is the
-   disk filling again.
-3. **Re-check that the build-time advisories are still build-time.** `npm audit --omit=dev` is clean
-   and `npm audit` is not; the acceptance of the remainder
-   ([ADR-0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md)) rests on none of them reaching a
-   user's disk. Running `npm audit --omit=dev` in CI would make that a checked property rather than
-   an observed fact, and is not done: `tests/repo-consistency.test.ts` requires `npm run check` to
-   cover everything CI runs, so `check` would gain a step that needs the network and a registry
-   outage would turn into a red local run.
+One of them stopped being a reminder and became a check: **`npm audit --omit=dev` runs in the
+release job**, so an advisory reaching the **shipped** tree fails the build. Build-time advisories
+stay accepted deliberately ([ADR-0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md)). It is
+in that job rather than in `npm run check` because `tests/repo-consistency.test.ts` requires `check`
+to cover everything CI runs, `check` is offline today, and a registry outage must not turn into a
+red local run — while the release job already needs the network.
 
 ### Open decisions left by Phase 3
 

@@ -142,6 +142,7 @@ will run.
 - [`docs/architecture.md`](docs/architecture.md) — how the system works now; edited freely, always current
 - [`docs/adr/`](docs/adr/README.md) — one immutable record per decision, including what was rejected and why
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — problems already hit, by the symptom you see first
+- [`docs/releasing.md`](docs/releasing.md) — cutting a release, and the checks no test performs
 - `CLAUDE.md` — rules that are not derivable from the code
 
 ## License
