@@ -208,6 +208,38 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+/** How long a worker gets to acknowledge "exit" before it is killed instead. */
+const GRACEFUL_EXIT_MS = 1000
+
+/**
+ * Waits for `work`, but never longer than `ms`, and never rejects.
+ *
+ * A shutdown step must not be able to fail or to hang: whatever `work` was going
+ * to say, the caller's next move is `kill()` either way. The rejection handler
+ * goes on before the race because `work` can settle *after* the deadline has
+ * resolved this, and an unhandled rejection then lands during quit.
+ *
+ * Deliberately duplicated in `@hecaton/window-manager`'s worker rather than
+ * shared: the two live in separate packages on purpose, and a timer is an
+ * effect, so it does not belong in the core either.
+ */
+async function settleWithin(work: Promise<unknown>, ms: number): Promise<void> {
+  work.catch(() => undefined)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      work.then(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms)
+      }),
+    ])
+  } catch {
+    // A worker that rejected has already gone: a finished wait, not a failure.
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /**
  * A long-lived PowerShell process compiled with the WASAPI COM surface, driven
  * one command line at a time.
@@ -224,6 +256,22 @@ export class WasapiWorker {
   private ready: Promise<void> | undefined
   private readonly queue: Pending[] = []
   private disposed = false
+
+  /**
+   * The script the worker runs. Defaulted, so production never passes one.
+   *
+   * The parameter exists so the shutdown path can be tested against a worker
+   * that prints READY and then ignores stdin forever - the state the app was
+   * found in on 2026-08-09. The real script cannot reproduce it, because it
+   * answers "exit" correctly, which is exactly why the missing deadline went
+   * unnoticed for so long.
+   */
+  constructor(private readonly script: string = WORKER_SCRIPT) {}
+
+  /** The worker's process id, for diagnostics. Undefined when it is not running. */
+  get pid(): number | undefined {
+    return this.proc?.pid
+  }
 
   /** Sends one command line and resolves with the reply after "OK ". */
   async send(command: string): Promise<string> {
@@ -261,7 +309,7 @@ export class WasapiWorker {
     // which PowerShell strips out of a -Command string — the trap this repo has
     // hit repeatedly (docs/troubleshooting.md). The whole worker, stdin loop and
     // all, rides in as base64.
-    const encoded = Buffer.from(WORKER_SCRIPT, 'utf16le').toString('base64')
+    const encoded = Buffer.from(this.script, 'utf16le').toString('base64')
     const proc = spawn(
       'powershell',
       ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
@@ -308,11 +356,7 @@ export class WasapiWorker {
     this.disposed = true
     const proc = this.proc
     if (proc) {
-      try {
-        await this.sendRaw('exit')
-      } catch {
-        // Already gone, or never came up: kill covers it.
-      }
+      await settleWithin(this.sendRaw('exit'), GRACEFUL_EXIT_MS)
       proc.kill()
     }
     this.teardown(new Error('wasapi worker disposed'))

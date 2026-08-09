@@ -419,6 +419,12 @@ The load-bearing points:
   disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
   shell-outs are async so they never freeze the main thread; a screen closes gracefully by a
   `WM_CLOSE` posted to the embedded child.
+- **Disposal is bounded, and that is load-bearing.** `before-quit` defers the quit until both
+  workers are disposed, so an unbounded wait there is not a slow shutdown but a permanent one:
+  the app stays alive with its windows already hidden, holding the single-instance lock, and the
+  next launch quits silently against it. Each worker gives its polite `exit` a deadline and kills
+  the process either way. Found in the wild on 2026-08-09, and covered by an integration test per
+  worker that drives a real PowerShell which prints READY and then ignores stdin forever.
 
 Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundThrottling`) and a
 global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,

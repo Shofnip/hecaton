@@ -202,6 +202,41 @@ interface Pending {
   reject: (error: Error) => void
 }
 
+/** How long a worker gets to acknowledge "exit" before it is killed instead. */
+const GRACEFUL_EXIT_MS = 1000
+
+/**
+ * Waits for `work`, but never longer than `ms`, and never rejects.
+ *
+ * A shutdown step must not be able to fail or to hang: whatever `work` was going
+ * to tell us, the caller's next move is `kill()` either way. The rejection
+ * handler is attached before the race because `work` can settle *after* the
+ * deadline has already resolved this, and an unhandled rejection then surfaces
+ * as a process-level warning during quit — the worst possible moment.
+ *
+ * Duplicated in the WASAPI worker rather than shared. The two live in separate
+ * packages on purpose (a window-manager adapter cannot reach into
+ * browser-engine), and a timer is an effect, so this does not belong in the
+ * core either.
+ */
+async function settleWithin(work: Promise<unknown>, ms: number): Promise<void> {
+  work.catch(() => undefined)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      work.then(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms)
+      }),
+    ])
+  } catch {
+    // A worker that rejected has already gone; that is a finished wait, not a
+    // failure, and the caller kills it next regardless.
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 /**
  * A long-lived PowerShell process compiled with the user32 surface, driven one
  * command line at a time.
@@ -219,6 +254,23 @@ export class Win32Worker {
   private ready: Promise<void> | undefined
   private readonly queue: Pending[] = []
   private disposed = false
+
+  /**
+   * The script the worker runs. Defaulted, so production never passes one.
+   *
+   * The parameter exists for one thing the shutdown path cannot be trusted
+   * without: a worker that prints READY and then ignores stdin forever. That is
+   * the state the app was found in on 2026-08-09, and the real script cannot
+   * reproduce it — it answers "exit" correctly, which is exactly why the missing
+   * timeout went unnoticed. A fake process would prove nothing here; a real
+   * PowerShell that really ignores its input proves the bound works.
+   */
+  constructor(private readonly script: string = WORKER_SCRIPT) {}
+
+  /** The worker's process id, for diagnostics. Undefined when it is not running. */
+  get pid(): number | undefined {
+    return this.proc?.pid
+  }
 
   /** Sends one command line and resolves with the reply after "OK ". */
   async send(command: string): Promise<string> {
@@ -251,7 +303,7 @@ export class Win32Worker {
   private boot(): Promise<void> {
     // -EncodedCommand, not -Command: the embedded C# is full of double quotes,
     // which PowerShell strips out of a -Command string (docs/troubleshooting.md).
-    const encoded = Buffer.from(WORKER_SCRIPT, 'utf16le').toString('base64')
+    const encoded = Buffer.from(this.script, 'utf16le').toString('base64')
     const proc = spawn(
       'powershell',
       ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
@@ -291,17 +343,27 @@ export class Win32Worker {
     for (const pending of this.queue.splice(0)) pending.reject(error)
   }
 
-  /** Stops the worker for good. After this the adapter must not be reused. */
+  /**
+   * Stops the worker for good. After this the adapter must not be reused.
+   *
+   * The polite "exit" is given a deadline, and that deadline is the whole point
+   * of this method's shape. It used to await the reply unbounded, on the
+   * reasonable-looking grounds that a dead worker rejects the pending send
+   * through `teardown`. A worker that is neither answering nor dead does
+   * neither — and `main.ts` calls `event.preventDefault()` in `before-quit`,
+   * re-issuing `app.quit()` only once disposal resolves. So one silent worker
+   * kept the entire app alive with its windows already hidden, holding the
+   * single-instance lock, which made the next launch do nothing at all.
+   * Observed 2026-08-09, nine minutes in and going.
+   *
+   * `kill()` was always the line after the await; it just had to be reachable.
+   */
   async dispose(): Promise<void> {
     if (this.disposed) return
     this.disposed = true
     const proc = this.proc
     if (proc) {
-      try {
-        await this.sendRaw('exit')
-      } catch {
-        // Already gone, or never came up: kill covers it.
-      }
+      await settleWithin(this.sendRaw('exit'), GRACEFUL_EXIT_MS)
       proc.kill()
     }
     this.teardown(new Error('win32 worker disposed'))

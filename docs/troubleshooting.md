@@ -153,6 +153,47 @@ See ADR-0005 (and its Correction) and ADR-0008.
 
 ---
 
+## The app will not start, and nothing at all happens
+
+**Symptom**
+
+`npm --prefix apps/shell start` builds, prints nothing unusual, and no window appears. Running it
+again does the same. Task Manager shows `electron.exe` processes that you did not just start.
+
+**Cause**
+
+A previous instance is still alive with its windows hidden, holding the single-instance lock. A
+second launch takes `requestSingleInstanceLock()`, loses, and quits silently — which is the
+designed behaviour and looks identical to "the app is broken".
+
+Until 2026-08-09 it could get into that state on its own. `before-quit` calls
+`event.preventDefault()` and re-issues `app.quit()` only after both PowerShell workers are
+disposed, and `dispose()` waited for the worker's reply to `exit` **with no deadline**. A worker
+that neither answered nor died left the app running forever with no window to close. Observed
+once, nine minutes in and still going, with both workers alive.
+
+Both workers now bound that wait (`GRACEFUL_EXIT_MS`) and kill the process either way, so the
+shutdown cannot stall on a silent worker. If you see this on an older build, or from some other
+cause:
+
+**What to do**
+
+```
+taskkill /IM electron.exe /F
+```
+
+Then check for orphaned workers, because a killed app cannot clean up after itself — this is the
+one case where they outlive it:
+
+```
+powershell "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Select ProcessId, ParentProcessId"
+```
+
+Anything whose parent is gone can be stopped. A normal shutdown takes its workers with it; verify
+by closing the app and confirming no `electron.exe` and no worker `powershell.exe` remain.
+
+---
+
 ## `gh` fails with "Resource not accessible by personal access token"
 
 **Symptom**

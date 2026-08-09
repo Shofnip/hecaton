@@ -1404,6 +1404,37 @@ password disclosure. **Step 5r was exercised through the real UI in the same run
 button, its confirmation, then the app closing itself with `shell` as the only survivor, which is
 what the code had only been shown to do from a probe until now.
 
+### A shutdown defect, found and fixed 2026-08-09
+
+Not a phase-3 decision, recorded because it was found while verifying step 8 and because it is the
+kind of thing that has no diagnosis once the app is on someone else's machine.
+
+An instance was found **alive nine minutes after its windows had been hidden**, holding the
+single-instance lock, with both PowerShell workers running. The owner launched the app twice and
+nothing happened either time: the new process lost the lock check and quit silently, which is the
+designed behaviour and is indistinguishable from the app being broken.
+
+`before-quit` calls `event.preventDefault()` and re-issues `app.quit()` only once both workers are
+disposed. `dispose()` awaited the worker's reply to `exit` with **no deadline**, on the
+reasonable-looking grounds that a dying worker rejects the pending send through `teardown` — but a
+worker that is neither answering nor dead does neither. `proc.kill()` was already the next line; it
+just was not reachable.
+
+Both workers now bound the polite exit and kill regardless. The trigger — why a worker went silent
+that once — is still unexplained, and the fix does not depend on knowing: it removes the infinite
+wait whatever the cause.
+
+**Red first, and the first attempt at red was worthless**, which is worth recording: the test
+constructed the worker with a deaf script, the constructor took no arguments, and the real worker
+answered `exit` correctly — four green tests proving nothing. With the seam in place and the fix
+reverted, three of the four hang and time out. The workers now take an optional script (defaulted,
+never passed in production) so the shutdown path can be driven against a real `powershell.exe` that
+prints READY and then ignores stdin forever, which is what the failure actually looked like and what
+no fake could show.
+
+Verified end to end afterwards: launch, `WM_CLOSE` posted to the panel, and the main process, all
+five `electron.exe` and both workers were gone.
+
 **Then 8 and the review.** The phase is shorter than it was a week ago on both counts: the app's
 whole network surface is one user-initiated request, and its whole install story is "unzip it".
 
