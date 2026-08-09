@@ -29,6 +29,8 @@ isolation by construction. First target game: **Poke IdleWorld**; any `https://`
   logs, and remove/re-add screens (a removed screen's profile is archived, never deleted).
 - **Delete everything**, from the settings modal: where your data lives, and one confirmed action
   that removes it and closes the app.
+- **Check for updates** when you feel like it — never on its own. It reads the release list, shows
+  the changelog, and opens the page in your browser if you want it.
 
 ## Requirements
 
@@ -122,6 +124,12 @@ directory survives until Windows reclaims it — worth knowing on a shared machi
 
 The app **never stores passwords** — logins live only inside Chrome's own profile. No profile data
 leaves the machine, and there is no telemetry.
+
+It makes **one** network request, and only when you press **Configurações → Procurar
+atualizações**: it asks GitHub what the latest release is. Nothing is sent with it — no identifier,
+no usage, not even which version you are on, since the comparison happens on your machine. Nothing
+is downloaded or installed either: if there is a newer version, the app offers to open the release
+page in your browser and the rest is yours.
 
 **Configurações → Seus dados** names both of those locations and opens the first. Beside it,
 **Apagar todos os meus dados** deletes `%APPDATA%/hecaton` — profiles, config and logs — after an

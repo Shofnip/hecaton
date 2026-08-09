@@ -344,6 +344,10 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
 The app never stores passwords — logins live only inside the Chrome profile in `userDataDir`.
 No profile data leaves the machine. No telemetry (if ever, explicit opt-in).
 
+The app makes **exactly one** network request, and only when the user asks for it: the update check
+above. It sends nothing but the request itself — no identifier, no version, no usage — and it is the
+only line to cross the machine's edge in either direction.
+
 ## Phases
 
 **Phase 0 — feasibility spike.** Done. Overturned the browser control decision; validated the
@@ -425,6 +429,34 @@ NSIS installer was built and then dropped) · unsigned, with a published SHA256 
 repository · releases built by GitHub Actions on a tag · a user-initiated update check, which is the
 app's only network request · no telemetry · Electron security review before the first release. The
 fine plan, and every reversal along the way, is `docs/plans/phase-3-distribution.md`.
+
+### The update check — the app's only network request
+
+Reached only when the user presses **Procurar atualizações** in Configurações. Nothing runs at
+launch, on a timer, or in the background: an automatic check would carry the user's IP, version and
+clock to a server without them asking, which is telemetry whatever it is called (D7/D8). There is no
+enforcement and no remote kill switch — declining an update simply opens the version already
+installed.
+
+This reverses the premise of [ADR-0007](adr/0007-electron-security-posture.md) decision 4, and it
+does **not** touch the renderer's CSP. `connect-src 'none'` stands exactly as it was, because the
+request is a `fetch` in the main process where no CSP applies. Anyone reading the header as proof
+the app is offline is reading it wrong, and anyone relaxing it to add a request is relaxing the
+wrong thing.
+
+`main.ts` holds two constants and no logic: the API address
+(`api.github.com/repos/Shofnip/hecaton/releases/latest`) and the release page that
+`shell.openExternal` receives. **No url is ever read out of the fetched document** — the core
+validator does not carry one at all, which is a stronger guarantee than carrying one carefully.
+`packages/core/src/update.ts` owns the rest: what a status code means, whether a tag is newer
+(numerically, so `0.10.0` beats `0.9.0`), and a 4000-character cap with control characters stripped
+on the notes. Markup is not filtered because the panel sets `textContent`.
+
+Failure is an ordinary outcome, not an exception: offline, rate-limited, GitHub unavailable,
+malformed and "nothing published yet" are all states the panel phrases, and the last of those is
+what this repository answers today. The request identifies itself as `Hecaton` — measured to be
+_less_ than Electron's default User-Agent, which names the Windows build, the Chromium version and
+the Electron version.
 
 ### The terms warning, on first run
 

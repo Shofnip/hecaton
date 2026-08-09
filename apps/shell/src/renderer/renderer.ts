@@ -51,8 +51,20 @@ interface PanelState {
   theme: Theme
   /** Whether the terms warning is still owed. Main compares the versions. */
   needsTerms: boolean
+  /** The running version, shown beside the update check. */
+  version: string
   configError?: string
 }
+
+/** What an update check came back with (mirrors the core's UpdateCheck). */
+type UpdateCheck =
+  | { status: 'update-available'; version: string; notes: string }
+  | { status: 'up-to-date'; version: string }
+  | { status: 'none-published' }
+  | {
+      status: 'unavailable'
+      reason: 'offline' | 'rate-limited' | 'server' | 'malformed' | 'unexpected'
+    }
 
 interface SlotAddition {
   gameId?: string
@@ -76,6 +88,8 @@ interface HecatonApi {
   revealUserData(): Promise<void>
   deleteAllUserData(): Promise<void>
   acknowledgeTerms(): Promise<void>
+  checkForUpdates(): Promise<UpdateCheck>
+  openReleasesPage(): Promise<void>
   setAudioFollowsFocus(enabled: boolean): Promise<void>
   renameSlot(id: number, name: string): Promise<void>
   setSlotVolume(id: number, volume: number): Promise<void>
@@ -317,6 +331,7 @@ let state: PanelState = {
   // False until main says otherwise, so a stray frame before the first push
   // cannot flash the warning at someone who has already read it.
   needsTerms: false,
+  version: '',
 }
 
 // UI-only state main does not own. The modal/editor flags moved to the overlay
@@ -1040,6 +1055,8 @@ function openSettings(): void {
     terms.addEventListener('click', openTerms)
     body.append(terms)
 
+    body.append(updateRow())
+
     body.append(themeRow())
 
     body.append(el('div', 'risk-divider'))
@@ -1090,6 +1107,99 @@ function openSettings(): void {
 
     dialog.append(body)
   })
+}
+
+/**
+ * The version, and the only button in the app that touches the network.
+ *
+ * The check happens on this click and nowhere else — never at launch, never on a
+ * timer (D7/D8). The version sits beside it because "há uma atualização" says
+ * nothing without saying from what.
+ */
+function updateRow(): HTMLElement {
+  const box = el('div', 'field-box')
+
+  const row = el('div', 'update-row')
+  row.append(el('span', 'field-label', `Versão ${state.version}`))
+  const check = el('button', 'btn', 'Procurar atualizações')
+  check.type = 'button'
+  row.append(check)
+  box.append(row)
+
+  const result = el('span', 'data-note')
+  result.hidden = true
+  box.append(result)
+
+  const say = (text: string): void => {
+    result.textContent = text
+    result.hidden = false
+  }
+
+  check.addEventListener('click', () => {
+    check.disabled = true
+    say('Verificando…')
+    run(async () => {
+      try {
+        show(await window.hecaton.checkForUpdates(), box, say)
+      } finally {
+        check.disabled = false
+      }
+    })
+  })
+
+  return box
+}
+
+/** Phrases an outcome, and offers the release page when there is one to offer. */
+function show(check: UpdateCheck, box: HTMLElement, say: (text: string) => void): void {
+  box.querySelector('.update-open')?.remove()
+  box.querySelector('.update-notes')?.remove()
+
+  switch (check.status) {
+    case 'up-to-date':
+      say(`Você está na versão mais recente (${check.version}).`)
+      return
+    case 'none-published':
+      // Today's normal answer: the repository exists and has no release yet.
+      say('Nenhuma versão foi publicada ainda.')
+      return
+    case 'unavailable':
+      say(UPDATE_FAILURES[check.reason])
+      return
+    case 'update-available': {
+      say(`Versão ${check.version} disponível. Você está na ${state.version}.`)
+      if (check.notes !== '') {
+        // textContent, never innerHTML: these notes came off the network, and
+        // this is the one place in the app that shows text from outside it.
+        const notes = el('pre', 'update-notes')
+        notes.textContent = check.notes
+        box.append(notes)
+      }
+      const open = el('button', 'btn primary update-open', 'Abrir página da versão')
+      open.type = 'button'
+      open.addEventListener('click', () => {
+        showToast('Abrindo no navegador…')
+        run(() => window.hecaton.openReleasesPage())
+      })
+      box.append(open)
+      return
+    }
+  }
+}
+
+/**
+ * A failed check is an ordinary outcome, so each reason says what to do rather
+ * than that something went wrong.
+ */
+const UPDATE_FAILURES: Record<
+  'offline' | 'rate-limited' | 'server' | 'malformed' | 'unexpected',
+  string
+> = {
+  offline: 'Não foi possível verificar: sem conexão com a internet.',
+  'rate-limited': 'O GitHub recusou por excesso de tentativas. Tente de novo daqui a pouco.',
+  server: 'O GitHub está indisponível no momento. Tente de novo mais tarde.',
+  malformed: 'A resposta recebida não foi compreendida. Nada foi alterado.',
+  unexpected: 'Não foi possível verificar agora. Tente de novo mais tarde.',
 }
 
 /**

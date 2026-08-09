@@ -41,6 +41,9 @@ export { normalizeUrl } from './normalize-url.js'
 
 export { TERMS_VERSION, needsTermsAcknowledgement } from './terms.js'
 
+export { UPDATE_NOTES_MAX, interpretUpdateCheck, isNewerVersion } from './update.js'
+export type { UpdateCheck, UpdateFailure } from './update.js'
+
 export {
   planUserDataDeletion,
   requireEveryScreenStopped,

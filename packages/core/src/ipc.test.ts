@@ -44,6 +44,8 @@ describe('the channel list', () => {
       'data:reveal',
       'data:deleteAll',
       'terms:acknowledge',
+      'update:check',
+      'update:openPage',
       'slots:rename',
       'slots:setVolume',
       'slots:setMuted',

@@ -74,6 +74,13 @@ export const IPC_CHANNELS = [
   // read is the main process's to know, not the renderer's to assert — a channel
   // that accepted a number would let the panel claim any of them.
   'terms:acknowledge',
+  // The update check (D7): the app's only network request, and only when the
+  // user asks. Neither takes a payload — the API address and the release page
+  // are constants in main. `openPage` in particular must never learn a url from
+  // anywhere: not from the renderer, and not from the document the check
+  // fetched, or `shell.openExternal` stops being safe.
+  'update:check',
+  'update:openPage',
   // The video-wall runtime controls (UI rework, decision 7): a fixed contract —
   // any channel beyond these stops the work for the owner (CLAUDE.md rule 2).
   'slots:rename',

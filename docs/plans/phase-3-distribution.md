@@ -847,6 +847,12 @@ whole app:
    `shell`, and that no argv branch has crept back into `main.ts`. The old NSIS guards
    (`deleteAppDataOnUninstall: false`, the `${isUpdated}` branch, the headless flag) are gone with
    the installer and are not part of this review.
+   **Owed since 2026-08-09, and it is the one thing the code is ahead of:** the request now exists,
+   so ADR-0007's decision 4 ("the app makes no network request at all in v1") is false as written
+   until ADR-0014 exists to supersede it in part. The `security.ts` comment that repeated the claim
+   was corrected in the same commit; the ADR line waits for step 11 because a `Superseded in part
+by` must point at a file that exists.
+
 4. ~~The metrics allowlist.~~ Void — D9 reversed, no events are built.
 5. ~~The bug-report bundle.~~ Void for the same reason. Instead, confirm the negative: **nothing in
    the app sends a log anywhere.** A dropped feature leaves no test behind, so this one is checked by
@@ -890,6 +896,72 @@ passes `FILE_SHARE_DELETE`), so it cannot stand in for this in a test. A process
 does — which is how `delete-user-data.integration.test.ts` reproduces the partial deletion on real
 disk without needing Electron.
 
+### P3 — findings, measured 2026-08-09
+
+A throwaway Electron app with ADR-0007's handlers installed exactly as `main.ts` installs them —
+`will-navigate`, `will-redirect`, `setWindowOpenHandler` returning `{ action: 'deny' }`,
+`will-attach-webview` prevented — then `shell.openExternal` on the hardcoded release page.
+
+**It works, it throws nothing, and not one handler fires.** The panel stayed on its `file://` URL.
+So the deny-everything posture needs no weakening, which was the whole worry. The mechanism was
+always the likely answer — `openExternal` runs in main and hands the url to the OS shell, while
+those handlers govern renderer-initiated navigation — but that was reasoning, and P2's findings say
+outright that reasoning is not what this project accepts here.
+
+Three findings that were not in the question, two of which changed the code:
+
+1. **Electron's `fetch` sends a User-Agent whether or not you set one.** Measured:
+   `Mozilla/5.0 (Windows NT 10.0; Win64; x64) … Chrome/150.0.7871.129 Electron/43.2.0 Safari/537.36`.
+   So `User-Agent: Hecaton` is not "the minimum to avoid a 403" — that is what a bare `curl` gets,
+   and it is a property of curl. From this app the header is a **reduction**: it replaces the
+   Windows build, the architecture, the Chromium version and the Electron version (which pins the
+   app's version range) with one word. The comment in `main.ts` said the wrong thing and was fixed.
+2. **`content-length` came back `null`** for the largest real response tried, because GitHub sends
+   it chunked. The size ceiling therefore cannot rest on the header: the check that does the work is
+   the one on the body after reading it, and the header check is only a cheap early exit.
+3. **The shipped parser was run against real payloads**, since this repository has no release and
+   the suite otherwise only ever sees fixtures. `Shofnip/hecaton` → `404` →
+   `{status:'none-published'}`; `electron/electron` → `200` → `update-available`, version `43.3.0`,
+   3386 characters of notes — comfortably inside the 4000-character cap, which is evidence the cap
+   is not set so low that a real changelog is truncated.
+
+### Step 8 — the update check, done 2026-08-09
+
+`update:check` and `update:openPage`, both without a payload. The API address and the release page
+are constants in `main.ts`; **no url is read out of the fetched document**, and the core validator
+does not even carry one, which is a stronger guarantee than carrying one carefully. That is pinned
+by a test rather than left to the review.
+
+The owner chose, on 2026-08-09, **the GitHub Releases API** (`/releases/latest`) over a static
+`latest.json` the workflow would maintain, and a **bare `Hecaton`** User-Agent over one carrying the
+version. The API cannot drift from reality because it _is_ the release list, and it excludes drafts
+and prereleases by construction; the cost accepted is 60 requests/hour per IP and a `404` that means
+both "nothing published yet" and "no such repository". Today it means the first, and the panel says
+so rather than reporting a failure.
+
+Everything that decides anything is in `packages/core/src/update.ts`: what a status code means,
+whether a tag is newer (numerically — a string compare puts `0.10.0` before `0.9.0`), and what may
+be carried out of the body. `main.ts` only turns the network into a status code and a parsed value,
+and always returns rather than throwing, because **failure is an ordinary outcome here**: offline,
+rate-limited, GitHub down and malformed are four states the panel phrases in Portuguese, not four
+errors.
+
+Two ceilings on untrusted input, both deliberate: notes are capped at 4000 characters and stripped
+of control characters (newlines and tabs kept — a changelog is written with them), and the response
+body is refused past 1 MB. Markup is _not_ filtered, and does not need to be: the panel sets
+`textContent`, so a `<script>` in a release note is five words of text.
+
+**Also landed here, from suggested complement 4:** the running version is shown beside the button.
+Not really optional once a check exists — "há uma atualização" says nothing without saying from
+what.
+
+**What is verified, and what is not.** The network path, the parser against real payloads and
+`openExternal` are measured (P3 above), and the fast suite covers the rules. The **panel's update
+row was not exercised at runtime**: driving the app by synthetic clicks means clicking on a desktop
+where the owner's real game and Discord are open, and a misdirected click or keystroke lands in a
+real conversation or a real session. It was abandoned for that reason rather than because it
+succeeded. The wiring is held by the `Record<IpcChannel, …>` in main and by `preload.test.ts`.
+
 ## Suggested complements — proposed, none decided
 
 Raised because the phase's decisions make them cheap or newly necessary. Each is the owner's call;
@@ -910,9 +982,11 @@ none is assumed by the plan above.
    `logs:reveal` pattern of computing the path in main.~~ **Decided and built 2026-08-08 with 5r**,
    in exactly that shape: it stopped being a nicety when the installer went, since the panel is now
    the only place a user can act. The folder button opens `%APPDATA%/hecaton` only.
-4. **Version and build info visible in-app.** More useful since D9 was reversed, not less: with no
+4. ~~**Version and build info visible in-app.** More useful since D9 was reversed, not less: with no
    report form to pre-fill, a friend has to read the version off the screen and type it. Trivial, and the
-   first thing wanted when a friend says "it broke".
+   first thing wanted when a friend says "it broke".~~ **Done 2026-08-09 with step 8** — the version
+   sits beside the update button, because an update check cannot say "there is a newer one" without
+   naming what the user is on. Build info beyond the version was not added.
 5. **Release notes shown after updating**, not only before. D7 shows the changelog to help decide;
    showing it once after the new version starts closes the loop.
 6. **A written dependency-review cadence.** ADR-0007 accepted the obligation to raise Electron
@@ -961,7 +1035,7 @@ the ADRs.
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | P1  | **DONE 2026-07-29 — yes to both. Historical since 2026-08-08:** there is no installer, so nothing exercises this path. Does an NSIS update run the previous version's uninstaller, and in silent mode?                                                                                | If it does, D4b's delete-data branch must be provably unreachable from that path — otherwise an _update_ deletes logged-in profiles |
 | P2  | **DONE twice — against the installer 2026-07-30, where the first build failed it, and against the zip 2026-08-08, where it passed.** Does the packaged app load the renderer from `file://` with the CSP header intact, and are the core fakes and `spike/` absent from the artifact? | ADR-0007 decisions 2 and 4 are only true if packaging preserves them                                                                |
-| P3  | **MOVED to step 8** — nothing calls `shell.openExternal` yet, so there is no behaviour to measure against the artifact. Does it behave with the navigation handlers ADR-0007 installed?                                                                                               | The deny-everything posture must not have to be weakened to let the update link work                                                |
+| P3  | **DONE 2026-08-09 — yes, and no handler even fires.** Does `shell.openExternal` behave with the navigation handlers ADR-0007 installed?                                                                                                                                               | The deny-everything posture must not have to be weakened to let the update link work                                                |
 | P4  | **DONE 2026-08-08 — no, and it fails in the worst way.** Can the running app delete its own `%APPDATA%/hecaton`, which contains the Electron `userData` it is using?                                                                                                                  | 5r's whole shape: if it half-deletes and throws, "delete my data" cannot be a single `rmSync` with a `try`                          |
 
 ### P1 — findings, measured 2026-07-29
@@ -1194,8 +1268,8 @@ Sequenced so each step is verifiable and nothing risky happens before its probe.
    and exercised through `workflow_dispatch` before any tag exists. Findings below.
 7. ~~**The first-run screen** — the terms warning, and only that.~~ **Done 2026-08-08**, and it
    closed the two open questions that were parked here rather than leaving them. See below.
-8. **The update check** — core validator first, then the adapter, then the UI. **P3 runs here**, once
-   `shell.openExternal` exists to be measured.
+8. ~~**The update check** — core validator first, then the adapter, then the UI. **P3 runs here**,
+   once `shell.openExternal` exists to be measured.~~ **Done 2026-08-09**, P3 included. See below.
 9. ~~**Metrics** — the pure event builder in the core with its allowlist tests, then the POST
    adapter.~~ **Cancelled 2026-07-30 (D9 reversed).**
 10. ~~**The bug report** — bundle, redaction, show-before-send.~~ **Cancelled 2026-07-30 (D9

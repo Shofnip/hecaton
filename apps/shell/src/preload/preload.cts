@@ -42,6 +42,8 @@ const api = {
   revealUserData: () => ipcRenderer.invoke('data:reveal'),
   deleteAllUserData: () => ipcRenderer.invoke('data:deleteAll'),
   acknowledgeTerms: () => ipcRenderer.invoke('terms:acknowledge'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  openReleasesPage: () => ipcRenderer.invoke('update:openPage'),
 
   // The video-wall runtime controls (UI rework, decision 7).
   renameSlot: (id: number, name: string) => ipcRenderer.invoke('slots:rename', { id, name }),

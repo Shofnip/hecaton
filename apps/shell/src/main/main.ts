@@ -33,7 +33,8 @@ import {
   requireEveryScreenStopped,
   verifyUserDataDeletion,
 } from '@hecaton/core'
-import { TERMS_VERSION, needsTermsAcknowledgement } from '@hecaton/core'
+import { TERMS_VERSION, interpretUpdateCheck, needsTermsAcknowledgement } from '@hecaton/core'
+import type { UpdateCheck } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
 import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@hecaton/browser-engine'
@@ -81,6 +82,53 @@ app.setPath('userData', electronUserDataDir())
 // tested, they were never installer-specific, and the caller they were waiting for
 // now exists - the `data:deleteAll` handler below, reachable only from the panel,
 // behind an explicit confirmation, on an enumerated channel that takes no path.
+
+/**
+ * The app's entire network surface, as two constants (D7).
+ *
+ * Constants, and never anything else. `RELEASES_PAGE` is what
+ * `shell.openExternal` receives; a url arriving from the renderer, or read out of
+ * the document `RELEASES_API` returned, would make that call "open whatever
+ * someone else says" — which is the arbitrary-open surface ADR-0007 decision 3
+ * refused for IPC, and the reason `logs:reveal` takes no argument either.
+ *
+ * The request is made only when the user presses the button. Nothing here runs
+ * at launch, on a timer, or in the background: an automatic check would be a
+ * request carrying the user's IP and clock that they never asked for, which is
+ * telemetry whatever it is called (D7, D8).
+ */
+const RELEASES_API = 'https://api.github.com/repos/Shofnip/hecaton/releases/latest'
+const RELEASES_PAGE = 'https://github.com/Shofnip/hecaton/releases/latest'
+
+/**
+ * What the request says about the user, which is less than saying nothing.
+ *
+ * That reads backwards and is the measured result (probe P3). Omitting the
+ * header does not send an empty one: Electron's `fetch` supplies Chromium's
+ * default, which is
+ * `Mozilla/5.0 (Windows NT 10.0; Win64; x64) … Chrome/150.0.7871.129
+ * Electron/43.2.0 Safari/537.36` — Windows build, architecture, Chromium version
+ * and the Electron version, which pins the app's version range anyway. Replacing
+ * it with the product name is a *reduction*.
+ *
+ * The version is deliberately not appended. The comparison happens on this
+ * machine, so sending it would buy nothing and leave "this IP runs version X" in
+ * a log the owner never sees. (A bare `curl` with no User-Agent at all gets 403
+ * from this API; that is a property of curl's request, not a reason for this
+ * constant.)
+ */
+const UPDATE_USER_AGENT = 'Hecaton'
+
+/** Long enough for a slow connection, short enough that the button is not stuck. */
+const UPDATE_TIMEOUT_MS = 8000
+
+/**
+ * A ceiling on the response, because it is unbounded and comes from the network.
+ * A real release document here is a few kilobytes; the largest on GitHub are
+ * ~150 KB, all of it asset listings. A megabyte is well past anything genuine and
+ * well short of what would hurt to buffer.
+ */
+const UPDATE_BODY_MAX = 1_000_000
 
 /** How often the shell asks the orchestrator to look for dead browsers. */
 const LIVENESS_INTERVAL_MS = 2000
@@ -221,6 +269,12 @@ interface PanelState {
    * core's rule and the renderer has no business holding a copy of it.
    */
   needsTerms: boolean
+  /**
+   * The running version, so the panel can show it beside the update check.
+   * Suggested complement 4, and not really optional once there is a check: "há
+   * uma atualização" is meaningless without saying from what.
+   */
+  version: string
   configError?: string
 }
 
@@ -233,6 +287,7 @@ function currentState(): PanelState {
     audioFollowsFocus: globals.audioFollowsFocus,
     theme: globals.theme,
     needsTerms: needsTermsAcknowledgement(globals.termsAcknowledged),
+    version: version(),
   }
   if (configError !== undefined) state.configError = configError
   return state
@@ -444,6 +499,20 @@ function registerIpc(): void {
       pushState()
     },
 
+    'update:check': async (payload) => {
+      parseNoPayload(payload)
+      return checkForUpdates()
+    },
+
+    'update:openPage': async (payload) => {
+      // The one handoff to the user's own browser. It takes no argument and
+      // opens a constant, so there is nothing here for a payload or a fetched
+      // document to steer. D7's shape: the app never downloads or runs an
+      // installer — it hands the user a page and gets out of the way.
+      parseNoPayload(payload)
+      await shell.openExternal(RELEASES_PAGE)
+    },
+
     'slots:rename': async (payload) => {
       const { id, name } = parseSlotRename(payload)
       orchestrator.renameSlot(id, name)
@@ -518,6 +587,59 @@ function registerIpc(): void {
   for (const channel of IPC_CHANNELS) {
     ipcMain.handle(channel, guard(handlers[channel]))
   }
+}
+
+/**
+ * Asks GitHub what the latest release is, and hands the answer to the core.
+ *
+ * Thin on purpose: everything that decides anything — what a status code means,
+ * whether a tag is newer, what may be carried out of the body — is
+ * `interpretUpdateCheck`, in the fast suite. This function's whole job is to turn
+ * "the network" into a status code and a parsed value, and to make sure it always
+ * returns rather than throwing. Failure is an ordinary outcome here, not an
+ * exception: no connection, GitHub down and a rate limit are all things that
+ * happen to a check that runs once, on a click.
+ */
+async function checkForUpdates(): Promise<UpdateCheck> {
+  let response: Response
+  try {
+    response = await fetch(RELEASES_API, {
+      headers: { 'User-Agent': UPDATE_USER_AGENT, Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(UPDATE_TIMEOUT_MS),
+    })
+  } catch {
+    // No network, DNS failure, or the timeout above. Indistinguishable from here
+    // and identical to the user: the check could not be made.
+    return { status: 'unavailable', reason: 'offline' }
+  }
+
+  // The body is only read for a 200. Every other status is answered by the core
+  // from the number alone, so a 500 page or an error document is never parsed.
+  if (response.status !== 200) return interpretUpdateCheck(response.status, undefined, version())
+
+  const declared = Number(response.headers.get('content-length') ?? '0')
+  if (declared > UPDATE_BODY_MAX) return { status: 'unavailable', reason: 'malformed' }
+
+  let parsed: unknown
+  try {
+    const text = await response.text()
+    // The check that actually does the work. Probe P3 measured `content-length`
+    // coming back **null** for the largest real response tried, because GitHub
+    // sends it chunked - so the header above is a cheap early exit and nothing
+    // more. Dropping this line would leave the ceiling unenforced exactly where
+    // it matters.
+    if (text.length > UPDATE_BODY_MAX) return { status: 'unavailable', reason: 'malformed' }
+    parsed = JSON.parse(text)
+  } catch {
+    return { status: 'unavailable', reason: 'malformed' }
+  }
+
+  return interpretUpdateCheck(200, parsed, version())
+}
+
+/** The running version, which is what a published tag is compared against. */
+function version(): string {
+  return app.getVersion()
 }
 
 /** Long enough for the panel's "data deleted" toast to be read, and no longer. */

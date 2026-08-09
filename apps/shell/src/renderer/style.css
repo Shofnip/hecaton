@@ -962,6 +962,30 @@ svg {
   text-transform: uppercase;
 }
 
+/* ---- update check (D7) ---- */
+.update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Release notes come off the network. Pre keeps the changelog's own line breaks;
+   the renderer sets textContent, so nothing in here is ever markup. */
+.update-notes {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+
 /* ---- first-run terms gate (D3b) ----
    Over everything, sidebar included: it is the last moment the warning can still
    change what the user does, so it is not something to click past by accident. */

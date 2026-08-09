@@ -12,9 +12,17 @@
 /**
  * Deny by default; every load the panel needs is an explicit exception.
  *
- * `connect-src 'none'` is the load-bearing one: the app makes no network
- * requests at all in v1 — no update check, no telemetry, no remote asset. A
- * later phase that needs the network has to change this line deliberately.
+ * `connect-src 'none'` is the load-bearing one, and it says exactly one thing:
+ * **the renderer** reaches nothing. No remote asset, no telemetry, no fetch from
+ * the panel — which is why the font and the favicon are bundled files.
+ *
+ * It used to say more. Until 2026-08-09 the app made no request at all, and this
+ * comment said so, naming the absence of an update check as part of what the
+ * policy bought. D7 changed that: the update check is a `fetch` in the **main
+ * process**, where no CSP applies, and it did not need this line touched. The
+ * distinction matters both ways — nobody should read this header as proof the
+ * app is offline, and nobody should relax it to add a request that never needed
+ * it.
  *
  * No `unsafe-inline` anywhere, which is why the panel's CSS and JS are files.
  * An injection here would be an injection into a page that talks to a process
