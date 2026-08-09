@@ -6,8 +6,6 @@
  * `existsSync` that picks one of these lives in the adapter, where the I/O
  * belongs.
  */
-import { join } from 'node:path'
-
 const MACHINE_WIDE = [
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
@@ -27,12 +25,18 @@ const MACHINE_WIDE = [
  * different browser after an update, and where both exist the administrator's
  * install is the one somebody managed deliberately.
  *
- * A missing or empty `LOCALAPPDATA` drops the candidate instead of joining onto
- * nothing: `join('', ...)` yields a drive-relative path, which would send an
+ * A missing or empty `LOCALAPPDATA` drops the candidate instead of appending to
+ * nothing: that would yield a drive-relative path, which would send an
  * `existsSync` — and then a spawn — at a directory nobody chose.
+ *
+ * The separator is a literal backslash rather than `node:path.join`, which is
+ * the platform's joiner and not Windows's. Every path here is a Windows install
+ * location whatever machine the code runs on, and CI type-checks and tests on
+ * Linux — where `join` produced forward slashes and turned this into a function
+ * whose output depended on where it was called.
  */
 export function chromeSearchPaths(env: NodeJS.ProcessEnv = process.env): string[] {
-  const localAppData = env['LOCALAPPDATA']
+  const localAppData = env['LOCALAPPDATA']?.replace(/[\\/]+$/, '')
   if (!localAppData) return [...MACHINE_WIDE]
-  return [...MACHINE_WIDE, join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe')]
+  return [...MACHINE_WIDE, `${localAppData}\\Google\\Chrome\\Application\\chrome.exe`]
 }

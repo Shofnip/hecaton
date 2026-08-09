@@ -23,6 +23,21 @@ describe('chromeSearchPaths', () => {
     expect(paths.indexOf(MACHINE_X86)).toBeLessThan(paths.indexOf(PER_USER))
   })
 
+  it('builds Windows paths whatever platform it runs on', () => {
+    // node:path.join is the *platform's* joiner, not Windows's. These are Windows
+    // install locations wherever the code executes, and CI type-checks and tests
+    // on Linux — where join produced forward slashes and turned this into a
+    // function whose output depended on where it was called. CI caught it; this
+    // pins it.
+    for (const path of chromeSearchPaths({ LOCALAPPDATA: LOCAL })) {
+      expect(path).not.toContain('/')
+    }
+  })
+
+  it('does not double the separator when the variable ends with one', () => {
+    expect(chromeSearchPaths({ LOCALAPPDATA: `${LOCAL}\\` })).toContain(PER_USER)
+  })
+
   it('omits the per-user path rather than building one from an empty variable', () => {
     // Without this, an unset LOCALAPPDATA yields "\Google\Chrome\Application\
     // chrome.exe" — a path rooted at the drive the process happens to be on,
