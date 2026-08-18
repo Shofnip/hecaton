@@ -18,11 +18,14 @@ export default tseslint.config(
     },
   },
   {
-    // Hook scripts are plain Node ESM, run by the Claude Code harness rather
-    // than by the app, so they get Node globals and none of the TS rules.
+    // Hook scripts are plain Node ESM, run by an agent harness rather than by
+    // the app, so they get Node globals and none of the TS rules. Both harness
+    // directories are listed: the same hook is mirrored under `.codex/`, and
+    // scoping this to one of them made lint fail on a file identical to one it
+    // already accepted.
     // Build scripts under apps/*/scripts are the same shape: plain ESM run by
     // npm, never bundled into anything the user runs.
-    files: ['.claude/**/*.mjs', 'apps/*/scripts/**/*.mjs'],
+    files: ['.claude/**/*.mjs', '.codex/**/*.mjs', 'apps/*/scripts/**/*.mjs'],
     languageOptions: {
       globals: { process: 'readonly', console: 'readonly' },
     },
