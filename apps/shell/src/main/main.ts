@@ -111,11 +111,12 @@ const RELEASES_PAGE = 'https://github.com/Shofnip/hecaton/releases/latest'
  *
  * That reads backwards and is the measured result (probe P3). Omitting the
  * header does not send an empty one: Electron's `fetch` supplies Chromium's
- * default, which is
+ * default, which on 2026-08-09, on Electron 43.2.0, was
  * `Mozilla/5.0 (Windows NT 10.0; Win64; x64) … Chrome/150.0.7871.129
  * Electron/43.2.0 Safari/537.36` — Windows build, architecture, Chromium version
- * and the Electron version, which pins the app's version range anyway. Replacing
- * it with the product name is a *reduction*.
+ * and the Electron version, which pins the app's version range anyway. The exact
+ * string moves with every Electron bump, which is the point rather than a
+ * caveat: replacing it with the product name is a *reduction*, and stays one.
  *
  * The version is deliberately not appended. The comparison happens on this
  * machine, so sending it would buy nothing and leave "this IP runs version X" in
