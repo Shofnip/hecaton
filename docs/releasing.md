@@ -31,8 +31,25 @@ modules are built against, and only the integration suite touches that.
 
 ### 2. Confirm Chrome is not downloading its 4 GB model again
 
-Open any `%APPDATA%/hecaton/profiles/slot-N` and confirm there is **no `OptGuideOnDeviceModel`
-directory**.
+**Check the size, not the presence.** Chrome creates `OptGuideOnDeviceModel` and
+`OptGuideOnDeviceClassifierModel` in every profile whether or not the feature is on; what the flag
+stops is the **download** that fills them. Measured 2026-08-18, with the flag working: both
+directories present in all four slots, **zero files, zero bytes**, whole profiles at 238–387 MB.
+
+```powershell
+Get-ChildItem $env:APPDATA\hecaton\profiles -Directory | ForEach-Object {
+  $slot = $_.Name
+  Get-ChildItem $_.FullName -Directory -Filter 'OptGuide*' | ForEach-Object {
+    $f = @(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue)
+    '{0,-8} {1,-38} {2,4} files {3,10:N2} MB' -f $slot, $_.Name, $f.Count, (($f | Measure-Object Length -Sum).Sum / 1MB)
+  }
+}
+```
+
+Anything but ~0 MB means the switch has stopped working. An earlier version of this step said to
+confirm the directory was absent, which fired on the first release that ran it — and a check that
+cries wolf is worse than none, because the next person learns to wave it through and waves the real
+regression through with it.
 
 Every slot launches with
 `--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading` because

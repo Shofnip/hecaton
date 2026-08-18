@@ -145,8 +145,12 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
   slot, 16.3 GB across four, the same model version duplicated each time. The app therefore
   launches every slot with `--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading`.
   Because Chromium silently ignores feature names it does not recognise, that switch can become a
-  no-op in a future version with no symptom but the disk filling again — so the check is whether the
-  directory has reappeared, and it belongs in the dependency review that each release already needs.
+  no-op in a future version with no symptom but the disk filling again — so it is checked at every
+  release ([`releasing.md`](releasing.md)). **The check is on the directory's size, not on whether it
+  exists:** measured 2026-08-18, with the flag working, `OptGuideOnDeviceModel` and
+  `OptGuideOnDeviceClassifierModel` were present in all four slots and **empty** — Chrome creates the
+  shell regardless, and what the flag stops is the download that fills it. Whole profiles were
+  238–387 MB, which is the ~300 MB figure above holding a month on.
 - **Extensions work, but cannot be auto-installed.** An MV3 extension injects CSS/JS and reads
   the game DOM fine, and Turnstile accepts it — but **Chrome 150 ignores `--load-extension`**;
   it only loads via manual "Load unpacked". For a distributed app that pushes HUD/actions
