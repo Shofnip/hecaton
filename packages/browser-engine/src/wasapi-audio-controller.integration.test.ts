@@ -3,14 +3,31 @@ import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { WasapiAudioController } from './wasapi-audio-controller.js'
+import { bundledBrowserPath } from './browser-paths.js'
 
 const onWindows = process.platform === 'win32'
 
-const CHROME = [
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-].find((path) => existsSync(path))
+/**
+ * The browser the app ships, not one installed on the machine (ADR-0016).
+ *
+ * This used to search two `Program Files` locations and let `describe.skipIf`
+ * remove the suite when neither existed. That was fine while the app required an
+ * installed Chrome; it stopped being fine the moment the README started telling
+ * people there is no browser to install, because the suite then skips itself on a
+ * correctly set up machine and still reports green — the vacuous signal this
+ * repository keeps hunting.
+ */
+const CHROME = bundledBrowserPath(
+  join(
+    fileURLToPath(new URL('../../..', import.meta.url)),
+    'node_modules',
+    'electron',
+    'dist',
+    'resources',
+  ),
+)
 
 // A continuous quiet tone, so the slot opens a real WASAPI render session that
 // this adapter can then find and mute. Autoplay needs the flag on the command
@@ -99,8 +116,12 @@ let controller: WasapiAudioController
 let a: Slot
 let b: Slot
 
-describe.skipIf(!onWindows || !CHROME)('WasapiAudioController', () => {
+describe.skipIf(!onWindows)('WasapiAudioController', () => {
   beforeAll(async () => {
+    // Fails rather than skips: an absent bundled browser is a tree that has not
+    // run `node scripts/fetch-chromium.mjs`, which is fixable, not a reason to
+    // report green over an adapter that never ran.
+    expect(existsSync(CHROME), `bundled browser missing at ${CHROME}`).toBe(true)
     controller = new WasapiAudioController()
     a = await launchTone()
     b = await launchTone()

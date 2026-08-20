@@ -1,4 +1,9 @@
-# Integration tests: real Chrome, real OS windows, real disk.
+# Integration tests: the real bundled browser, real OS windows, real disk.
+#
+# Three of the nine suites drive a browser, and all three drive the one the app ships.
+# Two of them used to reach for an installed Google Chrome and skip when none was found,
+# which stopped being safe the moment the app stopped requiring one - on a correct machine
+# they skipped and the run still reported green. They now fail instead.
 #
 # Manual only, and kept out of ci.yml on purpose. As a skipped job inside CI it
 # left every push reporting "1/2", and an indicator that needs interpreting is an
@@ -35,4 +40,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      # Two steps, and the order is load-bearing. `npm ci` installs no Electron
+      # binary - electron ships no install script - and the fetch script links the
+      # bundled browser *under* Electron's own resources directory, so with these
+      # reversed the fetch would log "nothing was linked for development" and exit
+      # 0, leaving the suite to die in beforeAll with `bundled browser missing at
+      # ...`: a failure about this workflow, not about the code it exercises. Same
+      # pair, same order, as docs/releasing.md and the README.
+      - run: node node_modules/electron/install.js
+      - run: node scripts/fetch-chromium.mjs
+
       - run: npm run test:integration

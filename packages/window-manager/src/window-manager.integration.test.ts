@@ -3,14 +3,29 @@ import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { NativeWindowManager } from './native-window-manager.js'
 
 const onWindows = process.platform === 'win32'
 
-const CHROME = [
-  'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-].find((path) => existsSync(path))
+/**
+ * The browser the app ships, not one installed on the machine (ADR-0016).
+ *
+ * This used to search two `Program Files` locations and let `describe.skipIf`
+ * remove the suite when neither existed. That was fine while the app required an
+ * installed Chrome; it stopped being fine the moment the README started telling
+ * people there is no browser to install, because the suite then skips itself on a
+ * correctly set up machine and still reports green — the vacuous signal this
+ * repository keeps hunting.
+ *
+ * The path is spelled out rather than imported: this package does not depend on
+ * `browser-engine` and should not start to for a test. `browser-paths.ts` owns
+ * the layout, and `tests/bundled-browser.test.ts` holds this line to it.
+ */
+const CHROME = join(
+  fileURLToPath(new URL('../../..', import.meta.url)),
+  'node_modules\\electron\\dist\\resources\\chromium\\chrome-win\\chrome.exe',
+)
 
 let manager: NativeWindowManager
 let profileRoot: string
@@ -34,13 +49,17 @@ function browserPidFor(profilePath: string): number | undefined {
   )?.ProcessId
 }
 
-describe.skipIf(!onWindows || !CHROME)('NativeWindowManager', () => {
+describe.skipIf(!onWindows)('NativeWindowManager', () => {
   beforeAll(async () => {
+    // Fails rather than skips: an absent bundled browser is a tree that has not
+    // run `node scripts/fetch-chromium.mjs`, which is fixable, not a reason to
+    // report green over an adapter that never ran.
+    expect(existsSync(CHROME), `bundled browser missing at ${CHROME}`).toBe(true)
     manager = new NativeWindowManager()
     profileRoot = mkdtempSync(join(tmpdir(), 'hecaton-wm-'))
 
     const child = spawn(
-      CHROME!,
+      CHROME,
       [
         `--user-data-dir=${profileRoot}`,
         '--no-first-run',
