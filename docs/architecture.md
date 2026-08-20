@@ -116,6 +116,13 @@ ambiguous at the one moment it matters, which is when Turnstile rejects one.
 - **The source is trunk**, not a release channel: no stable-branch security backports, and the
   browser no longer updates itself at all. The app's release cadence has become the browser's patch
   cadence. `docs/releasing.md` carries that as the fourth pin, with the ritual for raising it.
+- **An embedded screen is reloaded and held hidden for a second before it is revealed.** On this
+  browser, `SetParent` on an `--app` window throws away its rendered surface and it never comes
+  back — the screen sits grey until somebody reloads it by hand. Chrome 150 does not do it, a
+  normal tabbed window does not do it, and the regression landed during Chromium 151. The adapter
+  therefore reloads on embed and defers the reveal, and the panel says `Iniciando a tela…` for that
+  beat. The measurements, the four cheaper repaints that failed, and why pinning an older revision
+  was rejected are [ADR-0017](adr/0017-repaint-an-embedded-screen.md).
 - **The process is still found by PID**, never by window title, and the WMI filter's executable name
   is now derived from the resolved path rather than hardcoded — both names are `chrome.exe` today,
   so this changed no behaviour and removed a way for the two to drift apart in silence.

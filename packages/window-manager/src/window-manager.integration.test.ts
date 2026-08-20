@@ -311,8 +311,123 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       expect(embedManager.reload(pid)).toBe(true)
       expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
     })
+
+    /**
+     * The regression this exists for: on the bundled Chromium, `SetParent` on an
+     * `--app` window throws away its rendered surface, and it never comes back on
+     * its own. Every other signal stayed green - process alive, window present,
+     * bounds exact, parent correct - while the user looked at a grey rectangle
+     * until they pressed reload by hand. Every test above would have passed.
+     *
+     * Two details are load-bearing and neither is obvious:
+     *
+     * - the url must be **http**, not `file://`. `--app=file://...` silently falls
+     *   back to a normal tabbed window, which does not have the bug - so a
+     *   file-served page makes this test pass while production stays broken.
+     * - the assertion has to be a **pixel off the real screen**. Nothing in the
+     *   window API distinguishes a painted surface from a discarded one, which is
+     *   precisely why this shipped.
+     */
+    it('has actually painted, not just been placed', async () => {
+      const { createServer } = await import('node:http')
+      const server = createServer((_q, r) => {
+        r.writeHead(200, { 'content-type': 'text/html' })
+        r.end('<!doctype html><meta charset=utf-8><body style="margin:0;background:#c0392b">')
+      })
+      await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+      const port = (server.address() as { port: number }).port
+
+      const profile = mkdtempSync(join(tmpdir(), 'hecaton-paint-'))
+      const painted = spawn(
+        CHROME,
+        [
+          `--user-data-dir=${profile}`,
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--window-position=-32000,-32000',
+          '--window-size=700,480',
+          `--app=http://127.0.0.1:${port}/`,
+        ],
+        { detached: true, stdio: 'ignore' },
+      )
+      painted.unref()
+
+      let paintedPid: number | undefined
+      for (let attempt = 0; attempt < 60 && paintedPid === undefined; attempt++) {
+        paintedPid = browserPidFor(profile)
+        if (paintedPid === undefined) await new Promise((r) => setTimeout(r, 250))
+      }
+      expect(paintedPid).toBeDefined()
+
+      try {
+        for (let attempt = 0; attempt < 60 && !embedManager.reparent(paintedPid!); attempt++) {
+          await new Promise((r) => setTimeout(r, 250))
+        }
+        embedManager.setBounds(paintedPid!, { x: 30, y: 30, width: 660, height: 420 })
+        embedManager.show(paintedPid!)
+        bringToFront(parentHwnd)
+        // The post-embed repaint is a real page load; measured at ~600 ms.
+        await new Promise((r) => setTimeout(r, 4000))
+
+        const pixel = centrePixelOfWindow(embedManager.windowIdOf(paintedPid!)!)
+        const [red, green, blue] = pixel.split(',').map(Number)
+        // #c0392b is (192,57,43); the browser's empty grey is near (43,47,56). The
+        // gap is enormous, so this needs no tolerance tuning.
+        expect(red, `centre pixel was ${pixel}`).toBeGreaterThan(120)
+        expect(green, `centre pixel was ${pixel}`).toBeLessThan(120)
+        expect(blue, `centre pixel was ${pixel}`).toBeLessThan(120)
+      } finally {
+        server.close()
+        try {
+          execFileSync('taskkill', ['/PID', String(paintedPid), '/F', '/T'], { stdio: 'ignore' })
+        } catch {
+          // already gone
+        }
+      }
+    }, 120_000)
   })
 })
+
+/** Brings a window to the front, so a screen capture sees it rather than whatever covers it. */
+function bringToFront(hwnd: number): void {
+  execFileSync('powershell', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;" +
+      'public class F{[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);' +
+      '[DllImport("user32.dll")]public static extern bool BringWindowToTop(IntPtr h);}\'; ' +
+      `[void][F]::BringWindowToTop([IntPtr]${hwnd}); [void][F]::SetForegroundWindow([IntPtr]${hwnd})`,
+  ])
+}
+
+/**
+ * The colour at the centre of a window, read off the real screen.
+ *
+ * A BitBlt of the desktop rather than `PrintWindow` on the parent: the browser is
+ * a child window of another process, and `PrintWindow` does not include it.
+ */
+function centrePixelOfWindow(hwnd: number): string {
+  return execFileSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;" +
+        'public struct RC{public int L,T,R,B;}' +
+        'public class P{[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RC r);}\'; ' +
+        'Add-Type -AssemblyName System.Drawing; ' +
+        `$r = New-Object RC; [void][P]::GetWindowRect([IntPtr]${hwnd}, [ref]$r); ` +
+        '$x = [int](($r.L + $r.R) / 2); $y = [int](($r.T + $r.B) / 2); ' +
+        '$b = New-Object System.Drawing.Bitmap(1, 1); ' +
+        '$g = [System.Drawing.Graphics]::FromImage($b); ' +
+        '$g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size(1, 1))); ' +
+        '$p = $b.GetPixel(0, 0); "{0},{1},{2}" -f $p.R, $p.G, $p.B',
+    ],
+    { encoding: 'utf8' },
+  ).trim()
+}
 
 /** Polls a predicate until true or a short timeout — for the worker's async effects. */
 async function waitFor(pred: () => boolean, timeoutMs = 4000): Promise<boolean> {

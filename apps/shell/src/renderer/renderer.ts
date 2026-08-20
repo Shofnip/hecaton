@@ -126,6 +126,58 @@ const MAX_NAME_LENGTH = 24
 
 type VisualStatus = 'off' | 'loading' | 'on' | 'error'
 
+/**
+ * How long a screen shows "Iniciando a tela…" after it starts running.
+ *
+ * The window adapter reloads a freshly embedded window and holds it hidden while
+ * it repaints - `REPAINT_SETTLE_MS` in `native-window-manager.ts`, and the reason
+ * is written there. During that beat the cell would otherwise be an empty
+ * rectangle, so it says what is happening instead.
+ *
+ * The two constants have to agree, and nothing enforces it across the process
+ * boundary; erring long here is the safe side, since the message is simply
+ * covered by the window the moment it appears.
+ */
+const STARTING_MS = 1000
+
+/** When each slot was first seen running, so the starting message can time out. */
+const runningSince = new Map<number, number>()
+
+/** Slots with a redraw already booked, so a render storm cannot stack timers. */
+const startingRedraws = new Set<number>()
+
+function scheduleStartingRedraw(id: number): void {
+  if (startingRedraws.has(id)) return
+  startingRedraws.add(id)
+  const since = runningSince.get(id) ?? Date.now()
+  window.setTimeout(
+    () => {
+      startingRedraws.delete(id)
+      render()
+    },
+    Math.max(0, STARTING_MS - (Date.now() - since)) + 50,
+  )
+}
+
+/**
+ * Whether a running screen is still in its first beat, with no window to show yet.
+ *
+ * Read on every render rather than tracked with a flag: a render can happen for
+ * any reason, and the answer is a function of the clock either way.
+ */
+function stillStarting(slot: SlotSnapshot): boolean {
+  if (slot.state !== 'running') {
+    runningSince.delete(slot.id)
+    return false
+  }
+  const since = runningSince.get(slot.id)
+  if (since === undefined) {
+    runningSince.set(slot.id, Date.now())
+    return true
+  }
+  return Date.now() - since < STARTING_MS
+}
+
 function statusOf(state: SlotState): VisualStatus {
   switch (state) {
     case 'running':
@@ -728,7 +780,10 @@ function viewport(s: SlotSnapshot): HTMLElement {
   // (see `thumb`), so it hosts that screen's window too — which is what keeps the
   // wall live in focus mode. A non-running thumbnail shows text and no window.
   vp.dataset.slot = String(s.id)
-  const status = statusOf(s.state)
+  // The tag stays on regardless of what is drawn below: main still needs the
+  // rectangle while the screen is starting, because that is where its window is
+  // about to be placed.
+  const status = stillStarting(s) ? 'loading' : statusOf(s.state)
 
   if (status === 'off') {
     const b = el('button', 'viewport-power')
@@ -739,8 +794,15 @@ function viewport(s: SlotSnapshot): HTMLElement {
     vp.append(b)
   } else if (status === 'loading') {
     const box = el('span', 'viewport-loading')
-    box.append(icon('loader', 26), el('span', undefined, 'Carregando…'))
+    const starting = s.state === 'running'
+    box.append(
+      icon('loader', 26),
+      el('span', undefined, starting ? 'Iniciando a tela…' : 'Carregando…'),
+    )
     vp.append(box)
+    // The clock, not a state push, is what ends this - so ask for the redraw that
+    // will replace the message once the window is up.
+    if (starting) scheduleStartingRedraw(s.id)
   } else if (status === 'error') {
     const box = el('span', 'viewport-error')
     const alert = icon('alert', 26)

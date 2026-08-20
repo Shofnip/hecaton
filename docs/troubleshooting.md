@@ -266,6 +266,37 @@ deferred section of `architecture.md` and ADR-0003.
 
 ---
 
+## A screen turns on grey and only paints after a reload
+
+**Symptom**
+
+A screen starts, the window is embedded in the right place, the process is alive — and the cell is
+a flat grey rectangle. Pressing reload fixes it. It never fixes itself.
+
+**Cause**
+
+`SetParent` on an `--app` window throws away its rendered surface on the bundled Chromium. Measured
+2026-08-20: Chrome 150 does not do it, a normal tabbed window does not do it, and the regression
+landed during Chromium 151 — see [ADR-0017](adr/0017-repaint-an-embedded-screen.md).
+
+**What to do**
+
+Nothing, if the app is current: the window adapter reloads a screen the moment it embeds it and
+holds it hidden for `REPAINT_SETTLE_MS` while it repaints, so the cell shows `Iniciando a tela…`
+and then the game.
+
+If it comes back, the two things worth checking in that order are whether the reload in
+`NativeWindowManager.embed` is still there — a future cleanup might read it as redundant — and
+whether a raised Chromium revision has changed the behaviour. The integration test
+`has actually painted, not just been placed` is the one that will tell you: it reads a pixel off
+the real screen, because every other signal stayed green throughout the original bug.
+
+**On a slow connection** the second may not be enough and the grey shows briefly before the page
+arrives. That is the accepted failure mode, not a new bug: without CDP there is no "painted" event
+to wait for, only elapsed time.
+
+---
+
 ## `bundled browser executable not found at ...`
 
 **Symptom**

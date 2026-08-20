@@ -67,6 +67,22 @@ const EMBED_MAX_ATTEMPTS = 80 // ~20s, matching the launcher's own pid wait
 const SW_HIDE = 0
 const SW_SHOW = 5
 
+/**
+ * How long an embedded window is kept hidden while it repaints itself.
+ *
+ * Measured 2026-08-20 against the target game over the network: the reload issued
+ * on embed produced its first painted frame at ~600 ms and a complete one at
+ * 1000 ms; a localhost page painted in 200 ms. A second is therefore the whole
+ * budget with margin, and it is the ceiling the owner set for this.
+ *
+ * On a slow link the reveal can still land before the paint, and the screen shows
+ * grey for the remainder. That is the failure mode chosen deliberately over
+ * waiting indefinitely: with no CDP there is no event that says "painted", only
+ * elapsed time, and a screen that never appears is worse than one that appears
+ * late.
+ */
+const REPAINT_SETTLE_MS = 1000
+
 export class NativeWindowManager implements WindowManager {
   private readonly worker = new Win32Worker()
 
@@ -89,6 +105,12 @@ export class NativeWindowManager implements WindowManager {
 
   /** Pids whose window is still being waited for, so retries do not stack. */
   private readonly pendingEmbeds = new Set<number>()
+
+  /** When each freshly embedded pid may be revealed. See `embed`. */
+  private readonly repaintDeadline = new Map<number, number>()
+
+  /** Reveals the core asked for early, waiting out the repaint. One per pid. */
+  private readonly deferredShows = new Map<number, NodeJS.Timeout>()
 
   /** Queues one worker command without waiting; the port is synchronous. */
   private fire(command: string): void {
@@ -205,7 +227,26 @@ export class NativeWindowManager implements WindowManager {
     // screens:layout shows it again already positioned (its shownWindows starts
     // empty, so the first placement is a show). FIFO keeps this after the reparent.
     this.fire(`show ${hwnd} ${SW_HIDE}`)
+    // Reparenting an --app window throws away its rendered surface, and it never
+    // comes back on its own: the screen sits grey until somebody reloads it by
+    // hand. Measured 2026-08-20 - Chrome 150 does not do this, the bundled
+    // Chromium 154 does, and the regression landed during 151. Nothing short of a
+    // new document repaints it: SW_HIDE/SW_SHOW, RedrawWindow, minimise/restore
+    // and a resize were all tried and all stayed grey.
+    //
+    // So the window is reloaded here, while it is hidden, and `show` holds the
+    // reveal until it has had time to paint. The user sees the panel's own
+    // "loading" cell throughout and never sees the grey. A reload is safe for a
+    // logged-in slot - ADR-0009 records it as the one operation that keeps the
+    // tab-bound login.
+    //
+    // This is a workaround for somebody else's bug, not a design: it belongs here
+    // rather than in the core because the core cannot know that this browser
+    // loses a surface when Win32 reparents it. If a future revision stops doing
+    // it, this whole block goes, and the integration test that pins it will say so.
+    this.fire(`reload ${hwnd}`)
     this.embedded.set(pid, hwnd)
+    this.repaintDeadline.set(pid, Date.now() + REPAINT_SETTLE_MS)
     return true
   }
 
@@ -243,15 +284,49 @@ export class NativeWindowManager implements WindowManager {
   hide(pid: number): boolean {
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
+    // A pending reveal must die here, or a screen hidden during its first second
+    // would pop back into view on its own a moment later.
+    this.cancelDeferredShow(pid)
     this.fire(`show ${hwnd} ${SW_HIDE}`)
     return true
   }
 
-  /** Shows a hidden embedded window again (SW_SHOW). */
+  private cancelDeferredShow(pid: number): void {
+    const timer = this.deferredShows.get(pid)
+    if (timer !== undefined) clearTimeout(timer)
+    this.deferredShows.delete(pid)
+    this.repaintDeadline.delete(pid)
+  }
+
+  /**
+   * Shows a hidden embedded window again (SW_SHOW).
+   *
+   * Held back while a freshly embedded window is still repainting itself - see
+   * `embed`. The core is not told about the wait: it asked for the screen to be
+   * visible and it will be, a beat later, already painted rather than grey. The
+   * deferred reveal is the adapter's own timing, like `pollEmbed` above.
+   */
   show(pid: number): boolean {
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
-    this.fire(`show ${hwnd} ${SW_SHOW}`)
+
+    const remaining = (this.repaintDeadline.get(pid) ?? 0) - Date.now()
+    if (remaining <= 0) {
+      this.repaintDeadline.delete(pid)
+      this.fire(`show ${hwnd} ${SW_SHOW}`)
+      return true
+    }
+    if (!this.deferredShows.has(pid)) {
+      const timer = setTimeout(() => {
+        this.deferredShows.delete(pid)
+        this.repaintDeadline.delete(pid)
+        const current = this.hwndFor(pid)
+        if (current !== undefined) this.fire(`show ${current} ${SW_SHOW}`)
+      }, remaining)
+      // Never hold the process open on a screen that is merely late.
+      timer.unref?.()
+      this.deferredShows.set(pid, timer)
+    }
     return true
   }
 
@@ -319,6 +394,10 @@ export class NativeWindowManager implements WindowManager {
 
   /** Stops the persistent worker. Call on shutdown; the adapter is done after. */
   async dispose(): Promise<void> {
+    // A pending reveal outliving the worker would fire into a dead pipe. The
+    // timers are unref'd so they cannot hold the process open, but a shutdown
+    // that leaves them armed is untidy in exactly the way `dispose` exists to fix.
+    for (const pid of [...this.deferredShows.keys()]) this.cancelDeferredShow(pid)
     await this.worker.dispose()
   }
 }
