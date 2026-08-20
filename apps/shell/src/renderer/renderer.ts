@@ -1220,7 +1220,9 @@ function show(check: UpdateCheck, box: HTMLElement, say: (text: string) => void)
       say(`Você está na versão mais recente (${check.version}).`)
       return
     case 'none-published':
-      // Today's normal answer: the repository exists and has no release yet.
+      // The repository exists and has no release yet. That was the live answer
+      // until v0.1.0 went out on 2026-08-20; it is kept because it is still
+      // reachable, and because a fork answers this until its own first release.
       say('Nenhuma versão foi publicada ainda.')
       return
     case 'unavailable':

@@ -447,12 +447,24 @@ Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundTh
 global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,
 `ui:setTheme`, `screens:layout` and `overlay:open`/`overlay:close`.
 
-**Phase 3 — distribution. Done, and not yet released.** `electron-builder` producing a **portable
-zip** (an assisted NSIS installer was built and then dropped) · unsigned, with a published SHA256 ·
-Apache-2.0, public repository · releases built by GitHub Actions on a tag · a user-initiated update
-check, which is the app's only network request · no telemetry, no accounts, no monetization. The
-security review of the surfaces this phase created was done on 2026-08-09 and its findings are
-below. What remains is the owner's: cutting the `v0.1.0` tag.
+**Phase 3 — distribution. Done, and released: `v0.1.0`, 2026-08-20.** `electron-builder` producing
+a **portable zip** (an assisted NSIS installer was built and then dropped) · unsigned, with a
+published SHA256 · Apache-2.0, public repository · releases built by GitHub Actions on a tag · a
+user-initiated update check, which is the app's only network request · no telemetry, no accounts,
+no monetization. The security review of the surfaces this phase created was done on 2026-08-09 and
+its findings are below.
+
+**There is an installed base now, and two decisions change character because of it.** Renaming
+`APP_DIR_NAME` again is no longer free — [ADR-0012](adr/0012-hecaton-and-the-data-directory.md)
+says outright that its "no migration code, ever" held only because nothing had shipped, and that
+window is closed. And a defect that reaches a friend's machine can only be fixed by a release they
+choose to install, since there is no forced update and no kill switch by design
+([ADR-0014](adr/0014-the-apps-first-network-request.md)).
+
+The published artifact was verified as a friend would: downloaded from the release page,
+`sha256sum -c` against the published hash (OK), extracted, and found to carry `Hecaton.exe`,
+`LICENSE.txt`, `NOTICE.txt` and `CHANGELOG.txt`, with the exe reporting `NotSigned` — which is the
+decision rather than an accident.
 
 The planning document that carried the phase was deleted when it landed, as it said it would be.
 What survives is four ADRs — [0012](adr/0012-hecaton-and-the-data-directory.md) (the name and the
@@ -485,10 +497,12 @@ validator does not carry one at all, which is a stronger guarantee than carrying
 on the notes. Markup is not filtered because the panel sets `textContent`.
 
 Failure is an ordinary outcome, not an exception: offline, rate-limited, GitHub unavailable,
-malformed and "nothing published yet" are all states the panel phrases, and the last of those is
-what this repository answers today. The request identifies itself as `Hecaton` — measured to be
-_less_ than Electron's default User-Agent, which names the Windows build, the Chromium version and
-the Electron version.
+malformed and "nothing published yet" are all states the panel phrases. The last of those was the
+live answer until **v0.1.0 was published on 2026-08-20**; since then the API answers `200` with
+`tag_name: v0.1.0`, and the shipped parser was run against the real document — a machine on 0.1.0
+gets `up-to-date`, one on 0.0.9 gets `update-available`. The request identifies itself as
+`Hecaton` — measured to be _less_ than Electron's default User-Agent, which names the Windows
+build, the Chromium version and the Electron version.
 
 ### The terms warning, on first run
 

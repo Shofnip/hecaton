@@ -93,13 +93,19 @@ function cleanNotes(value: unknown): string {
 /**
  * Turns an HTTP status and a response body into what the panel should say.
  *
- * `404` is the case worth naming: it is what this repository answers today,
- * because no release has been published yet (measured 2026-08-09 — `/releases`
- * answers `200 []` while `/releases/latest` answers `404`). It is the normal
- * state before the first release, so it is reported as "nothing published", not
- * as a failure. It would also be the answer if the repository were renamed or
- * removed, and that is accepted: both mean "there is no release to offer you",
- * which is the only thing the user can act on.
+ * `404` is the case worth naming. It was what this repository answered until
+ * v0.1.0 was published on 2026-08-20 — before a first release `/releases/latest`
+ * answers `404` while `/releases` answers `200 []`, measured 2026-08-09. That is
+ * a normal state, not a failure, so it is reported as "nothing published". It
+ * would also be the answer if the repository were renamed or removed, and that
+ * is accepted: both mean "there is no release to offer you", which is the only
+ * thing the user can act on.
+ *
+ * Since v0.1.0 the live answer is `200` with `tag_name: v0.1.0`, and the shipped
+ * parser was run against it: a machine on 0.1.0 gets `up-to-date`, one on 0.0.9
+ * gets `update-available`. The `404` branch stays because it is still reachable,
+ * and because it is what any fork of this repository answers before its own
+ * first release.
  */
 export function interpretUpdateCheck(
   httpStatus: number,
