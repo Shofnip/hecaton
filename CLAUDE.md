@@ -25,6 +25,16 @@ so the **core** can be tested without I/O, including auto-restart on crash.
 the guarantee and leaves only the discipline, which is what fails. If a hook blocks you, the
 thing it caught is the work.
 
+**Measure platform behaviour; never assert it from memory.** Electron, Chrome and Win32 behave in
+version-dependent ways this project has been repeatedly wrong about, and every time the fix came
+from a disposable probe rather than from reasoning: `--app=` instead of `--new-window` (tabs
+accumulate otherwise), `CloseMainWindow` instead of `taskkill /F` (Chrome offers to restore pages
+otherwise), a CSP header working over `file://` when an intermediate probe had "proved" it does
+not, `--load-extension` silently ignored, `openExternal` firing no navigation handler, and
+`rmSync` deleting most of a tree and _then_ throwing `EPERM`. Write the probe under `spike/`
+(gitignored, never shipped) and carry the finding into the ADR or `architecture.md`; the code stays
+out of git because the measurement, not the script, is what is durable.
+
 **2. Security decisions stop the work.** On hitting any trigger below, stop and present
 options as _what it protects · what it exposes · implementation cost · reversibility_,
 with an explicit recommendation and a note on which option is the most conservative.
