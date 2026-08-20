@@ -38,7 +38,12 @@ import { changelogSection, displayNotes, needsReleaseNotes } from '@hecaton/core
 import type { UpdateCheck } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
-import { ChromeLauncher, FileProfileArchive, WasapiAudioController } from '@hecaton/browser-engine'
+import {
+  ChromeLauncher,
+  FileProfileArchive,
+  WasapiAudioController,
+  bundledBrowserPath,
+} from '@hecaton/browser-engine'
 import { NativeWindowManager } from '@hecaton/window-manager'
 import {
   APP_DIR_NAME,
@@ -65,6 +70,14 @@ const RENDERER_DIR = join(HERE, '..', 'renderer')
 const CHANGELOG = join(HERE, '..', 'CHANGELOG.md')
 // .cjs, not .js: a sandboxed preload must be CommonJS, and this package is ESM.
 const PRELOAD = join(HERE, '..', 'preload', 'preload.cjs')
+// The browser the app ships, and the only one it will launch (ADR-0016). Same
+// single load path as the changelog above and for the same reason: extraResources
+// puts the tree under <app>/resources in the package, and
+// `node scripts/fetch-chromium.mjs` links it under Electron's own resources
+// directory in development - measured 2026-08-20, process.resourcesPath is
+// node_modules/electron/dist/resources there. So no `app.isPackaged` branch, and
+// the load path that is tested is the load path that ships.
+const BROWSER = bundledBrowserPath(process.resourcesPath)
 
 // Keep Electron's own cache under our data dir, not in the generic, shared
 // %APPDATA%/Electron. Two reasons: ADR-0004 says everything the app persists
@@ -220,7 +233,7 @@ async function loadConfiguration(): Promise<void> {
   windowManager = new NativeWindowManager(panelHwnd)
 
   orchestrator = new Orchestrator({
-    launcher: new ChromeLauncher(profilesDir()),
+    launcher: new ChromeLauncher(profilesDir(), BROWSER),
     windows: windowManager,
     screen: screen.getPrimaryDisplay().workArea,
     globals,

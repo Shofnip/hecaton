@@ -11,27 +11,86 @@ A third check used to be on that list and is now enforced instead — see `npm a
 
 ### 1. Raise the pins, deliberately
 
-Three dependencies are pinned exactly, and each pin turns "receive the fix automatically" into
-"somebody must bump it":
+Four things are pinned exactly, and each pin turns "receive the fix automatically" into "somebody
+must bump it":
 
-| Package               | Where                                  | Why it is pinned                                                       |
+| Pin                   | Where                                  | Why it is pinned                                                       |
 | --------------------- | -------------------------------------- | ---------------------------------------------------------------------- |
 | `electron`            | `apps/shell/package.json`              | the embedded Chromium is a reviewed decision, not an install outcome   |
 | `node-window-manager` | `packages/window-manager/package.json` | native, compiles at install, runs in main with full access to profiles |
 | `electron-builder`    | `apps/shell/package.json`              | assembles the binary other people execute, and nothing is signed       |
+| **the game browser**  | `scripts/fetch-chromium.mjs`           | the app ships its own Chromium, so nothing else will ever update it    |
 
 Chromium's security fixes arrive as **Electron patch releases**, and Electron supports only its
-three most recent majors — so this is the one on the list with a clock attached. See
+three most recent majors — so that one has a clock attached. See
 [ADR-0007](adr/0007-electron-security-posture.md) decision 1 and
 [ADR-0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md).
 
-After any bump: `node node_modules/electron/install.js`, then `npm run check`, then
-`npm run test:integration` — a raised `node-window-manager` or Electron changes the ABI the native
-modules are built against, and only the integration suite touches that.
+After any of the three npm bumps: `node node_modules/electron/install.js`, then `npm run check`,
+then `npm run test:integration` — a raised `node-window-manager` or Electron changes the ABI the
+native modules are built against, and only the integration suite touches that.
 
-### 2. Confirm Chrome is not downloading its 4 GB model again
+#### The fourth pin is different, and it is the heaviest thing on this page
 
-**Check the size, not the presence.** Chrome creates `OptGuideOnDeviceModel` and
+The browser the **games** run in is bundled ([ADR-0016](adr/0016-ship-our-own-chromium.md)). It used
+to be the user's Google Chrome, updating itself weekly with nobody's attention. It does not any
+more: **this release is the only thing that will ever move it.** The app's release cadence is now
+the browser's patch cadence, and the browser is the largest attack surface in the product.
+
+It is also worse than that pin sounds, and the ADR says so at length: the source is the
+`chromium-browser-snapshots` bucket, which is **trunk**, not a release channel. It gets no
+stable-branch security backports. Raising it often is a mitigation, not a fix.
+
+Currently pinned, in `scripts/fetch-chromium.mjs`:
+
+|          |                                                                    |
+| -------- | ------------------------------------------------------------------ |
+| Revision | `1682878`                                                          |
+| Version  | `154.0.8014.0`                                                     |
+| SHA256   | `ca3ee2bc84c81de987d7a9091e0bfe5024d905838c06429a4f3732e9d9d5e4a2` |
+
+`tests/bundled-browser.test.ts` holds this table to the script, so the two cannot describe different
+revisions.
+
+Raising it starts by downloading the candidate **by hand**, because the pin has to be the hash of
+the build you then verified — not whatever the bucket serves the day it is fetched. The script
+refuses to unpack anything whose hash it does not already know, which is what makes that ordering
+enforced rather than merely intended.
+
+```powershell
+$rev = (Invoke-WebRequest 'https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/LAST_CHANGE').Content
+$zip = "vendor\chromium\chrome-win-$rev.zip"
+New-Item -ItemType Directory -Force vendor\chromium | Out-Null
+Invoke-WebRequest "https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/$rev/chrome-win.zip" -OutFile $zip
+$rev; (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+```
+
+Put that revision and hash into `REVISION` and `SHA256` in `scripts/fetch-chromium.mjs` and into the
+table above. `VERSION` is the name of the `*.manifest` file inside the archive. Then remove the old
+`vendor/chromium/chrome-win` — the script will not unpack over a tree it did not just create — and:
+
+```
+node scripts/fetch-chromium.mjs   # verifies the hash, unpacks, strips, relinks
+npm run check
+npm run test:integration
+```
+
+The download stays where it is until the hash matches, so this costs one download, not two.
+
+**Then re-measure the three things that have each already changed under this project once.** None of
+them is checked by any test, and all three fail quietly:
+
+1. **Turnstile.** Launch a slot on the target game with a throwaway profile and log in. This is the
+   gate the whole decision rests on, and a browser that cannot log in is not shippable.
+2. **The seven files the fetch script removes.** A snapshot could move something load-bearing into
+   one of them. Launch a slot, confirm the window embeds, and confirm audio still follows focus —
+   that exercises the renderer, GPU and audio-service children together.
+3. **The window geometry.** `win32-worker.ts` carries frame maths measured against a specific
+   browser-drawn title bar. If embedded screens sit a few pixels wrong, this is why.
+
+### 2. Confirm the browser is not downloading its 4 GB model again
+
+**Check the size, not the presence.** It creates `OptGuideOnDeviceModel` and
 `OptGuideOnDeviceClassifierModel` in every profile whether or not the feature is on; what the flag
 stops is the **download** that fills them. Measured 2026-08-18, with the flag working: both
 directories present in all four slots, **zero files, zero bytes**, whole profiles at 238–387 MB.
@@ -52,8 +111,8 @@ cries wolf is worse than none, because the next person learns to wave it through
 regression through with it.
 
 Every slot launches with
-`--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading` because
-Chrome was otherwise downloading an on-device model **per profile**: 16.3 GB of a 17.4 GB data
+`--disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading` because the
+browser was otherwise downloading an on-device model **per profile**: 16.3 GB of a 17.4 GB data
 directory, arriving roughly two days after a profile is created. Chromium **ignores feature names
 it does not recognise**, so a rename upstream turns the switch into a no-op whose only symptom is
 the disk filling again, two days at a time. There is no test for it; this check is the whole
@@ -79,11 +138,13 @@ git push origin v0.1.0
 ```
 
 The workflow then builds on a clean `windows-latest` checkout, runs `npm run check`, refuses if the
-tag and `apps/shell/package.json` disagree, packages the zip, publishes it with its SHA256, and
-generates the release notes from the commits.
+tag and `apps/shell/package.json` disagree, **fetches the pinned Chromium and verifies its SHA256**,
+packages the zip, publishes it with its SHA256, and generates the release notes from the commits. A
+hash mismatch fails the job with nothing unpacked, so a bad download cannot become a release.
 
 **`npm audit --omit=dev` runs in that job**, so an advisory that reaches the **shipped** tree fails
-the build. Build-time advisories are accepted deliberately — they are denial-of-service issues in
+the build. Note what it does not see: 440 MB of bundled Chromium is not an npm dependency, and its
+security posture is step 1's pin and nothing else. Build-time advisories are accepted deliberately — they are denial-of-service issues in
 tooling that runs on the build machine, over patterns the build itself supplies — and that
 acceptance is what this step keeps honest rather than remembered. If it fails, read what it is
 before reaching for `npm audit fix --force`, which would move `electron-builder` off the exact pin.

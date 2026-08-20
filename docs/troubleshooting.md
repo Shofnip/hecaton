@@ -242,19 +242,57 @@ this confusing: `gh run view` and `gh run list` succeed and then the next write 
 
 **Symptom**
 
-Chrome starts with `--load-extension=<dir>` and the extension is simply absent — not listed in
+The browser starts with `--load-extension=<dir>` and the extension is simply absent — not listed in
 `chrome://extensions`, no error anywhere.
 
 **Cause**
 
-Chrome 150 ignores `--load-extension` on the stable channel. It loads only through the manual
-"Load unpacked" button, with developer mode on.
+The flag is ignored. Chrome 137 removed it from branded builds, and probe P5 measured the
+**unbranded Chromium snapshot ignoring it too** — which contradicts the upstream PSA that said
+unbranded builds kept it, and corrects an assumption an earlier session made from memory.
+`--disable-features=DisableLoadExtensionCommandLineSwitch` changes nothing either. It loads only
+through the manual "Load unpacked" button, with developer mode on.
+
+Bundling the browser (ADR-0016) did **not** reopen this, and slots now launch with
+`--disable-extensions`, which states the posture rather than leaving it as an accident of the
+browser version.
 
 **What to do**
 
 For local experiments, load it by hand. For anything shipped, this is why HUD and in-page
 actions are deferred: distributing an extension means the Web Store or enterprise policy, each
-with its own cost. See the deferred section of `architecture.md` and ADR-0003.
+with its own cost — a stop-and-ask decision, not a side effect of some later change. See the
+deferred section of `architecture.md` and ADR-0003.
+
+---
+
+## `bundled browser executable not found at ...`
+
+**Symptom**
+
+Every screen fails to start, with an error naming a path ending in
+`chromium\chrome-win\chrome.exe`.
+
+**Cause**
+
+The app ships its own Chromium (ADR-0016) and launches nothing else — there is deliberately no
+fallback to an installed Chrome. The binary is not in git, so a fresh clone does not have it, and
+`npm install` wipes the link that points development at it because that link lives under
+`node_modules`.
+
+The path in the message tells the two cases apart. Under `node_modules/electron/dist/resources` it
+is a development tree that has not fetched the browser; under an extracted release folder's
+`resources` it is an incomplete package, which is a build problem rather than yours.
+
+**What to do**
+
+```
+node scripts/fetch-chromium.mjs
+```
+
+It re-links in about a second if `vendor/chromium` is already there, and downloads 354 MB if it is
+not. It refuses to unpack anything whose SHA256 does not match the pin, so a failure here is a
+failure to verify, never a silent partial install.
 
 ---
 
@@ -314,8 +352,9 @@ them.
 **What to do**
 
 Avoid inner double quotes entirely — use single quotes inside, and filter with `Where-Object`
-rather than `-Filter "Name='chrome.exe'"`. `chrome-launcher.ts` does this deliberately; the
-comment there explains why.
+rather than `-Filter "Name='chrome.exe'"`. `browser-process-query.ts` does this deliberately, and
+`browser-process-query.test.ts` holds it — the query is a shell string built from a resolved path,
+so it is pinned by a test rather than by a comment.
 
 ---
 

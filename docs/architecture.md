@@ -56,10 +56,11 @@ The four tests that isolated that, and the alternatives weighed, are recorded in
 [ADR-0003](adr/0003-spawn-over-cdp.md). They are not repeated here: this document is edited
 toward the present, and evidence belongs somewhere edits cannot quietly tidy it away.
 
-**So the app spawns Chrome directly**, like a desktop shortcut would:
+**So the app spawns the browser directly**, like a desktop shortcut would:
 
 ```
 chrome.exe --user-data-dir=<per-slot dir> --no-first-run --no-default-browser-check
+           --disable-component-update --no-service-autorun --disable-extensions
            --hide-scrollbars
            --disable-features=OptimizationGuideOnDeviceModel,OptimizationGuideModelDownloading
            --window-position=x,y --window-size=w,h --app=<url>
@@ -76,6 +77,14 @@ a test rather than a claim — it parses the feature names out of `--disable-fea
 cannot be smuggled into the comma list, and pins the number of `--disable-features` switches at one,
 because Chromium honours a single value per switch.
 
+The three switches on the second line say that this browser is the app's own rather than one the
+user installed: no component updates into a pinned binary, no background autorun entry left behind by
+a portable app, extensions off. They are switches rather than `--disable-features` names because
+Chromium ignores feature names it does not know, which is how `--load-extension` failed silently.
+What `--disable-component-update` costs — CRLSet and the rest of the security data that updater
+carries stop refreshing — is in [ADR-0016](adr/0016-ship-our-own-chromium.md), and the owner
+accepted it on 2026-08-20.
+
 The three throttling flags are on **by default** (`backgroundThrottling` defaults to `false`), which
 is worth noticing next to the Playwright measurement below: the cost attributed there to "Playwright
 injects flags that disable Chrome's background throttling" is a cost this app now chooses to pay, on
@@ -84,6 +93,38 @@ purpose, because an embedded screen must keep running while it is not on top.
 `--app=<url>` opens an app window rather than a normal tabbed one, which keeps the slot out of
 Chrome's session restore — so it never reopens last time's tabs and never accumulates them (this
 matters once `stop()` closes cleanly; see [ADR-0003](adr/0003-spawn-over-cdp.md)).
+
+### The browser ships with the app
+
+`chrome.exe` above is **the app's own Chromium**, not the user's Google Chrome
+([ADR-0016](adr/0016-ship-our-own-chromium.md)). Until v0.1.0 the app searched three install
+locations for Chrome and drove whatever it found; it now launches the bundled binary and **nothing
+else**, with no fallback — a fallback would put back the dependency and make "which browser ran?"
+ambiguous at the one moment it matters, which is when Turnstile rejects one.
+
+- **The pin** is a `chromium-browser-snapshots` revision with a SHA256, both in
+  `scripts/fetch-chromium.mjs`. The binary is never committed; the script downloads it, **verifies
+  the hash before unpacking anything**, removes seven files the app does not ship (798 MB → 440 MB,
+  the largest being Chromium's own 358 MB UI-test binary), and links the tree under Electron's
+  resources directory for development.
+- **One load path.** `bundledBrowserPath(process.resourcesPath)` joins on
+  `chromium\chrome-win\chrome.exe`. `extraResources` puts the tree there in the package and the
+  fetch script's junction puts it there in development, so there is no `app.isPackaged` branch and
+  the path that is tested is the path that ships. `tests/bundled-browser.test.ts` holds
+  `browser-paths.ts`, `electron-builder.yml`, the fetch script and `docs/releasing.md` to the same
+  layout and the same revision.
+- **The source is trunk**, not a release channel: no stable-branch security backports, and the
+  browser no longer updates itself at all. The app's release cadence has become the browser's patch
+  cadence. `docs/releasing.md` carries that as the fourth pin, with the ritual for raising it.
+- **The process is still found by PID**, never by window title, and the WMI filter's executable name
+  is now derived from the resolved path rather than hardcoded — both names are `chrome.exe` today,
+  so this changed no behaviour and removed a way for the two to drift apart in silence.
+
+Probe P5 verified the gate live before any of this was written: **Turnstile accepts the bundled
+browser**, every geometry assumption in [ADR-0011](adr/0011-embed-spawned-chrome-into-the-shell.md)
+measured identical or better, and existing logged-in profiles open in it without re-login because
+their cookies are DPAPI-`v10` rather than App-Bound `v20`. That last one has a shelf life and the
+ADR says so.
 
 What this keeps: session isolation (`--user-data-dir` is the same mechanism), window layout
 and focus, crash detection and auto-restart, the registry, per-slot config, mute.
@@ -128,8 +169,11 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
 
 - **Slot → PID → window mapping works without CDP.** Launch with a unique tag in
   `--user-data-dir`, then resolve PIDs via `Win32_Process.CommandLine`. 4/4 exact.
-- The PID `spawn` returns is a **launcher stub**, not the browser process. The real one is the
-  process whose command line has no `--type=`.
+- **The PID `spawn` returns is not trusted.** With the installed Google Chrome it was a **launcher
+  stub** that exited immediately; probe P5 measured the bundled snapshot returning the real one,
+  because it has no such stub. Either way the browser is the process whose command line carries this
+  slot's `--user-data-dir` and no `--type=` — which is correct for both, where depending on the
+  spawned pid would be a bet on somebody else's packaging.
 - **The WMI query is too slow for polling.** Resolve the PID once at launch; check liveness
   with `process.kill(pid, 0)`.
 - **Never identify a window by title.** During the spike a title filter matched the user's own
@@ -152,9 +196,15 @@ Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
   shell regardless, and what the flag stops is the download that fills it. Whole profiles were
   238–387 MB, which is the ~300 MB figure above holding a month on.
 - **Extensions work, but cannot be auto-installed.** An MV3 extension injects CSS/JS and reads
-  the game DOM fine, and Turnstile accepts it — but **Chrome 150 ignores `--load-extension`**;
-  it only loads via manual "Load unpacked". For a distributed app that pushes HUD/actions
-  toward the Web Store or browser policy, each with its own cost. Deferred, not dead.
+  the game DOM fine, and Turnstile accepts it — but `--load-extension` is ignored, and it only loads
+  via manual "Load unpacked". For a distributed app that pushes HUD/actions toward the Web Store or
+  browser policy, each with its own cost. Deferred, not dead. **Bundling the browser did not reopen
+  this**, contrary to what an earlier session assumed: probe P5 measured the unbranded snapshot
+  ignoring the flag too, and `--disable-features=DisableLoadExtensionCommandLineSwitch` changing
+  nothing — which contradicts the upstream PSA that said the removal applied only to branded builds.
+  The instrument was checked before the conclusion, by loading the same extension successfully in
+  this repo's Electron. Slots now launch with `--disable-extensions`, stating the resulting posture
+  rather than leaving it as an accident of the browser version.
 
 ## Structure
 
@@ -167,9 +217,9 @@ hecaton/
     core/               # PURE CORE - grid, state machine, registry, config, orchestrator.
                         #   No I/O, enforced by ESLint rather than by convention.
                         #   src/testing/ holds the fakes; excluded from the build.
-    browser-engine/     # process adapter: Chrome via spawn, PID resolution, liveness,
-                        #   profile archiving, and per-process audio mute + volume (WASAPI)
-    window-manager/     # embeds spawned Chrome into the shell (Win32 SetParent) and drives
+    browser-engine/     # process adapter: the bundled Chromium via spawn, PID resolution,
+                        #   liveness, profile archiving, per-process audio mute + volume (WASAPI)
+    window-manager/     # embeds the spawned browser into the shell (Win32 SetParent) and drives
                         #   it — move/hide/show/reload/close — applying the layout the renderer sends
     storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/hecaton
     games/              # registry - one file per integrated game
@@ -600,8 +650,15 @@ within a day of the decision it describes.
 Some obligations have no failing test to hold them, and each fails the same way — silently, between
 versions. **They are tied to cutting a release** (decided 2026-08-09), because that is the cheapest
 moment that already exists and an obligation with no moment attached is one nobody performs. The
-list, and what to do about each, is [`docs/releasing.md`](releasing.md): raising the three exact
-pins, and confirming Chrome has not started re-downloading its on-device model into every profile.
+list, and what to do about each, is [`docs/releasing.md`](releasing.md): raising the four exact pins,
+and confirming the browser has not started re-downloading its on-device model into every profile.
+
+**The fourth pin is the bundled Chromium, and it is heavier than the other three.** The browser used
+to update itself; since [ADR-0016](adr/0016-ship-our-own-chromium.md) a release is the only thing
+that moves it, and the snapshot it is pinned to gets no stable-branch security backports. Raising it
+also means re-measuring three things no test covers — Turnstile, the seven files the fetch script
+strips, and the window geometry `win32-worker.ts` depends on — each of which has already changed
+under this project once.
 
 One of them stopped being a reminder and became a check: **`npm audit --omit=dev` runs in the
 release job**, so an advisory reaching the **shipped** tree fails the build. Build-time advisories
@@ -695,17 +752,18 @@ are untouched — the profiles are not in `config.json`.
   [ADR-0009](adr/0009-login-is-bound-to-the-tab.md). Persistent profiles stay the default not to
   avoid re-login (nothing can) but to make it faster — a persistent Cloudflare device-trust
   cookie and a password saved in Chrome survive, which a clean session loses every launch.
-- **Chrome dependency.** The app now requires installed Chrome rather than shipping a browser.
-  A Chrome update could change flag behaviour, as it already did with `--load-extension`.
-  **Discovery searches three places since 2026-08-09**, in `chromeSearchPaths`: the two machine-wide
-  directories (`C:\Program Files\...` and its `(x86)` sibling) and then
-  `%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe`, which is where Chrome's installer puts
-  itself for a user who cannot elevate. Only the first two were searched before, so that user — a
-  common case, and the one thing that blocked handing the zip to anyone else — met "Chrome executable
-  not found" with nowhere to point the app. Machine-wide keeps priority deliberately, so nobody the
-  app already works for finds it launching a different browser. There is still **no way to name a
-  path by hand**: `ChromeLauncher` takes an optional one and nothing passes it, so a Chrome installed
-  somewhere else entirely is still not found.
+- **The bundled browser is the app's largest attack surface, and only a release moves it.** Since
+  2026-08-20 the app ships its own Chromium instead of driving an installed Chrome
+  ([ADR-0016](adr/0016-ship-our-own-chromium.md)), which removed the prerequisite and made the
+  browser a reviewed pin — and took away the silent weekly security updates that came with somebody
+  else's install. The source is a trunk snapshot, so there are no stable-branch backports either.
+  The whole mitigation is the fourth pin in [`releasing.md`](releasing.md), performed by a person.
+  Related: `--disable-component-update` freezes CRLSet and the rest of the component payloads at the
+  packaged revision, accepted by the owner with the trade written down.
+- **No way to name a browser path by hand**, still, and now more sharply: `ChromeLauncher` takes the
+  path but only the bundled one is ever passed, and there is no fallback to an installed Chrome. An
+  environment variable or setting that named an executable would be arbitrary code execution and is
+  a stop-and-ask decision, not a convenience.
 - **Terms of service.** Anything injected runs in the user's logged-in session; a ban lands on
   them. Verify each integrated game's terms and be explicit in the UI/README.
 - **Disk.** Persistent profiles accumulate cache, once per slot.

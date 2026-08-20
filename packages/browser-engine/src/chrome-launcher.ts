@@ -1,9 +1,16 @@
 /**
- * Browser adapter: plain Chrome, launched the way a shortcut would.
+ * Browser adapter: the Chromium this app ships, launched the way a shortcut
+ * would launch a browser.
  *
  * No CDP anywhere — the target game's Turnstile rejects controlled browsers.
  * That costs us the handle Playwright used to give us, so the slot→process link
  * is rebuilt here from the profile path on the command line.
+ *
+ * The executable is **passed in, never searched for** (ADR-0016). The adapter
+ * used to look through three install locations for the user's Google Chrome; it
+ * now launches the bundled binary the main process resolved, and nothing else.
+ * A fallback would put back the dependency the bundling removes, and make it
+ * ambiguous which browser ran when Turnstile next rejects one.
  *
  * Holds no business rules. Which slot runs where, and when to restart, are the
  * orchestrator's decisions.
@@ -15,7 +22,8 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { BrowserLauncher, LaunchRequest } from '@hecaton/core'
 import { buildChromeArgs } from './chrome-args.js'
-import { chromeSearchPaths } from './chrome-paths.js'
+import { browserExecutableName } from './browser-paths.js'
+import { browserProcessQuery } from './browser-process-query.js'
 
 // Async, never *Sync: these shell out to PowerShell/taskkill, and PowerShell alone
 // takes a few hundred ms to start. execFileSync would block the Electron main
@@ -25,19 +33,13 @@ import { chromeSearchPaths } from './chrome-paths.js'
 // CLIXML noise PowerShell prints never reaches the app's console.
 const execFileAsync = promisify(execFile)
 
-export function findChromeExecutable(): string | undefined {
-  return chromeSearchPaths().find((path) => existsSync(path))
-}
-
 interface ChromeProcess {
   pid: number
   commandLine: string
 }
 
-async function listChromeProcesses(): Promise<ChromeProcess[]> {
-  const script =
-    "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' } " +
-    '| Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress'
+async function listBrowserProcesses(executableName: string): Promise<ChromeProcess[]> {
+  const script = browserProcessQuery(executableName)
   let stdout: string
   try {
     const result = await execFileAsync(
@@ -67,20 +69,27 @@ async function listChromeProcesses(): Promise<ChromeProcess[]> {
  * during the Phase 0 spike it did exactly that. Renderers and GPU helpers carry
  * `--type=`; the browser process is the one that does not.
  */
-async function findBrowserPid(profilePath: string): Promise<number | undefined> {
+async function findBrowserPid(
+  executableName: string,
+  profilePath: string,
+): Promise<number | undefined> {
   const needle = `--user-data-dir=${profilePath}`
-  return (await listChromeProcesses()).find(
+  return (await listBrowserProcesses(executableName)).find(
     (proc) => proc.commandLine.includes(needle) && !proc.commandLine.includes('--type='),
   )?.pid
 }
 
-async function waitForBrowserPid(profilePath: string, timeoutMs = 20_000): Promise<number> {
+async function waitForBrowserPid(
+  executableName: string,
+  profilePath: string,
+  timeoutMs = 20_000,
+): Promise<number> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
-    const pid = await findBrowserPid(profilePath)
+    const pid = await findBrowserPid(executableName, profilePath)
     if (pid !== undefined) return pid
     if (Date.now() >= deadline) {
-      throw new Error(`Chrome did not start for profile ${profilePath} within ${timeoutMs}ms`)
+      throw new Error(`the browser did not start for profile ${profilePath} within ${timeoutMs}ms`)
     }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
@@ -93,14 +102,23 @@ interface RunningProfile {
 }
 
 export class ChromeLauncher implements BrowserLauncher {
-  private readonly chromePath: string | undefined
+  /**
+   * `Win32_Process.Name` for the browser, derived from the executable rather
+   * than hardcoded, so the filter cannot drift away from the binary in silence.
+   * Both are `chrome.exe` today — measured on the snapshot in probe P5.
+   */
+  private readonly executableName: string
   private readonly profiles = new Map<number, RunningProfile>()
 
+  /**
+   * @param browserPath the bundled browser, resolved once in the main process.
+   *   Required: there is nowhere else to look (ADR-0016).
+   */
   constructor(
     private readonly profilesRoot: string,
-    chromePath?: string,
+    private readonly browserPath: string,
   ) {
-    this.chromePath = chromePath ?? findChromeExecutable()
+    this.executableName = browserExecutableName(browserPath)
   }
 
   /** Where a running slot's profile lives. Useful in logs and diagnostics. */
@@ -109,9 +127,13 @@ export class ChromeLauncher implements BrowserLauncher {
   }
 
   async launch(request: LaunchRequest): Promise<number> {
-    const chrome = this.chromePath
-    if (!chrome || !existsSync(chrome)) {
-      throw new Error(`Chrome executable not found${chrome ? ` at ${chrome}` : ''}`)
+    const browser = this.browserPath
+    if (!browser || !existsSync(browser)) {
+      // Naming the path is the whole message. The binary ships inside the app,
+      // so its absence means an incomplete package or a development tree that
+      // has not run `node scripts/fetch-chromium.mjs` — two things the path
+      // tells apart at a glance and a generic "browser not found" does not.
+      throw new Error(`bundled browser executable not found at ${browser}`)
     }
 
     // A clean session gets a throwaway directory under the OS temp dir, and
@@ -124,15 +146,19 @@ export class ChromeLauncher implements BrowserLauncher {
       : join(this.profilesRoot, request.profileDir)
     if (!ephemeral) mkdirSync(profilePath, { recursive: true })
 
-    // Detached: the browser outlives this call, and the pid returned by spawn is
-    // a launcher stub that exits immediately. The real one is found below.
-    const stub = spawn(chrome, buildChromeArgs(request, profilePath), {
+    // Detached: the browser outlives this call. The pid spawn hands back is not
+    // trusted either way — with the installed Google Chrome it was a launcher
+    // stub that exited immediately, and probe P5 measured the bundled snapshot
+    // returning the real one because it has no such stub. Resolving through WMI
+    // is correct for both, and depending on which is true would be a bet on a
+    // packaging detail of somebody else's build.
+    const child = spawn(browser, buildChromeArgs(request, profilePath), {
       detached: true,
       stdio: 'ignore',
     })
-    stub.unref()
+    child.unref()
 
-    const pid = await waitForBrowserPid(profilePath)
+    const pid = await waitForBrowserPid(this.executableName, profilePath)
     this.profiles.set(pid, { path: profilePath, ephemeral })
     return pid
   }

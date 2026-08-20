@@ -1,21 +1,22 @@
 # Hecaton
 
 **Hecaton is a desktop app for playing several web games at once, in one window.** It launches
-up to four real Chrome windows — each with its own isolated login — and embeds them into a single
+up to four real browser windows — each with its own isolated login — and embeds them into a single
 panel laid out like a video wall: every screen visible at once, and you interact with any of them
 by just moving the mouse and clicking, no selecting first. Think of a security-camera wall, but
 the tiles are live, playable browsers.
 
-The games run in **real Chrome windows reparented into the panel**, not in iframes and not in a
-screencast. That is what keeps each screen a fully working browser — real login, Chrome's own
+The games run in **real Chromium windows reparented into the panel**, not in iframes and not in a
+screencast. That is what keeps each screen a fully working browser — real login, the browser's own
 password manager, real audio — while sidestepping `X-Frame-Options`/CSP and giving session
-isolation by construction. First target game: **Poke IdleWorld**; any `https://` URL works too.
+isolation by construction. The browser **ships with the app**; you do not need one installed. First
+target game: **Poke IdleWorld**; any `https://` URL works too.
 
 **Play is manual** — you play with your own hands. Automation is a later phase, deliberately.
 
 ## What it does
 
-- **Up to four screens**, each an independent Chrome window with its own profile (its own login),
+- **Up to four screens**, each an independent browser window with its own profile (its own login),
   tiled in a grid — one fills the panel, two split it, three or four make a 2×2.
 - **Per-screen controls**: turn on/off, reload (keeps the login), rename, mute, set volume, or
   edit what it points at (the shipped game or a custom `https://` address).
@@ -33,7 +34,10 @@ isolation by construction. First target game: **Poke IdleWorld**; any `https://`
 ## Requirements
 
 - **Windows** (the window embedding and audio are Win32-specific)
-- **Google Chrome** installed (the app drives your installed Chrome; it does not ship a browser)
+- Nothing else. The app **ships its own Chromium** and launches only that one, so there is no
+  browser to install and no version of yours it can disagree with. It also means the games' browser
+  updates when Hecaton does and at no other time — see
+  [ADR-0016](docs/adr/0016-ship-our-own-chromium.md), which is honest about what that costs.
 
 Building from source needs **Node 20+** as well; running a release does not.
 
@@ -56,7 +60,7 @@ Two things to expect, both of them consequences of a decision rather than accide
 That leaves your logins and settings behind on purpose: they live in `%APPDATA%/hecaton`, not in the
 extracted folder, so replacing the folder with a newer version keeps them. To remove them, use
 **Configurações → Apagar todos os meus dados**, which deletes that directory and closes the app —
-stop every screen first, since Chrome holds its profile open. A folder with the app's own cache
+stop every screen first, since the browser holds its profile open. A folder with the app's own cache
 stays behind; it holds no login. A clean-session screen also leaves a throwaway profile in your temp
 directory if the app was killed before it could clean up.
 
@@ -78,6 +82,19 @@ Electron ships no install script — it exposes the downloader as a bin instead 
 leaves `node_modules/electron/dist/` empty and the app fails to start with `Electron failed to
 install correctly`. This is deliberate on the project's side (see the `allowScripts` note in
 `package.json`), and it is the step most likely to be missed on a fresh clone.
+
+**Then fetch the browser the app ships, which `npm install` does not do either:**
+
+```
+node scripts/fetch-chromium.mjs
+```
+
+That downloads a pinned Chromium revision, **verifies its SHA256 before unpacking anything**, drops
+the files the app does not ship, and links the result where both the development run and the
+packaged build look for it. It is a 354 MB download the first time and a second the next, since the
+unpacked tree lives in `vendor/` and survives `npm install` — only the link under `node_modules`
+has to be remade. The binary is not in git: what is pinned is the revision and the hash, in
+`scripts/fetch-chromium.mjs`.
 
 `npm install` also needs to build two native modules (`node-window-manager` and its transitive
 `extract-file-icon`). npm 11+ blocks their build scripts by default; this repo already lists them
@@ -107,12 +124,12 @@ so your logins and settings persist between runs.
 npm run check             # typecheck + lint + format:check + fast tests — what CI runs
 npm test                  # fast suite, no I/O — stays under a second
 npm run test:watch        # the same suite, for the red-green loop
-npm run test:integration  # real Chrome, real windows, real disk — Windows only, manual
+npm run test:integration  # the real browser, real windows, real disk — Windows only, manual
 ```
 
 The codebase is a small monorepo: a pure, I/O-free `packages/core` (grid math, slot state machine,
 registry, config, the orchestrator, the IPC contract) tested in the fast suite against fakes, and
-thin adapters behind narrow ports — Chrome via spawn and per-process audio (`browser-engine`),
+thin adapters behind narrow ports — the bundled browser via spawn and per-process audio (`browser-engine`),
 window embedding over Win32 (`window-manager`), disk and logs (`storage`) — covered by the
 integration suite. The Electron shell lives in `apps/shell`; the game registry in `packages/games`.
 
@@ -131,8 +148,8 @@ A screen set to a **clean session** is the one exception: its profile is a throw
 under the OS temp folder, removed when the screen stops. If the app is killed before that, the
 directory survives until Windows reclaims it — worth knowing on a shared machine.
 
-The app **never stores passwords** — logins live only inside Chrome's own profile. No profile data
-leaves the machine, and there is no telemetry.
+The app **never stores passwords** — logins live only inside the bundled browser's own profile. No
+profile data leaves the machine, and there is no telemetry.
 
 It makes **one** network request, and only when you press **Configurações → Procurar
 atualizações**: it asks GitHub what the latest release is. Nothing is sent with it — no identifier,

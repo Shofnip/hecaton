@@ -63,7 +63,7 @@ undated marker no longer says which.
 | ---------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- |
 | [0001](0001-electron-over-tauri.md)                        | Electron for the shell                    | Accepted                                                                  |
 | [0002](0002-real-windows-over-thumbnails.md)               | Real OS windows, not a video wall         | Superseded in part by [0011](0011-embed-spawned-chrome-into-the-shell.md) |
-| [0003](0003-spawn-over-cdp.md)                             | Spawn Chrome instead of using CDP         | Accepted (with Correction)                                                |
+| [0003](0003-spawn-over-cdp.md)                             | Spawn Chrome instead of using CDP         | Superseded in part by [0016](0016-ship-our-own-chromium.md)               |
 | [0004](0004-appdata-over-repo-dir.md)                      | All app state in `%APPDATA%`              | Accepted (with Correction)                                                |
 | [0005](0005-never-delete-a-persistent-profile.md)          | The app never deletes a profile           | Accepted (with Correction)                                                |
 | [0006](0006-games-ship-only-in-the-repository.md)          | No user-supplied game definitions         | Accepted (with Correction)                                                |
@@ -76,6 +76,7 @@ undated marker no longer says which.
 | [0013](0013-a-portable-unsigned-zip-under-apache-2.md)     | A portable, unsigned zip under Apache-2.0 | Accepted                                                                  |
 | [0014](0014-the-apps-first-network-request.md)             | The app's first network request           | Accepted                                                                  |
 | [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization  | Accepted                                                                  |
+| [0016](0016-ship-our-own-chromium.md)                      | The app ships its own Chromium            | Accepted                                                                  |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
@@ -93,3 +94,9 @@ Phase 3 added two more of the same kind. 0012's "no migration code, ever" is the
 feature a future session would write in an afternoon, and writing it would create a permanent code
 path that moves live logged-in sessions. 0014's "only when the user asks" is one `setInterval` away
 from becoming an automatic check, which is telemetry whatever it is called.
+
+0016 is the newest of that family, and in two ways. Its "no fallback to an installed Chrome" reads
+as an unkindness a future session would fix in ten minutes, and fixing it destroys the one property
+that matters when the game's Turnstile rejects a browser: knowing which browser ran. And its
+consequence — that the browser holding every logged-in session now moves only when somebody cuts a
+release — is invisible in the code and is the largest standing security obligation in the project.

@@ -120,6 +120,58 @@ describe('buildChromeArgs', () => {
     })
   })
 
+  describe('the browser is ours, so it does not behave like an installed one', () => {
+    // Since ADR-0016 the binary is a Chromium snapshot this app ships and pins,
+    // not the user's Google Chrome. Three switches say so on the command line.
+    // All three are switches rather than --disable-features names, deliberately:
+    // Chromium ignores a feature name it does not recognise, so a rename
+    // upstream turns that kind of flag into a no-op with no symptom, which is
+    // the --load-extension precedent. A switch that stops being understood is
+    // still visible in the command line.
+
+    it('does not let the browser update itself out from under the pin', () => {
+      // The component updater is how a Chromium fetches payloads at runtime. The
+      // whole point of bundling is that the browser holding logged-in sessions
+      // is a reviewed pin, raised by a Hecaton release and at no other moment.
+      // The cost is real and recorded in ADR-0016: the security data the
+      // component updater also carries (CRLSet, for one) freezes at whatever the
+      // packaged revision shipped. The owner accepted that on 2026-08-20.
+      expect(buildChromeArgs(REQUEST, PROFILE_PATH)).toContain('--disable-component-update')
+    })
+
+    it('does not register the background service an installed browser would', () => {
+      // A portable app that leaves an autorun entry behind is no longer
+      // portable, and nothing here has an uninstaller to take it away again.
+      expect(buildChromeArgs(REQUEST, PROFILE_PATH)).toContain('--no-service-autorun')
+    })
+
+    it('runs with extensions off, which is the posture the probe already forced', () => {
+      // Probe P5 measured that --load-extension is ignored by the snapshot too,
+      // contradicting the upstream PSA that said unbranded builds kept it. So no
+      // extension can be loaded on the command line anyway; this states the
+      // resulting posture rather than leaving it as an accident of the browser
+      // version. Turning it back on is a stop-and-ask decision, not a side
+      // effect of a later change.
+      expect(buildChromeArgs(REQUEST, PROFILE_PATH)).toContain('--disable-extensions')
+    })
+
+    it('applies all three to every kind of slot', () => {
+      for (const persistProfile of [true, false]) {
+        for (const mute of [true, false]) {
+          for (const backgroundThrottling of [true, false]) {
+            const args = buildChromeArgs(
+              { ...REQUEST, persistProfile, mute, backgroundThrottling },
+              PROFILE_PATH,
+            )
+            expect(args).toContain('--disable-component-update')
+            expect(args).toContain('--no-service-autorun')
+            expect(args).toContain('--disable-extensions')
+          }
+        }
+      }
+    })
+  })
+
   it('handles a negative window position, for a monitor left of the primary', () => {
     const request: LaunchRequest = {
       ...REQUEST,

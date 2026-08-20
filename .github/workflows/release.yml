@@ -81,6 +81,18 @@ jobs:
           }
           "tag and version agree on $version"
 
+      # The browser the app ships (ADR-0016). Not committed - fetched here from a
+      # pinned revision and verified against a pinned SHA256 before anything is
+      # unpacked, so what goes into the artifact is the build probe P5 measured
+      # rather than whatever the bucket serves today. A mismatch fails the job
+      # and nothing is unpacked.
+      #
+      # Note what this step is NOT covered by: `npm audit --omit=dev` above sees
+      # npm dependencies, and 440 MB of Chromium is not one. Its security posture
+      # is the revision pin and the release ritual in docs/releasing.md.
+      - name: Fetch and verify the bundled Chromium
+        run: node scripts/fetch-chromium.mjs
+
       - run: npm run package --workspace @hecaton/shell
 
       # The hash is the whole point of an unsigned release, so it is written in the

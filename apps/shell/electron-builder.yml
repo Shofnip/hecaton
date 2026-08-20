@@ -100,6 +100,24 @@ artifactName: Hecaton-${version}-win-${arch}.${ext}
 # Beside the exe it is readable without opening the app at all - which matters
 # for a zip, where there is no store page and no release notes to read on the way
 # in.
+# The browser the app ships (ADR-0016), fetched by scripts/fetch-chromium.mjs
+# before this runs. `to:` is joined with process.resourcesPath by
+# `bundledBrowserPath`, and tests/bundled-browser.test.ts holds this line, that
+# function and the fetch script to the same layout - three files agreeing by eye
+# is exactly the kind of agreement that quietly stops being true.
+#
+# No `filter` here, deliberately. The snapshot's seven unshipped executables are
+# already gone by the time this runs, removed by the fetch script, so the browser
+# a developer launches is byte-identical to the one in the package. A filter would
+# have made those two differ - the class of bug this repository keeps finding.
+#
+# extraResources rather than extraFiles because it must land under resources/,
+# where the same relative path works in development. And a browser is not
+# something to put beside the exe where a user can double-click it by accident.
+extraResources:
+  - from: ../../vendor/chromium/chrome-win
+    to: chromium/chrome-win
+
 extraFiles:
   - from: ../../LICENSE
     to: LICENSE.txt

@@ -46,6 +46,31 @@ export function buildChromeArgs(request: LaunchRequest, profilePath: string): st
     `--user-data-dir=${profilePath}`,
     '--no-first-run',
     '--no-default-browser-check',
+    // Three switches that say "this browser is ours", added when the app stopped
+    // driving the user's installed Chrome and started shipping its own Chromium
+    // (ADR-0016).
+    //
+    // - The component updater is how a Chromium fetches payloads at runtime, and
+    //   the point of bundling is that the browser holding logged-in sessions is a
+    //   reviewed pin, raised by a Hecaton release and at no other moment. What it
+    //   costs is in the ADR and is not small: the security data that updater also
+    //   carries — CRLSet, chiefly — freezes at whatever the packaged revision
+    //   shipped. The owner accepted that trade on 2026-08-20.
+    // - `--no-service-autorun` keeps a portable app from leaving a background
+    //   autorun entry behind, which nothing here has an uninstaller to remove.
+    // - `--disable-extensions` states a posture the browser already forces:
+    //   probe P5 measured the snapshot ignoring `--load-extension` as well,
+    //   contradicting the upstream PSA. Turning extensions back on is a
+    //   stop-and-ask decision, not a side effect of some later change.
+    //
+    // All three are switches rather than names inside `--disable-features`, and
+    // that is deliberate: Chromium ignores feature names it does not recognise,
+    // so a rename upstream turns that kind of flag into a silent no-op — the
+    // `--load-extension` precedent, and the reason the feature list below has no
+    // test that can prove it still works.
+    '--disable-component-update',
+    '--no-service-autorun',
+    '--disable-extensions',
     // Hide the scrollbar the game page shows when it is taller than its embedded
     // cell — cosmetic, approved by the owner. It weakens no protection (unlike the
     // forbidden flags chrome-args.test.ts guards) and wheel scrolling still works.

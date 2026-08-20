@@ -23,11 +23,11 @@ export default tseslint.config(
     // directories are listed: the same hook is mirrored under `.codex/`, and
     // scoping this to one of them made lint fail on a file identical to one it
     // already accepted.
-    // Build scripts under apps/*/scripts are the same shape: plain ESM run by
-    // npm, never bundled into anything the user runs.
-    files: ['.claude/**/*.mjs', '.codex/**/*.mjs', 'apps/*/scripts/**/*.mjs'],
+    // Build scripts under apps/*/scripts and scripts/ are the same shape: plain
+    // ESM run by npm or by hand, never bundled into anything the user runs.
+    files: ['.claude/**/*.mjs', '.codex/**/*.mjs', 'apps/*/scripts/**/*.mjs', 'scripts/**/*.mjs'],
     languageOptions: {
-      globals: { process: 'readonly', console: 'readonly' },
+      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly' },
     },
   },
   {

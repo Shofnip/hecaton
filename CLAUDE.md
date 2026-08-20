@@ -121,6 +121,7 @@ is the shape to copy.
 
 ```
 node node_modules/electron/install.js   # after any npm install - see below
+node scripts/fetch-chromium.mjs         # likewise: fetches the bundled browser
 npm test                  # fast suite, no I/O - must be green at all times
 npm run test:watch        # the same suite in watch mode, for the red-green loop
 npm run typecheck         # tsc --build, plus tsconfig.test.json for test files
@@ -139,6 +140,16 @@ everything CI runs, that no `*.test.ts` falls outside every Vitest config, that 
 missing from the root `tsconfig` references, and that no workspace escapes the test type-check. Each of those failed silently here at least
 once — a green signal that covered less than it appeared to. If you add a CI step, a package,
 or a test directory, these will tell you what else needs updating.
+
+**The app ships its own browser** ([ADR-0016](docs/adr/0016-ship-our-own-chromium.md)) and launches
+nothing else - there is no fallback to an installed Chrome, deliberately, because a fallback makes
+"which browser ran?" ambiguous at the one moment it matters. `scripts/fetch-chromium.mjs` downloads a
+pinned Chromium revision, **verifies its SHA256 before unpacking anything**, drops seven files the app
+does not ship, and links the tree under Electron's own `resources` directory so development and the
+package share one load path with no `app.isPackaged` branch. The binary is never committed; `vendor/`
+is ignored. `npm install` wipes the link (it lives in `node_modules`), so re-run the script after one -
+it relinks in a second without re-downloading. Raising the revision is a release ritual with three
+things to re-measure, in `docs/releasing.md`.
 
 `npm install` does **not** fetch the Electron binary. Electron ships no install script — it exposes
 the downloader as a bin — so `node_modules/electron/dist/` stays empty and the app fails to start

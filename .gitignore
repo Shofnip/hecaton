@@ -55,6 +55,11 @@ dist/
 out/
 build/
 release/
+# The bundled Chromium (ADR-0016). Fetched by scripts/fetch-chromium.mjs from a
+# pinned revision and verified against a pinned SHA256, never committed: 440 MB of
+# somebody else's build output would sit in git history forever, and the hash in
+# the script is a better record of what shipped than a blob would be.
+vendor/
 *.exe
 *.blockmap
 *.nsis

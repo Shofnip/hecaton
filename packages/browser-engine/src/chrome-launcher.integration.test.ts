@@ -2,12 +2,25 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { ChromeLauncher, findChromeExecutable } from './chrome-launcher.js'
+import { fileURLToPath } from 'node:url'
+import { ChromeLauncher } from './chrome-launcher.js'
+import { bundledBrowserPath } from './browser-paths.js'
 import type { LaunchRequest } from '@hecaton/core'
 
-// Real Chrome, real processes. Windows only, and skipped elsewhere so CI on
-// Linux stays useful for everything else.
+// The real bundled browser, real processes. Windows only, and skipped elsewhere
+// so CI on Linux stays useful for everything else.
 const onWindows = process.platform === 'win32'
+
+/**
+ * The browser the app ships, at the path a development tree puts it.
+ *
+ * Resolved through Electron's own resources directory rather than straight out
+ * of `vendor/`, on purpose: that is the junction `scripts/fetch-chromium.mjs`
+ * creates and the exact root `main.ts` passes at runtime, so this exercises the
+ * dev half of the single load path instead of a shortcut around it.
+ */
+const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+const BROWSER = bundledBrowserPath(join(REPO_ROOT, 'node_modules', 'electron', 'dist', 'resources'))
 
 let profilesRoot: string
 let launcher: ChromeLauncher
@@ -29,12 +42,17 @@ function request(slotId: number, overrides: Partial<LaunchRequest> = {}): Launch
 
 describe.skipIf(!onWindows)('ChromeLauncher', () => {
   beforeAll(() => {
-    expect(findChromeExecutable()).toBeTruthy()
+    // Fails rather than skips, as it always has - a suite that quietly passes
+    // when the thing it tests is absent is the vacuous green this repository
+    // keeps hunting. What is absent has changed, though: it used to be the
+    // user's installed Chrome, and is now the browser the app ships. If this
+    // fails, run `node scripts/fetch-chromium.mjs`.
+    expect(existsSync(BROWSER), `bundled browser missing at ${BROWSER}`).toBe(true)
   })
 
   beforeEach(() => {
     profilesRoot = mkdtempSync(join(tmpdir(), 'hecaton-chrome-'))
-    launcher = new ChromeLauncher(profilesRoot)
+    launcher = new ChromeLauncher(profilesRoot, BROWSER)
     started.length = 0
   })
 
@@ -71,10 +89,15 @@ describe.skipIf(!onWindows)('ChromeLauncher', () => {
     expect(launcher.isAlive(pid)).toBe(true)
   })
 
-  it('returns the browser process, not the launcher stub', async () => {
-    // The pid spawn hands back is a stub that exits immediately; the real
-    // browser is a different process. Reporting the stub would make every slot
-    // look crashed a second after starting.
+  it('returns a pid that is still the browser seconds later', async () => {
+    // The adapter resolves the pid through WMI rather than trusting the one
+    // spawn hands back, and this is what that buys. With the installed Google
+    // Chrome the spawned pid was a launcher stub that exited at once, so
+    // reporting it made every slot look crashed a second after starting; probe
+    // P5 measured the bundled snapshot returning the real pid instead, because
+    // it has no such stub. The assertion is deliberately about the pid still
+    // being alive and NOT about the two differing - that would now fail, and it
+    // would be asserting a packaging detail of somebody else's build.
     const pid = await launcher.launch(request(1))
     started.push(pid)
 
@@ -162,9 +185,37 @@ describe.skipIf(!onWindows)('ChromeLauncher', () => {
     })
   })
 
-  it('fails with a useful message when Chrome is missing', async () => {
+  it('names the path it looked at when the browser is missing', async () => {
+    // The binary ships inside the app now, so its absence means an incomplete
+    // package or a tree that never ran the fetch script. The path is what tells
+    // those apart.
     const broken = new ChromeLauncher(profilesRoot, 'C:\\nope\\chrome.exe')
-    await expect(broken.launch(request(1))).rejects.toThrow(/chrome/i)
+    await expect(broken.launch(request(1))).rejects.toThrow(/C:\\nope\\chrome\.exe/)
+  })
+
+  it('launches the browser the app ships, not one installed on the machine', async () => {
+    // The whole point of ADR-0016, and the one thing an integration test can
+    // actually check: the running process's image path is the bundled binary.
+    //
+    // Compared as an exact string because that was measured: launched through
+    // the development junction, Win32_Process reports the junction path it was
+    // given, not the target it resolves to. If a later Windows starts
+    // canonicalising it, this fails loudly rather than passing on a substring.
+    const pid = await launcher.launch(request(1))
+    started.push(pid)
+
+    const { execFileSync } = await import('node:child_process')
+    const imagePath = execFileSync(
+      'powershell',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').ExecutablePath`,
+      ],
+      { encoding: 'utf8' },
+    ).trim()
+    expect(imagePath.toLowerCase()).toBe(BROWSER.toLowerCase())
   })
 
   describe('stopping cleanly', () => {

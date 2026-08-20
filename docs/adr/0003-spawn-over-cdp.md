@@ -1,6 +1,13 @@
 # ADR-0003 — Spawn Chrome directly instead of controlling it over CDP
 
-**Status:** Accepted · **Date:** 2026-07-21
+**Status:** Superseded in part by [ADR-0016](0016-ship-our-own-chromium.md) · **Date:** 2026-07-21
+
+> **Superseded in part by [ADR-0016](0016-ship-our-own-chromium.md) (2026-08-20):** the _installed_
+> half is reversed — the app now spawns **a Chromium it ships itself**, with no fallback to a browser
+> on the machine. The substance of this ADR is untouched and still load-bearing: the browser is
+> spawned like a shortcut would, never driven over CDP. ADR-0016 also settles the open question this
+> one left, that the binary was never the variable — Turnstile was measured accepting the bundled
+> browser before anything was built on the assumption.
 
 ## Context
 
