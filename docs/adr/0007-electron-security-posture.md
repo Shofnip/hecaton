@@ -120,3 +120,15 @@ Phase 3: the `connect-src 'none'` Consequence above says auto-update would be "a
 decision" — that decision has now been taken, and it reverses this ADR's decision 4. It is **not**
 part of this Correction, because a changed decision is not a factual error: it gets its own ADR and
 a `Superseded in part` line at the top of this file, and neither exists yet.
+[see Correction (2026-08-20)]
+
+## Correction (2026-08-20)
+
+**Both of the things the Correction above says do not exist now do.**
+[ADR-0014](0014-the-apps-first-network-request.md) was accepted on 2026-07-29, implemented on
+2026-08-09, and the `Superseded in part by ADR-0014` line stands at the top of this file — 117 lines
+above the sentence saying it is missing.
+
+This appeared when the repository changed rather than being wrong when written: the Correction was
+recording, accurately, that the supersession was still owed. Nothing about the posture in this ADR
+is affected, and decisions 1, 2, 3 and 5 stand in full.

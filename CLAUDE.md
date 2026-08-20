@@ -95,8 +95,10 @@ discardable data: backup tools skip it and Windows reclaims it, neither of which
 `%APPDATA%`. So session data can exist in two places, and an audit of "where do cookies land"
 must cover both.
 
-Use `appDataDir()`, `configFilePath()`, `logsDir()` and `profilesDir()` from
-`@hecaton/storage`. Never build these paths by hand.
+Use `appDataDir()`, `configFilePath()`, `logsDir()`, `profilesDir()` and `electronUserDataDir()`
+from `@hecaton/storage`. Never build these paths by hand. The last one is Electron's own cache,
+kept under the app's directory rather than the shared `%APPDATA%/Electron`, and it is the single
+entry allowed to survive the "delete all my data" action — the running process holds it open.
 
 ## Commands
 
@@ -116,8 +118,8 @@ The husky `pre-commit` hook runs `lint-staged` and then `npm run check`, so a co
 passes locally passes CI.
 
 `tests/repo-consistency.test.ts` checks the verification machinery itself: that `check` runs
-everything CI runs, that no `*.test.ts` falls outside every Vitest config, and that no package
-is missing from the root `tsconfig` references. Each of those failed silently here at least
+everything CI runs, that no `*.test.ts` falls outside every Vitest config, that no package is
+missing from the root `tsconfig` references, and that no workspace escapes the test type-check. Each of those failed silently here at least
 once — a green signal that covered less than it appeared to. If you add a CI step, a package,
 or a test directory, these will tell you what else needs updating.
 

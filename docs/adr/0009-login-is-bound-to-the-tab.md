@@ -85,6 +85,7 @@ about UI text describing a credential risk, and it belongs to the project owner 
 whoever notices the gap. Recorded here so the question survives being noticed once. The absence is
 listed in `docs/plans/phase-3-distribution.md` as an open item for the first-run screen, which is
 where a disclosure would now naturally live. [see Correction (2026-08-08, second)]
+[see Correction (2026-08-20)]
 
 ## Correction (2026-08-08, second)
 
@@ -99,3 +100,14 @@ re-login this ADR shows is unavoidable; in exchange the password sits on the mac
 Chrome profile, where anyone with access to the machine can extract it; and the app itself never
 stores a password or fills a form — the browser's own manager does. Verify in
 `apps/shell/src/renderer/renderer.ts`, in `userDataBox`.
+
+## Correction (2026-08-20)
+
+**`docs/plans/phase-3-distribution.md` no longer exists.** The first Correction above points a
+reader at it for the open item it was tracking; the file was deleted when Phase 3 landed, exactly as
+it said it would be, and what survived it is [ADR-0012](0012-hecaton-and-the-data-directory.md)
+through [ADR-0015](0015-what-the-app-deliberately-does-not-collect.md).
+
+Nothing is lost by the deletion here: the item that pointer was tracking is the password disclosure,
+and the second Correction above records it being decided and built. This note exists so a reader
+following the path does not conclude the record is missing.

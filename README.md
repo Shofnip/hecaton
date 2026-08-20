@@ -1,7 +1,5 @@
 # Hecaton
 
-> Provisional name.
-
 **Hecaton is a desktop app for playing several web games at once, in one window.** It launches
 up to four real Chrome windows — each with its own isolated login — and embeds them into a single
 panel laid out like a video wall: every screen visible at once, and you interact with any of them
@@ -35,14 +33,25 @@ isolation by construction. First target game: **Poke IdleWorld**; any `https://`
 ## Requirements
 
 - **Windows** (the window embedding and audio are Win32-specific)
-- **Node 20+**
 - **Google Chrome** installed (the app drives your installed Chrome; it does not ship a browser)
+
+Building from source needs **Node 20+** as well; running a release does not.
 
 ## Install
 
-There is no published release yet. When there is, it will be a **zip**: download it, extract it
-anywhere, run `Hecaton.exe`. No installer, no elevation — and no uninstaller either, so removing the
-folder is the uninstall.
+Download the zip from the [releases page](https://github.com/Shofnip/hecaton/releases/latest),
+extract it anywhere, and run `Hecaton.exe`. No installer, no elevation — and no uninstaller either,
+so removing the folder is the uninstall.
+
+Two things to expect, both of them consequences of a decision rather than accidents:
+
+- **Windows will warn you on first run** — "Windows protected your PC", _More info_ → _Run anyway_.
+  The build is not signed, because a code-signing certificate is issued to a verified legal identity
+  that every user then sees. For a tool handed to a few friends, that trade was not worth making.
+- **A `.sha256` is published beside the zip**, and it is the only thing that tells an authentic
+  build from a lookalike — anyone can compile this source and produce something that looks the same.
+  Check it with `sha256sum -c Hecaton-<version>-win-x64.zip.sha256`, or
+  `Get-FileHash <zip> -Algorithm SHA256` in PowerShell.
 
 That leaves your logins and settings behind on purpose: they live in `%APPDATA%/hecaton`, not in the
 extracted folder, so replacing the folder with a newer version keeps them. To remove them, use
@@ -51,7 +60,7 @@ stop every screen first, since Chrome holds its profile open. A folder with the 
 stays behind; it holds no login. A clean-session screen also leaves a throwaway profile in your temp
 directory if the app was killed before it could clean up.
 
-For now you run it from the source:
+## Build from source
 
 ```
 git clone <this repo>
@@ -79,7 +88,7 @@ install still finishes and the module fails only at runtime.
 Both of these have entries in [`docs/troubleshooting.md`](docs/troubleshooting.md) with the exact
 error each produces.
 
-## Open it on your machine
+### Open it on your machine
 
 ```
 npm --prefix apps/shell start

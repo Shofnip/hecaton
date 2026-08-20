@@ -249,10 +249,10 @@ Notificações transitórias (~2,6s) em pílula centralizada na base da área pr
 ## 13. Notas para a implementação real (Chrome reparentado)
 
 > Reescrita em 2026-07-22. A versão original assumia webview do Electron; a arquitetura
-> decidida (plano `docs/plans/ui-rework.md`, decisão 1) reparenta janelas de Chrome real via
+> decidida ([ADR-0011](../adr/0011-embed-spawned-chrome-into-the-shell.md)) reparenta janelas de Chrome real via
 > Win32 `SetParent` — as telas **não são `webContents`**, e as APIs do Electron não as
-> alcançam. Cada nota abaixo aponta o equivalente medido no spike da Etapa 0 (findings no
-> plano, a migrar para o ADR-0011).
+> alcançam. Cada nota abaixo aponta o equivalente medido no spike da Etapa 0, cujos findings
+> estão no ADR-0011.
 
 - **Estados de tela**: não há eventos `did-*` para janelas de outro processo. `loading` =
   slot lançado e janela ainda não resolvida/embutida; `on` = PID resolvido e janela

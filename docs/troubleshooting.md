@@ -34,8 +34,9 @@ auto-created `hecaton` (check it is empty first) and run the move again.
 **Why there is no code that does this for you.** A first-run migration is the obvious friendly
 feature and it is the dangerous one: it would be a permanent code path in the shipped app that
 moves live logged-in sessions, with partial-failure states (Chrome running, a file locked,
-permission denied) that leave the data split across two directories. The app has never been
-distributed, so exactly one machine needs this once — see
+permission denied) that leave the data split across two directories. Only a machine that ran a
+build from before the rename needs this, and the first release (v0.1.0, 2026-08-20) shipped well
+after it — so in practice that is the author's machine alone. See
 [ADR-0004](adr/0004-appdata-over-repo-dir.md)'s 2026-07-30 Correction and
 [ADR-0005](adr/0005-never-delete-a-persistent-profile.md).
 
@@ -144,12 +145,23 @@ Retry with a short delay rather than failing — `ChromeLauncher.discard` alread
 the integration tests do the same in their cleanup. If you write new code that removes a
 profile directory, expect the race.
 
-Note that a **live** `profiles/slot-N` is never deleted by the app. Two deletion paths exist,
-both away from a live profile: `ChromeLauncher.discard` removes a throwaway clean-session
-profile under `%TEMP%` on `stop()`, and `clearArchives` (the "clear archives" action) permanently
-removes profiles a removed slot archived to `slot-N.old-<stamp>`. So a persistent session can be
-deleted — but only after it has been explicitly archived by removing its slot, never while live.
-See ADR-0005 (and its Correction) and ADR-0008.
+Note that no **lifecycle** path deletes a live `profiles/slot-N` — nothing that happens while
+screens start, stop, crash or get removed. **Three** deletion paths exist, and the third is the
+one to know about:
+
+- `ChromeLauncher.discard` removes a throwaway clean-session profile under `%TEMP%` on `stop()`.
+- `clearArchives` (the "clear archives" action) permanently removes profiles a removed slot
+  archived to `slot-N.old-<stamp>` — a persistent session, but only after removing its slot
+  explicitly archived it.
+- **`data:deleteAll`** (Configurações → _Apagar todos os meus dados_) removes `%APPDATA%/hecaton`
+  whole, **live profiles included**. It exists because a portable zip has no uninstaller to ask
+  the question in, and it is guarded by an explicit confirmation and by every screen having to be
+  stopped first.
+
+The third arrived on 2026-08-08 and this page was not updated with it, which is worth naming: the
+sentence that used to be here read as a structural guarantee that the app _cannot_ destroy a
+logged-in session, and someone auditing "where can cookies go" from it would have counted wrong.
+See ADR-0005 (and **both** its Corrections) and ADR-0008.
 
 ---
 

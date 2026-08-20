@@ -76,6 +76,7 @@ body is refused past 1 MB. Markup is deliberately _not_ filtered: the panel sets
   the check action, plus the author telling friends.
 - Rate limiting is 60 requests/hour per IP, and a `404` means both "nothing published yet" and "no
   such repository". Today it means the first, and the panel says so rather than reporting a failure.
+  [see Correction (2026-08-20)]
 - `shell.openExternal` was measured against ADR-0007's navigation handlers before it shipped: it
   works, throws nothing, and **not one handler fires** — the call runs in main and hands the url to
   the OS shell, while those handlers govern renderer-initiated navigation. The deny-everything
@@ -104,3 +105,17 @@ it would buy nothing and leave "this IP runs version X" in a log the owner never
 reason the User-Agent is a bare `Hecaton`: measured, that is a **reduction** — Electron's default
 names the Windows build, the architecture, the Chromium version and the Electron version, which pins
 the app's version range anyway.
+
+## Correction (2026-08-20)
+
+**"Today it means the first" stopped being true on 2026-08-20**, when `v0.1.0` was published.
+`/releases/latest` now answers `200` with `tag_name: v0.1.0`, so a `404` from **this** repository
+would today mean the second reading — renamed or removed — rather than "nothing published yet".
+
+This appeared when the world changed, not when the ADR was written, and the decision is untouched.
+The `404` branch stays and is not dead code: it is what any fork of this repository answers until
+its own first release, and what this one answered for the eleven days between the check shipping and
+the tag.
+
+Verify in `packages/core/src/update.ts` — `interpretUpdateCheck`, whose own docblock carries the
+measurement of both states.

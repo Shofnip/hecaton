@@ -105,18 +105,24 @@ export interface Storage<T> {
  * Setting a removed slot's profile aside, and clearing what was set aside.
  *
  * `archive` renames the profile rather than deleting it — the shape ADR-0005
- * settled on for a reset: the slot starts fresh, the old session is recoverable,
- * and no code path in the app deletes a live profile. Deletion happens only in
- * `clearArchives`, and only over profiles already archived, never a live one.
+ * settled on for a reset: the slot starts fresh and the old session is
+ * recoverable. Deletion through *this port* happens only in `clearArchives`, and
+ * only over profiles already archived, never a live one.
+ *
+ * This used to say "no code path in the app deletes a live profile", full stop.
+ * That stopped being true on 2026-08-08, when `data:deleteAll` gave the panel a
+ * confirmed "delete all my data" action — a portable zip has no uninstaller to
+ * ask the question in. That path does not go through this port; see ADR-0005's
+ * second Correction.
  */
 export interface ProfileArchive {
   /** Renames `profileDir` aside. A no-op if the slot never had a profile on disk. */
   archive(profileDir: string): Promise<void>
   /**
-   * Permanently removes every archived profile. The only path that deletes a
-   * profile which ever held a persistent session — the browser adapter also
-   * deletes throwaway clean-session profiles on stop, but never a persistent
-   * one.
+   * Permanently removes every archived profile. The only path *here* that deletes
+   * a profile which ever held a persistent session — the browser adapter also
+   * deletes throwaway clean-session profiles on stop, but never a persistent one,
+   * and `data:deleteAll` removes the whole data directory from outside this port.
    */
   clearArchives(): Promise<void>
   /**
