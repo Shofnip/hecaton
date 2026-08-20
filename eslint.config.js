@@ -19,10 +19,11 @@ export default tseslint.config(
   },
   {
     // Hook scripts are plain Node ESM, run by an agent harness rather than by
-    // the app, so they get Node globals and none of the TS rules. Both harness
-    // directories are listed: the same hook is mirrored under `.codex/`, and
-    // scoping this to one of them made lint fail on a file identical to one it
-    // already accepted.
+    // the app, so they get Node globals and none of the TS rules. `.codex/` is
+    // listed alongside `.claude/` so a mirrored hook is covered if one appears -
+    // scoping this to a single harness directory once made lint fail on a file
+    // identical to one it already accepted. No `.codex/` directory exists today,
+    // and the glob matching nothing costs nothing.
     // Build scripts under apps/*/scripts and scripts/ are the same shape: plain
     // ESM run by npm or by hand, never bundled into anything the user runs.
     files: ['.claude/**/*.mjs', '.codex/**/*.mjs', 'apps/*/scripts/**/*.mjs', 'scripts/**/*.mjs'],

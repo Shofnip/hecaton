@@ -452,7 +452,7 @@ describe('applyScreenLayout (the renderer-driven geometry)', () => {
     expect(windows.shown).toContain(pid)
   })
 
-  it('hides a running screen given no bounds (focus mode, or under a modal)', async () => {
+  it('hides a running screen given no bounds (fullscreen, or covered by a panel-drawn modal)', async () => {
     const app = makeOrchestrator()
     await app.start(1)
     await app.start(2)

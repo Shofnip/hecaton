@@ -27,9 +27,14 @@ export interface GlobalConfig {
   persistProfile: boolean
   mute: boolean
   /**
-   * When true, only the game whose window is in the OS foreground is audible —
-   * the others are muted per-process and unmuted as focus moves. A global
-   * switch, not per slot: the point is that exactly one slot plays at a time.
+   * When true, only the screen the **app** has focused is audible — the others
+   * are muted per-process and unmuted as focus moves. A global switch, not per
+   * slot: the point is that exactly one slot plays at a time.
+   *
+   * The app's own focus mode, deliberately, and not the OS foreground window as
+   * it once was — see ADR-0010's Correction and `focusedSlotId` in the
+   * orchestrator. With the screens embedded in one panel there is only ever one
+   * foreground window, so reading the OS made every game audible at once.
    */
   audioFollowsFocus: boolean
   /** The panel's colour theme, persisted so it survives a restart. Default dark. */

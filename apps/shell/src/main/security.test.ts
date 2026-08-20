@@ -122,8 +122,8 @@ describe('navigation', () => {
     ['about:blank', 'about:blank'],
   ])('refuses to navigate to %s', (_case, url) => {
     // The panel is one static page that never navigates. Game urls open in the
-    // user's Chrome, never here: a logged-in session inside the Electron
-    // process is precisely what the whole architecture avoids.
+    // Chromium the app ships (ADR-0016), never here: a logged-in session inside
+    // the Electron process is precisely what the whole architecture avoids.
     expect(allowsNavigation(url)).toBe(false)
   })
 })

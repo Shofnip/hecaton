@@ -911,9 +911,11 @@ if (!app.requestSingleInstanceLock()) {
         void orchestrator.checkLiveness().then(pushState)
       }, LIVENESS_INTERVAL_MS)
 
-      // Make audio follow focus on its own faster timer. A tick can shell out to
-      // mute a slot (~270ms), so a busy flag keeps ticks from overlapping rather
-      // than stacking PowerShell calls when the interval is shorter than the work.
+      // Make audio follow focus on its own faster timer. A tick still crosses a
+      // process boundary to mute a slot — ~12 ms through the persistent WASAPI
+      // worker, down from the ~270 ms a fresh shell-out cost — so a busy flag
+      // keeps ticks from overlapping rather than stacking work when the interval
+      // is shorter than the tick.
       let audioBusy = false
       audioTimer = setInterval(() => {
         if (audioBusy) return

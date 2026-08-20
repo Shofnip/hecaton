@@ -165,7 +165,8 @@ author. Never weaken this to unblock a feature.
 
 ### Verified spike findings
 
-Measured on Windows 11, Chrome 150, Ryzen 9 9950X3D, dual 1920×1080.
+Measured on Windows 11, Ryzen 9 9950X3D, dual 1920×1080, against Chrome 150 — except where a
+bullet names probe P5, which measured the bundled Chromium `154.0.8014.0` (revision `1682878`).
 
 - **Slot → PID → window mapping works without CDP.** Launch with a unique tag in
   `--user-data-dir`, then resolve PIDs via `Win32_Process.CommandLine`. 4/4 exact.
@@ -223,6 +224,8 @@ hecaton/
                         #   it — move/hide/show/reload/close — applying the layout the renderer sends
     storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/hecaton
     games/              # registry - one file per integrated game
+  scripts/              # fetch-chromium.mjs: the pinned browser, verified and unpacked
+  vendor/                 # where it lands (gitignored, 440 MB) - see ADR-0016
   tests/                # checks on the repository itself, not on any package
   docs/architecture.md
 ```
@@ -235,8 +238,11 @@ cycle for no benefit while there is a single consumer.
 
 Tests live beside the code they test, with one exception: `tests/` at the root holds checks
 about the repository itself rather than about any package — see `tests/repo-consistency.test.ts`,
-which verifies that `check` covers every CI step, that no test file falls outside every Vitest
-config, and that no package is missing from the root `tsconfig` references.
+which verifies that `check` covers the steps `ci.yml` writes as `- run: npm …` (bar `npm ci`, which
+is environment setup) — a named step, whose
+`run:` sits on its own line, and anything not invoked through `npm` are both invisible to it — that
+no test file falls outside every Vitest config, and that no package is missing from the root
+`tsconfig` references.
 
 `*.test.ts` is the fast suite and must stay free of I/O; `*.integration.test.ts` drives real
 processes, windows and disk and runs separately.
@@ -402,8 +408,8 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
   the implicit `Content-Type` and fails the load. (A custom `app://` scheme was chosen first and
   reversed by measurement; see the ADR.)
 - **All navigation and all permissions denied**: `will-navigate`/`will-redirect` prevented,
-  `window.open` denied, and all three permission handlers deny. A game url opens in the user's
-  Chrome, never inside Electron.
+  `window.open` denied, and all three permission handlers deny. A game url opens in the Chromium
+  the app ships ([ADR-0016](adr/0016-ship-our-own-chromium.md)), never inside Electron.
 - **Single-instance lock**: a second launch quits and surfaces the existing panel, so two
   panels cannot orchestrate the same slots or race the config and profiles.
 - **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
@@ -446,10 +452,12 @@ a global toggle on by default.
 
 Removing a slot resets its profile, in the archive-by-renaming shape ADR-0005 recommended:
 `removeSlot` renames `profiles/slot-N` to `profiles/slot-N.old-<timestamp>` after stopping the
-browser, so the removed slot's session stops being used but stays recoverable, and no code path
-deletes a live profile. **Clear archives** then permanently deletes the `.old-` archives — the
-one deletion of a **persistent** session's data in the app (the browser adapter also deletes
-throwaway clean-session profiles on `stop()`, but never a persistent one), guarded to touch only
+browser, so the removed slot's session stops being used but stays recoverable, and no **lifecycle**
+path deletes a live profile. **Clear archives** then permanently deletes the `.old-` archives — the
+one deletion of a **persistent** session's data reached **through the profile port** (the browser
+adapter also deletes throwaway clean-session profiles on `stop()`, but never a persistent one;
+`data:deleteAll` removes the whole data directory from outside both, and is described under Phase 3
+below), guarded to touch only
 archives and gated behind an in-app confirmation. See
 [ADR-0008](adr/0008-archive-a-removed-slot-profile.md); the property that still holds is that no
 live profile is ever deleted **by a lifecycle path** — only an archived one, and only by an
@@ -664,7 +672,7 @@ One of them stopped being a reminder and became a check: **`npm audit --omit=dev
 release job**, so an advisory reaching the **shipped** tree fails the build. Build-time advisories
 stay accepted deliberately ([ADR-0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md)). It is
 in that job rather than in `npm run check` because `tests/repo-consistency.test.ts` requires `check`
-to cover everything CI runs, `check` is offline today, and a registry outage must not turn into a
+to cover the `npm` steps `ci.yml` runs, bar `npm ci`, `check` is offline today, and a registry outage must not turn into a
 red local run — while the release job already needs the network.
 
 ### Open decisions left by Phase 3

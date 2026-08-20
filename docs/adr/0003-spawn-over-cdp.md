@@ -32,7 +32,7 @@ Not the IP address, not a cold profile, not the browser binary. The CDP connecti
 ## Decision
 
 **The app spawns the installed Chrome directly**, the way a desktop shortcut would:
-[see Correction]
+[see Correction (2026-07-21)]
 
 ```
 chrome.exe --user-data-dir=<per-slot dir> --no-first-run --no-default-browser-check
@@ -65,7 +65,8 @@ and it survives restarts — with `--mute-audio` per slot as a fallback for game
 audio control. Writing the preference directly into the profile's LevelDB was considered and
 rejected: undocumented format, and a bad write costs the login, not just the volume.
 
-**Process identity became non-trivial.** The PID `spawn` returns is a launcher stub; the real
+**Process identity became non-trivial.** The PID `spawn` returns is a launcher stub
+[see Correction (2026-08-20)]; the real
 browser is the process whose command line has no `--type=`. Resolve it once at launch via
 `Win32_Process.CommandLine` (the WMI query is far too slow to poll) and check liveness with
 `process.kill(pid, 0)`.
@@ -102,3 +103,18 @@ The decision this ADR records — spawn Chrome directly, no CDP, no remote-debug
 unchanged; only the window-mode flag differs. Found by the documentation auditor (`/audit-docs`);
 the body is left as written per the convention in [README](README.md), with only the inline
 `[see Correction]` marker added.
+
+## Correction (2026-08-20)
+
+"The PID `spawn` returns is a launcher stub" was true of the installed Google Chrome and is not
+true of the browser the app launches now. Probe P5 measured the bundled Chromium snapshot returning
+the **real** pid, because it ships no launcher stub. Verify in
+`packages/browser-engine/src/chrome-launcher.ts` (the comment above the `spawn` call) and in
+`chrome-launcher.integration.test.ts`, which records that a test asserting the two pids differ
+would now fail.
+
+**The instruction in that paragraph is unchanged, only its premise.** Resolve the pid once at
+launch through `Win32_Process.CommandLine` — matching this slot's `--user-data-dir` with no
+`--type=` — and check liveness with `process.kill(pid, 0)`. That is correct for both browsers,
+where trusting the spawned pid would be a bet on somebody else's packaging. This appeared when the
+code changed; see [ADR-0016](0016-ship-our-own-chromium.md).

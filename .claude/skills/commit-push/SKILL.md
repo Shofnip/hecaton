@@ -47,14 +47,17 @@ npm run check
 ```
 
 typecheck + lint + format:check + fast tests — the same four steps CI runs.
-`tests/repo-consistency.test.ts` keeps that equivalence honest, so a green check really
-does mean a green CI.
+`tests/repo-consistency.test.ts` keeps that equivalence honest for the steps `ci.yml`
+writes as `- run: npm ...`, bar `npm ci` — it cannot see a named step (`- name:` with
+`run:` on the next line) or one not invoked through `npm`, so a step of either shape has
+to be added to `check` by hand.
 
 Do not commit around a failure. If a test is red, the commit is not ready; that is what
 strict TDD means here. The husky `pre-commit` hook runs `npm run check` again, so a
 failure blocks the commit anyway — running it first just means finding out sooner.
 
-**Integration tests are not part of this.** They launch real Chrome and move real windows,
+**Integration tests are not part of this.** They launch the browser the app ships (fetch it
+first with `node scripts/fetch-chromium.mjs`) and move real windows,
 take minutes, and are run deliberately: `npm run test:integration`. Run them when you
 touched `browser-engine`, `window-manager` or `storage`, and say in the commit message
 that you did.

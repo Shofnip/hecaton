@@ -91,6 +91,20 @@ deletion paths and qualify `clearArchives` with "persistent".
 
 **The guarantee itself is untouched:** a live _persistent_ profile is still never deleted, verified
 by the guards in `chrome-launcher.ts` (ephemeral-only, and the path must be under `tmpdir()`) and in
-`FileProfileArchive` (only names containing `.old-`). What is corrected is the inventory, and it
+`FileProfileArchive` (only names containing `.old-`). [see Correction (2026-08-20)] What is corrected is the inventory, and it
 matters because CLAUDE.md asks for an audit of "where do cookies land" that covers both locations —
 an audit started from this sentence would find one.
+
+## Correction (2026-08-20)
+
+The 2026-08-08 Correction above says a live persistent profile "is still never deleted, verified by
+the guards in `chrome-launcher.ts` … and in `FileProfileArchive`". That was true when written, at
+15:37 on 2026-08-08, and stopped being true the same day: the `data:deleteAll` handler landed at
+17:49 and deletes `%APPDATA%/hecaton` whole, live `profiles/slot-N` included. It reaches them from
+**outside both guards** — it goes through neither this port nor the launcher — so enumerating the
+guards no longer enumerates what can delete a session. Verify in `apps/shell/src/main/main.ts` (the
+`data:deleteAll` handler) and `packages/storage/src/delete-user-data.ts`; the narrowed statement of
+the guarantee is in ADR-0005's second Correction and in `packages/core/src/ports.ts`.
+
+**The decision this ADR records is untouched**: a removed slot's profile is archived rather than
+deleted, and `clearArchives` still removes only what is already archived.

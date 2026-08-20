@@ -101,7 +101,7 @@ compromise would be invisible downstream precisely because nothing is signed.
   because Windows has no handler for an extensionless `LICENSE`. **This is the kind of thing an
   installer hides** — dropping it removed a mechanism that was carrying an obligation nobody had
   written down as its job.
-- **The download is 134 MB where the installer was 96 MB**, and there is no lever: `compression:
+- **The download is 134 MB where the installer was 96 MB** [see Correction (2026-08-20)], and there is no lever: `compression:
 maximum` saved 0.27% for 3.5 minutes of build time, because it drives LZMA for 7z and NSIS targets
   and leaves the zip's deflate alone. A `.7z` target would close the gap and is rejected — Windows
   cannot extract it unaided, which defeats the point of choosing a zip.
@@ -112,7 +112,8 @@ maximum` saved 0.27% for 3.5 minutes of build time, because it drives LZMA for 7
   differently. So the provenance is "this hash came from this public log", not "you can rebuild and
   compare". Weaker than it sounds, and it should be said plainly to whoever is asked to trust it.
 - **Exact pins create a standing obligation**, now three deep (Electron, `node-window-manager`,
-  `electron-builder`): somebody must raise them deliberately when there is a fix.
+  `electron-builder`) [see Correction (2026-08-20)]: somebody must raise them deliberately when
+  there is a fix.
 - The licence choice is **one-way**. Closed→open is available at any time; open→closed is not,
   because what has been cloned stays cloned.
 - **If distribution ever leaves the circle of friends, signing returns to the table** as a security
@@ -154,3 +155,24 @@ itself supplies. Forcing patched transitives would close them while creating an 
 inside `electron-builder`, and a packaging step that breaks subtly is worse than the denial of
 service it prevents. `npm audit fix --force` was rejected outright: it moves `electron-builder` off
 the exact pin, which is the cheapest thing to type and the most expensive consequence.
+
+## Correction (2026-08-20)
+
+Two figures in Consequences were overtaken by [ADR-0016](0016-ship-our-own-chromium.md), which made
+the app ship its own Chromium.
+
+**The pins are four, not three.** The fourth is the bundled browser's revision, pinned in
+`scripts/fetch-chromium.mjs` — and it is the heaviest of them, because nothing else will ever
+update the browser that holds every logged-in game session, and the snapshot it names is trunk with
+no stable-branch security backports. `docs/releasing.md` and `docs/architecture.md` both say four.
+Anyone auditing "what must somebody bump?" from the list above counts three and misses the one that
+matters most.
+
+**The artifact is 332 MB zipped over 792 MB unpacked**, not 134 MB, measured 2026-08-20 and
+recorded in `apps/shell/electron-builder.yml`. The compression reasoning in that bullet is
+unaffected and still holds — most of the added bulk is already-compressed binaries, so there is
+even less for LZMA to win.
+
+**The decision itself is untouched:** a portable, unsigned zip under Apache-2.0, published on
+GitHub Releases with its SHA256. Whether an artifact this size stays a zip is probe P8's question.
+Both errors appeared when the code changed.

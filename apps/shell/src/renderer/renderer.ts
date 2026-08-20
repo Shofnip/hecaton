@@ -724,7 +724,9 @@ function viewport(s: SlotSnapshot): HTMLElement {
   const vp = el('div', 'viewport')
   // Tagged so the layout emitter can find every live viewport in the DOM and
   // give main the rectangle to sit that slot's embedded window over. Only cards
-  // carry a .viewport — thumbnails show a DOM placeholder, no window.
+  // carry a `.viewport`, but a **running** thumbnail's body carries the same tag
+  // (see `thumb`), so it hosts that screen's window too — which is what keeps the
+  // wall live in focus mode. A non-running thumbnail shows text and no window.
   vp.dataset.slot = String(s.id)
   const status = statusOf(s.state)
 
@@ -971,7 +973,6 @@ function toggleFocus(id: number): void {
   run(() => window.hecaton.focusSlot(id))
 }
 
-// How long to let a freshly launched screen open and settle before starting the
 function powerAll(): void {
   const anyScreens = state.slots.length > 0
   const allOn = anyScreens && state.slots.every((s) => s.state !== 'stopped')

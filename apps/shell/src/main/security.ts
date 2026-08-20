@@ -101,9 +101,9 @@ export function panelWebPreferences(): PanelWebPreferences {
  * Whether the panel window may navigate anywhere. It may not.
  *
  * A function rather than a constant so the call sites read as a decision and so
- * the refused url can be logged. There is no allowlist to add to: game urls
- * open in the user's own Chrome, and a logged-in game session inside the
- * Electron process is the thing this architecture exists to avoid.
+ * the refused url can be logged. There is no allowlist to add to: game urls open
+ * in the Chromium the app ships (ADR-0016), and a logged-in game session inside
+ * the Electron process is the thing this architecture exists to avoid.
  */
 export function allowsNavigation(_url: string): boolean {
   return false

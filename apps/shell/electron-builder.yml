@@ -53,10 +53,16 @@ publish: null
 
 # `compression: maximum` is deliberately NOT set. Measured 2026-08-08: it saved
 # 380 KB of 134 MB - 0.27% - and cost 3.5 minutes of build time, because it drives
-# LZMA for 7z/NSIS targets and leaves the zip's deflate alone. The zip is ~134 MB
+# LZMA for 7z/NSIS targets and leaves the zip's deflate alone. The zip was ~134 MB
 # where the NSIS installer was 96 MB, and that gap is deflate versus LZMA with no
 # lever inside the zip target. A 7z target would close it and is rejected: Windows
 # cannot extract .7z without extra software, which defeats the point of the zip.
+#
+# Re-measured 2026-08-20, after the bundled Chromium joined the artifact as
+# extraResources (ADR-0016): 332 MB zipped, 792 MB unpacked. The reasoning above is
+# unchanged - most of the new bulk is already-compressed binaries, so there is even
+# less for LZMA to win. Whether an artifact this size stays a zip at all is probe
+# P8's question, not this file's.
 #
 # A portable zip, not an installer (ADR-0013; the NSIS installer was built and
 # then dropped on 2026-08-08). The user extracts it wherever they like and runs

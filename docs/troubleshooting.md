@@ -329,7 +329,9 @@ This was real: `check` did not run `format:check` while CI did.
 **What to do**
 
 It should not happen again — `check` now runs the same four steps as CI, and
-`tests/repo-consistency.test.ts` fails if CI ever grows a step that `check` lacks. If you see
+`tests/repo-consistency.test.ts` fails if `ci.yml` ever grows an inline `- run: npm ...` step, other
+than `npm ci`, that `check` lacks. Two shapes are invisible to it — a named step (`- name:` with `run:` on the next
+line) and anything not invoked through `npm` — and those have to be added to `check` by hand. If you see
 this, that test is the first thing to look at.
 
 ---

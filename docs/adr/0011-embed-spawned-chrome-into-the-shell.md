@@ -112,7 +112,7 @@ single 1920×1080 at 96 DPI) measured all six gates; the durable results:
   stripped) ~40 ms; the child follows panel resizes pixel-exactly and stays interactive, incl.
   typed accents/dead keys, wheel, arrows. Two obligations, both since implemented: forward keyboard
   focus (`AttachThreadInput`/`SetFocus`, driven from `WM_PARENTNOTIFY` + the BrowserWindow `focus`
-  event) and re-assert `HWND_TOP` after moves and on activation, or Electron's
+  event) [see Correction (2026-08-20)] and re-assert `HWND_TOP` after moves and on activation, or Electron's
   `Chrome_RenderWidgetHostHWND` swallows clicks (symptom: clicks dead but painting fine). Panel
   modals paint _under_ the child — solved by the overlay window. `window.open` popups appear as
   free desktop windows.
@@ -139,3 +139,28 @@ APPCOMMAND_BROWSER_REFRESH<<16)` reloads in ~310 ms, no focus/clicks, steals not
 The implementation is covered as usual: the core (renderer-driven layout, the audio policy, the
 per-screen setters) in the fast suite against fakes; the window-manager and browser-engine adapters
 in the Windows-only integration suite against real Chrome.
+
+## Correction (2026-08-20)
+
+Obligation 0.1 says keyboard focus is forwarded "driven from `WM_PARENTNOTIFY` **+ the BrowserWindow
+`focus` event**". Only the first driver was implemented. `hookChildFocus` in
+`apps/shell/src/main/main.ts` hooks `WM_PARENTNOTIFY` and is the sole call site of
+`focusChildAt`; the main process registers no `focus` or `activate` listener at all.
+
+**The obligation is met for the click path**, which is the one the spike measured and the one that
+made the embedded screens usable. What is not covered is reactivation: alt-tabbing back into the
+panel does not re-focus the embedded screen, so the first keystroke after that can go nowhere until
+the user clicks. Written down because the symptom is confusing and the ADR pointed at a handler
+that was never written.
+
+**The second obligation has the same gap, for the same reason.** "Re-assert `HWND_TOP` after moves
+**and on activation**" is implemented for moves only: `MoveChild` in
+`packages/window-manager/src/win32-worker.ts` ends with a
+`SetWindowPos(… SWP_NOMOVE | SWP_NOSIZE)`, and that is the only z-order re-assert in the product.
+There is no activation handler to carry the other half. The Consequences section of this ADR states
+the narrow version correctly — "`movechild` re-asserts `HWND_TOP` after every move" — so the file
+disagreed with itself. Consequence: after alt-tabbing back into the panel, Electron's input hwnd can
+sit over a child until the next layout emit moves it.
+
+This was wrong from the start — the sentence describes an implementation that did not exist when it
+was written, not one that later changed.

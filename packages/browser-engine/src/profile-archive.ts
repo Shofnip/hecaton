@@ -1,15 +1,18 @@
 /**
  * Sets a removed slot's profile aside, and clears what has been set aside.
  *
- * This is the one place the app touches a persistent profile's existence, and
- * it is built to honour ADR-0005 rather than reverse it. `archive` renames -
+ * This is the one place the app touches a persistent profile's existence
+ * *through the profile port*, and it is built to honour ADR-0005 rather than
+ * reverse it. `archive` renames -
  * it never deletes a live profile - so a reset cannot destroy a logged-in
  * session by accident: the worst a bug here can do is move a directory that is
  * recoverable by renaming it back.
  *
- * `clearArchives` is the only path that deletes a profile which ever held a
- * persistent session (the browser adapter's `discard` also deletes, but only
- * throwaway clean-session profiles under `%TEMP%`), and it is guarded to touch
+ * `clearArchives` is the only path *here* that deletes a profile which ever held
+ * a persistent session (the browser adapter's `discard` also deletes, but only
+ * throwaway clean-session profiles under `%TEMP%`; and `data:deleteAll` removes
+ * `%APPDATA%/hecaton` whole, live `slot-N` included, from outside this port
+ * entirely - see ADR-0005's second Correction). It is guarded to touch
  * only directories that were archived (`slot-N.old-…`). A live `slot-N` is
  * never a candidate, whatever its name.
  */

@@ -30,21 +30,20 @@ In the repository:
 
 Outside the repository, audit these if they exist and skip silently if they do not:
 
-- `~/.claude/plans/handoff-hecaton.md` (the current one; `handoff-helloweb.md` beside it is
-  superseded and carries a banner saying so — check the banner still points somewhere that exists,
-  nothing else)
 - `~/.claude/plans/buzzing-humming-quail.md` (the superseded original plan — its job is to be
   historical, so only check that its "superseded" warning is still present and points somewhere
   that exists)
 
-The external files are in scope because they are what rotted most dangerously in practice: they
-are read at the start of a session to decide what to build, and nothing in CI touches them.
+The external file is in scope because that is what rotted most dangerously in practice: plans are
+read at the start of a session to decide what to build, and nothing in CI touches them. There used
+to be two handoff files listed here as well; they were **deleted on 2026-08-20**, once everything
+durable in them had been moved into the repository. Do not go looking for them.
 
 ## The documents do not share a contract
 
 Auditing them the same way produces noise. Know which kind you are reading.
 
-**Present-tense documents** — `CLAUDE.md`, `README.md`, `architecture.md`, the handoff.
+**Present-tense documents** — `CLAUDE.md`, `README.md`, `architecture.md`.
 These are edited toward the present and must describe what exists now. Here, "describes
 something that is no longer true" **is** the defect.
 

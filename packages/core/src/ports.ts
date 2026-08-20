@@ -51,7 +51,12 @@ export interface WindowManager {
    * window is a no-op, so the core may call it whenever it places a slot.
    */
   reparent(pid: number): boolean
-  /** Hides an embedded window (SW_HIDE) — a screen in focus mode, or under a modal. */
+  /**
+   * Hides an embedded window (SW_HIDE) — fullscreen, a stopped screen, or a
+   * panel-drawn modal that actually covers it. **Not focus mode:** a running,
+   * non-focused screen keeps its bounds and stays live in its thumbnail, which is
+   * the point of the video wall.
+   */
   hide(pid: number): boolean
   /** Shows a hidden embedded window again (SW_SHOW). */
   show(pid: number): boolean

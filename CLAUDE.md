@@ -16,8 +16,9 @@ every phase, no exceptions. If an `if` encoding a business rule shows up inside 
 that rule belongs in the core.
 
 Where each kind of test goes: pure logic in `packages/core` is tested directly, in the fast
-suite. **Adapters are covered by `*.integration.test.ts` against the real thing** — real
-Chrome, real windows, real disk — never by fakes, which would test the fake. The fakes exist
+suite. **Adapters are covered by `*.integration.test.ts` against the real thing** — the
+bundled Chromium (fetch it first), real windows, real disk — never by fakes, which would test
+the fake. The fakes exist
 so the **core** can be tested without I/O, including auto-restart on crash.
 
 **Never `--no-verify`, and never commit around a red test.** The pre-commit hook running
@@ -80,9 +81,10 @@ fails for Playwright regardless of binary or profile. **Chrome is launched with 
 `--user-data-dir` per slot, never through Playwright.** Verified in the Phase 0 spike.
 
 Consequences: identify windows by **PID, never by title** (a title filter grabs the user's
-own browser windows); the PID `spawn` returns is a launcher stub, not the browser process;
-resolve the real PID once at launch and check liveness with `process.kill(pid, 0)` rather
-than polling WMI. Anti-detection is out of scope — the app is distributed, and a ban would
+own browser windows); the PID `spawn` returns is **not trusted** - with the installed Google Chrome
+it was a launcher stub, and probe P5 measured the bundled snapshot returning the real one, so either
+way the browser is the process carrying this slot's `--user-data-dir` and no `--type=`; resolve that
+PID once at launch and check liveness with `process.kill(pid, 0)` rather than polling WMI. Anti-detection is out of scope — the app is distributed, and a ban would
 land on the end user.
 
 ## Language
@@ -129,14 +131,17 @@ npm run lint              # eslint
 npm run format:check      # prettier --check
 npm run format            # prettier --write
 npm run check             # the four above that CI runs: typecheck, lint, format:check, test
-npm run test:integration  # real Chrome/windows/disk, Windows only, manual, not in check
+npm run test:integration  # real bundled browser/windows/disk, Windows only, manual
 ```
 
 The husky `pre-commit` hook runs `lint-staged` and then `npm run check`, so a commit that
 passes locally passes CI.
 
-`tests/repo-consistency.test.ts` checks the verification machinery itself: that `check` runs
-everything CI runs, that no `*.test.ts` falls outside every Vitest config, that no package is
+`tests/repo-consistency.test.ts` checks the verification machinery itself: that `check` runs every
+step `ci.yml` writes as `- run: npm ...`, bar `npm ci` - **two shapes are invisible to it**, a named
+step (`- name:` with `run:` on the next line) and anything not invoked through `npm`, and
+`release.yml`/`integration.yml` already carry both - that no `*.test.ts` falls outside every Vitest
+config, that no package is
 missing from the root `tsconfig` references, and that no workspace escapes the test type-check. Each of those failed silently here at least
 once — a green signal that covered less than it appeared to. If you add a CI step, a package,
 or a test directory, these will tell you what else needs updating.

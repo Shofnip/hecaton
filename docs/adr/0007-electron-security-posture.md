@@ -73,7 +73,8 @@ navigates: `will-navigate` and `will-redirect` are always prevented, `setWindowO
 always denies, and permissions are denied through all three handlers
 (`setPermissionRequestHandler`, `setPermissionCheckHandler`, `setDevicePermissionHandler`) —
 denying only the first while claiming to deny everything is the partial coverage this project
-keeps correcting. A game url opens in the user's own Chrome, never inside Electron: a logged-in
+keeps correcting. A game url opens in the user's own Chrome, never inside Electron
+[see Correction (2026-08-20, second)]: a logged-in
 game session inside the Electron process is exactly what the whole architecture avoids, and
 Turnstile would reject it anyway.
 
@@ -132,3 +133,22 @@ above the sentence saying it is missing.
 This appeared when the repository changed rather than being wrong when written: the Correction was
 recording, accurately, that the supersession was still owed. Nothing about the posture in this ADR
 is affected, and decisions 1, 2, 3 and 5 stand in full.
+
+## Correction (2026-08-20, second)
+
+Decision 5 says a game url opens in **the user's own Chrome**. Since
+[ADR-0016](0016-ship-our-own-chromium.md) it opens in **the Chromium the app ships**, and in nothing
+else — there is no fallback to a browser installed on the machine. Verify `BROWSER` in
+`apps/shell/src/main/main.ts` and `bundledBrowserPath` in
+`packages/browser-engine/src/browser-paths.ts`. This appeared when the code changed.
+
+It matters here rather than only in ADR-0016, because this is the file a security review opens to
+ask which process holds a logged-in game session and who patches it. The answer is no longer "the
+browser Google updates on the user's machine": it is a pinned trunk snapshot that moves only when a
+Hecaton release moves it, with `--disable-component-update` freezing CRLSet at the packaged
+revision. ADR-0016 states both costs and the owner accepted them.
+
+**The decision itself is untouched, and so is the status line.** No game session is loaded inside
+Electron; navigation and all three permission handlers still deny everything. The browser-choice
+decision that ADR-0016 reversed belongs to [ADR-0003](0003-spawn-over-cdp.md), which carries the
+supersession header. Nothing in this ADR's five decisions was reversed.

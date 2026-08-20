@@ -121,7 +121,11 @@ Estrutura vertical: **cabeçalho → viewport → barra de controles**.
   - Cinza (`border`), sem brilho = desligada
 - **Nome da tela** (14px, bold). **Clicável**: alterna o modo foco daquela tela (entra se não está em foco; sai se já está). Hover pinta o nome no `accent`.
 - **Favicon** (22×22px, cantos 5px) alinhado à direita — o mesmo ícone da aba do navegador do endereço configurado. Fallback: ícone de globo se o favicon não carregar. Tooltip com o nome/endereço.
-  - No protótipo o favicon vem de `google.com/s2/favicons?domain=...&sz=64`; no Electron, capturar via evento `page-favicon-updated` do webview.
+  - No protótipo o favicon vinha de `google.com/s2/favicons?domain=...&sz=64`. Na implementação
+    real ele é **empacotado no app** (`assets/poke.ico`; globo genérico para endereço
+    personalizado): sem evento de favicon e sem rede em tempo de execução (§13). Não é o
+    `page-favicon-updated` de um `<webview>` — `webviewTag` está desligado pela ADR-0007, e
+    `connect-src 'none'` bloquearia a busca de qualquer forma.
 
 Quando a tela está **em execução**, o card ganha borda esverdeada (`accent` a 40%) e um glow sutil.
 
@@ -129,12 +133,12 @@ Quando a tela está **em execução**, o card ganha borda esverdeada (`accent` a
 
 Fundo escuro (`screenOff`) nos dois temas. Conteúdo por estado:
 
-| Estado    | Conteúdo                                                                                |
-| --------- | --------------------------------------------------------------------------------------- |
-| `off`     | Botão grande centralizado: ícone power + "Ligar" (hover em `accent`)                    |
-| `loading` | Spinner girando em `warn` + "Carregando…"                                               |
-| `on`      | Webview da aplicação (no protótipo, placeholder "▶ conteúdo da tela em execução")       |
-| `error`   | Ícone de alerta em `danger` + mensagem + botão "Tentar novamente" (com ícone de reload) |
+| Estado    | Conteúdo                                                                                                                                                                                                                                                                                              |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `off`     | Botão grande centralizado: ícone power + "Ligar" (hover em `accent`)                                                                                                                                                                                                                                  |
+| `loading` | Spinner girando em `warn` + "Carregando…"                                                                                                                                                                                                                                                             |
+| `on`      | Vazio: a janela do Chrome embutida (reparentada via `SetParent`, ADR-0011) cobre exatamente esta região, e o painel só publica o retângulo em `screens:layout`. **Não é um `<webview>`** — `webviewTag` está desligado (ADR-0007). No protótipo havia o placeholder "▶ conteúdo da tela em execução". |
+| `error`   | Ícone de alerta em `danger` + mensagem + botão "Tentar novamente" (com ícone de reload)                                                                                                                                                                                                               |
 
 Mensagens de erro:
 
@@ -174,9 +178,9 @@ Popover ancorado **acima** do botão de volume, estilo player de vídeo:
 - A tela focada ocupa a área principal com todos os controles normais.
 - As demais viram **miniaturas** numa fileira inferior:
   - Dividem **igualmente toda a largura** disponível (flex 1, gap 4px).
-  - Altura padrão **100px**; conteúdo: LED (6px) + nome (11px) no cabeçalho, e o estado no corpo ("▶ em execução" / "carregando…" / "erro ao carregar" / "desligada").
+  - Altura padrão **100px**; conteúdo: LED (9px, a mesma classe `.led` do card) + nome (11px) no cabeçalho. No corpo, uma tela **em execução** recebe a própria janela do Chrome embutida — o painel publica esse retângulo em `screens:layout`, como no §5.2, e é isso que mantém o mural vivo no modo foco. As demais mostram o estado em texto ("carregando…" / "erro ao carregar" / "desligada").
   - Discretas por padrão (opacidade 0.85); hover acende a borda no `accent` e restaura a opacidade.
-  - **Clicar numa miniatura transfere o foco para ela.**
+  - **Clicar no cabeçalho da miniatura transfere o foco para ela.** No corpo isso só vale quando a tela não está em execução: no corpo de uma tela ligada o clique chega ao jogo, porque ali está a janela do navegador.
 - **Divisor arrastável** entre a tela principal e as miniaturas:
   - Faixa de 10px com um grip central (pílula 44×4px); cursor `ns-resize`; grip acende em `accent` no hover.
   - Arrastar redimensiona a altura das miniaturas. Limites: **mínimo 56px**, **máximo 45% da altura da janela**.
@@ -221,14 +225,22 @@ Observação de comportamento: apagar uma tela **arquiva** o perfil do slot (nã
 
 ## 10. Modal de configurações
 
-Itens, de cima para baixo:
+Itens, de cima para baixo — a lista descreve o que **está no app hoje**, não o protótipo:
 
 1. **Áudio apenas na tela em foco** — toggle com estado claramente visível (fundo `accentSoft` + borda `accent` + interruptor deslizante quando ativo). Descrição: "Silencia automaticamente as telas fora de foco". Integra-se naturalmente ao modo foco (seção 7).
 2. **Abrir logs** — botão neutro com ícone de pergaminho.
-3. **Tema** — controle segmentado Claro/Escuro com ícones de sol/lua; a opção ativa fica em `accent`.
-4. **Zona de risco** (separada por divisor + rótulo vermelho em caps):
+3. **Aviso sobre os termos do jogo** — reabre o texto mostrado na primeira execução.
+4. **Novidades da versão {N}** — só aparece quando o `CHANGELOG.md` tem seção para a versão em execução.
+5. **Versão + Procurar atualizações** — a única ação do app que toca a rede (ADR-0014).
+6. **Tema** — controle segmentado Claro/Escuro com ícones de sol/lua; a opção ativa fica em `accent`.
+7. **Seus dados** (divisor + rótulo) — onde os dados ficam, a divulgação sobre senhas salvas pelo navegador, e **Abrir pasta dos dados**.
+8. **Zona de risco** (divisor + rótulo vermelho em caps) — **três** botões, não dois:
    - **Limpar cache das telas**
    - **Limpar dados arquivados**
+   - **Apagar todos os meus dados** — apaga `%APPDATA%/hecaton` inteiro, sessões logadas
+     incluídas, e fecha o app; desabilitado enquanto houver tela aberta. É a **única** ação do
+     produto que apaga um perfil vivo, e este documento a omitia — o mesmo inventário curto de
+     ações destrutivas que a Correção de 2026-08-08 da ADR-0008 já teve de consertar uma vez.
 
 ---
 
@@ -242,7 +254,7 @@ Itens, de cima para baixo:
 
 ## 12. Feedback (toasts)
 
-Notificações transitórias (~2,6s) em pílula centralizada na base da área principal. Mensagens em uso: "Todas as telas ligadas", "Ligando todas as telas…", "Todas as telas desligadas", "Tela removida", "Tela {N} adicionada", "Cache das telas limpo", "Cache da {nome} limpo", "Dados arquivados excluídos", "Abrindo logs…".
+Notificações transitórias (~2,6s) em pílula centralizada na base da área principal. Mensagens em uso, conferidas contra os dez `showToast` do renderer: "Ligando todas as telas…", "Todas as telas desligadas", "Tela adicionada", "Abrindo logs…", "Cache das telas limpo", "Cache da {nome} limpo", "Dados arquivados excluídos", "Abrindo no navegador…", "Abrindo pasta…", "Dados apagados. Fechando o aplicativo…". Remover uma tela **não** emite toast: a remoção empurra o estado e a grade se redesenha sozinha.
 
 ---
 
@@ -266,10 +278,16 @@ Notificações transitórias (~2,6s) em pílula centralizada na base da área pr
   mudo, throttling), tema, estado do "áudio em foco" e altura das miniaturas.
 - **Interação com a tela embutida** (obrigações medidas no spike): o shell encaminha o foco
   de teclado ao clicar numa tela (`WM_PARENTNOTIFY` via `hookWindowMessage` +
-  `AttachThreadInput`/`SetFocus`) e ao reativar a janela (evento `focus`); reafirma
-  `HWND_TOP` do filho em cada sync de bounds e em mudanças de ativação; **esconde as telas
-  (`SW_HIDE`) enquanto um modal/popover do painel estiver aberto**, porque a janela nativa
-  pinta por cima do DOM.
+  `AttachThreadInput`/`SetFocus`); reafirma `HWND_TOP` do filho em cada sync de bounds
+  (`movechild`), e **não** em mudanças de ativação — a obrigação 0.1 do ADR-0011 previa isso e
+  nunca foi implementada (ver a Correção de 2026-08-20 nesse ADR); **esconde (`SW_HIDE`) apenas a tela que um modal desenhado no próprio
+  painel realmente cobre**, porque a janela nativa pinta por cima do DOM — as demais seguem
+  visíveis. Três correções em relação ao que este documento dizia antes, todas conferidas no
+  código: não há encaminhamento de foco no evento `focus` da BrowserWindow (só o
+  `WM_PARENTNOTIFY`), não há reafirmação de z-order na ativação, e um modal não esconde a grade
+  inteira. O popover de volume e quase todos os modais vivem na janela overlay always-on-top
+  (ADR-0011) e não escondem tela alguma; o único desenhado no próprio painel é o de novidades
+  da versão.
 - **Recarregar**: `WM_APPCOMMAND` com `APPCOMMAND_BROWSER_REFRESH` (código **3**) direto na
   janela embutida — sem foco, sem clique, ~310ms. É a **única** operação que preserva o
   login do jogo (sessão presa à aba, ADR-0009): navegar e voltar, reabrir ou nova aba

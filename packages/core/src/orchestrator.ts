@@ -482,7 +482,8 @@ export class Orchestrator {
    * renderer owns it because the rectangles depend on the card layout and the
    * focus divider, which only the DOM knows (Option 1, the owner's decision). A
    * screen with bounds is shown and moved there; a screen with none is hidden
-   * (non-focused in focus mode, or every screen under a modal). Visibility flips
+   * (fullscreen, or a panel-drawn modal that actually covers it — never merely
+   * because it is not the focused screen). Visibility flips
    * only on a real transition, so a resize drag does not spam ShowWindow, while
    * the position is re-applied every call — that IS the live drag. Slots the
    * renderer does not mention, or that are not running, are left alone.

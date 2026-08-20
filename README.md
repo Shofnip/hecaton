@@ -39,7 +39,10 @@ target game: **Poke IdleWorld**; any `https://` URL works too.
   updates when Hecaton does and at no other time — see
   [ADR-0016](docs/adr/0016-ship-our-own-chromium.md), which is honest about what that costs.
 
-Building from source needs **Node 20+** as well; running a release does not.
+Building from source needs **Node 22.12+** as well (Electron 43 requires it, and Vitest 4 pulls in a
+Vite that does too), plus
+about **1.2 GB of free disk** for the browser step below, 440 MB of it permanent; running a release
+needs neither.
 
 ## Install
 
@@ -93,7 +96,9 @@ That downloads a pinned Chromium revision, **verifies its SHA256 before unpackin
 the files the app does not ship, and links the result where both the development run and the
 packaged build look for it. It is a 354 MB download the first time and a second the next, since the
 unpacked tree lives in `vendor/` and survives `npm install` — only the link under `node_modules`
-has to be remade. The binary is not in git: what is pinned is the revision and the hash, in
+has to be remade. Budget **~1.2 GB while it runs** — the verified zip is only deleted once the tree
+is unpacked and stripped — and **440 MB** left in `vendor/` afterwards.
+The binary is not in git: what is pinned is the revision and the hash, in
 `scripts/fetch-chromium.mjs`.
 
 `npm install` also needs to build two native modules (`node-window-manager` and its transitive
@@ -186,7 +191,7 @@ later.
 
 Hecaton's whole point — several accounts of the same game side by side — is the thing most game
 terms restrict. It does not automate play and injects nothing into game pages; it launches ordinary
-Chrome windows and arranges them. That does not put it outside the rules, and pretending otherwise
+browser windows — its own bundled Chromium — and arranges them. That does not put it outside the rules, and pretending otherwise
 would be the dishonest way to present it.
 
 **For the first target game, Poke IdleWorld, the rules are specific.** Read on

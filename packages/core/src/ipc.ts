@@ -27,9 +27,20 @@ import { parseSlotOverrides } from './parse-config.js'
  *
  * `bounds` is the screen's rectangle in the panel's client area (the coordinates
  * MoveWindow wants for an embedded child). Absent bounds means the screen is
- * hidden — a non-focused screen in focus mode, or every screen while a panel
- * modal is open. Only the renderer knows these rectangles, since they depend on
- * the card layout, the focus divider and the DOM.
+ * hidden, which happens in three cases: every screen but one while a screen is
+ * fullscreen, a screen that is not running (its thumbnail shows text, not a
+ * window), and a screen an open panel-drawn modal actually covers — today that
+ * is only the release-notes modal, which the wall draws in its own DOM. The
+ * volume popover and every other modal live in the overlay window and hide
+ * nothing.
+ *
+ * **Focus mode is not one of them.** A running, non-focused screen keeps its
+ * bounds — its window moves into the thumbnail and stays live, which is the
+ * point of the video wall. This comment used to say otherwise, which was an
+ * argument for blacking out the wall.
+ *
+ * Only the renderer knows these rectangles, since they depend on the card
+ * layout, the focus divider and the DOM.
  */
 export interface ScreenPlacement {
   id: number
@@ -101,7 +112,9 @@ export const IPC_CHANNELS = [
   // The overlay window (UI rework, approved by the owner): modals and the volume
   // popover render in a separate always-on-top window so they paint above the
   // embedded game windows without hiding any screen. `open` asks main to show it
-  // with a request; `close` asks main to hide it.
+  // with a request; `close` asks main to hide it. The one modal the wall still
+  // draws itself is the release-notes one, which opens before anything is
+  // embedded, on the first launch after an update.
   'overlay:open',
   'overlay:close',
 ] as const
@@ -229,8 +242,16 @@ function requireBoundsInteger(value: unknown, field: string, min: number): numbe
 
 /**
  * The full video-wall layout the renderer sends: where each screen goes, or that
- * it is hidden. Structural validation only — main clamps the rectangles to the
- * panel's actual content size, which is its to know, not the core's.
+ * it is hidden.
+ *
+ * Structural validation only, and main does **not** clamp afterwards — it relays
+ * the rectangles as-is, because a reparented child is a `WS_CHILD` and Windows
+ * clips it to the parent's client area, so an edge rounded a pixel long needs no
+ * clamp. See the `screens:layout` handler in `apps/shell/src/main/main.ts`.
+ *
+ * That makes the ceiling in `requireBoundsInteger` the **only** bound on what
+ * reaches the Win32 worker, which is worth knowing before loosening it. This
+ * docblock used to promise a downstream clamp that has never existed.
  */
 export function parseScreenLayout(input: unknown): ScreenPlacement[] {
   if (!Array.isArray(input)) {

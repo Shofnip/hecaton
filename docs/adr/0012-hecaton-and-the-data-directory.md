@@ -35,7 +35,8 @@ installed base to migrate — and that is only true until the first release, whi
 moment to choose.
 
 The property bought is worth stating in full, because it is invisible in the code: **no code path
-in the shipped product moves, copies or deletes a directory of logged-in sessions.** That is the
+in the shipped product moves, copies or deletes a directory of logged-in sessions.**
+[see Correction (2026-08-20)] That is the
 strongest available reading of [ADR-0005](0005-never-delete-a-persistent-profile.md).
 
 **Everything at the code level was renamed at once**, in one mechanical commit before Phase 3 wrote
@@ -75,3 +76,26 @@ the panopticon's surveillance connotation — wrong for an app whose privacy pro
 leaves the machine), `Heimdall`, `Lynceus`, `Ophanim`, `Hydra`, and the earlier non-mythic
 shortlists (`Colmeia`/`Atalaia`/`Mosaico`/`Idlewall`, then `Watchwall`/`Playwall`/`Crowsnest`/
 `Perch`).
+
+## Correction (2026-08-20)
+
+**The absolute above is broader than the property that actually holds**, in two ways, and a reader
+starting from it would conclude the app structurally cannot destroy a logged-in game account.
+
+- **"deletes"** stopped being true on 2026-08-08, when `data:deleteAll` gave the panel a confirmed
+  "delete all my data" action — a portable zip has no uninstaller to ask the question in. It removes
+  `%APPDATA%/hecaton` whole, and `profiles/slot-N` is inside it. Verify in
+  `apps/shell/src/main/main.ts` (the `data:deleteAll` handler) and
+  `packages/storage/src/delete-user-data.ts`.
+- **"moves"** was over-broad from the start: `FileProfileArchive.archive` renames a live profile
+  aside when a slot is removed, and that predates this ADR — it is [ADR-0008](0008-archive-a-removed-slot-profile.md),
+  decided 2026-07-21. Verify in `packages/browser-engine/src/profile-archive.ts`.
+
+The property that does hold is the one stated in ADR-0005's second Correction: no live profile is
+deleted by any lifecycle path, any flag, any crash or any re-used id — the user can delete all of
+them at once, from one place in the panel, having been told what it costs.
+
+**The decision this ADR records is untouched.** No migration code exists, none is planned, and the
+reasoning for that is unaffected. What is corrected is a supporting claim about a neighbouring
+guarantee. `packages/core/src/ports.ts` already carries the narrowed wording, and this brings the
+ADR into line with it.

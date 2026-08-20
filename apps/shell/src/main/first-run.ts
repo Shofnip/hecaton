@@ -6,8 +6,16 @@
  * that depends on it. So the decision of what to seed lives here, in the one
  * place that knows both.
  *
- * A full grid rather than an empty panel, because v1 has no UI for adding a
- * slot: an empty panel would open dead.
+ * `count` is 1 in production (`main.ts`): the panel opens usable with one screen
+ * and the user adds more from the sidebar's **+**, at which point the grid
+ * splits. This function stays general because the seeding count is a product
+ * decision, not a property of the seeding.
+ *
+ * It used to say "a full grid, because v1 has no UI for adding a slot". Both
+ * halves stopped being true: `slot:add` and the + button exist, and an empty grid
+ * shows "Use o botao + na lateral para adicionar" rather than opening dead. Left
+ * in place, that comment was an argument for seeding four browser profiles onto a
+ * fresh install.
  */
 import type { SlotOverrides } from '@hecaton/core'
 

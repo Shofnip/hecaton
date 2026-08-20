@@ -3,8 +3,9 @@
  *
  * Needed because the browsers run in processes this app did not create:
  * --window-position only sets the initial state, so placing a slot in the grid,
- * embedding it into the panel, hiding it in focus mode, moving it as the panel
- * resizes or reloading it afterwards all mean driving a foreign window.
+ * embedding it into the panel, hiding it when it is covered or fullscreened,
+ * moving it as the panel resizes or reloading it afterwards all mean driving a
+ * foreign window.
  *
  * node-window-manager covers reading and moving top-level windows; the embed,
  * the child-window move, hide/show and in-place reload it has no API for are in
@@ -234,7 +235,11 @@ export class NativeWindowManager implements WindowManager {
     timer.unref?.()
   }
 
-  /** Hides an embedded window (SW_HIDE) — focus mode, or under a panel modal. */
+  /**
+   * Hides an embedded window (SW_HIDE) — fullscreen, a stopped screen, or under a
+   * panel-drawn modal that actually covers it. Not focus mode: the other screens
+   * stay live in their thumbnails.
+   */
   hide(pid: number): boolean {
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false

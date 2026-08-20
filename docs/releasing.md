@@ -26,9 +26,13 @@ three most recent majors — so that one has a clock attached. See
 [ADR-0007](adr/0007-electron-security-posture.md) decision 1 and
 [ADR-0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md).
 
-After any of the three npm bumps: `node node_modules/electron/install.js`, then `npm run check`,
-then `npm run test:integration` — a raised `node-window-manager` or Electron changes the ABI the
-native modules are built against, and only the integration suite touches that.
+After any of the three npm bumps: `node node_modules/electron/install.js`, then
+`node scripts/fetch-chromium.mjs`, then `npm run check`, then `npm run test:integration` — a raised
+`node-window-manager` or Electron changes the ABI the native modules are built against, and only the
+integration suite touches that. The fetch script is on that list because a reinstalled `electron`
+takes the development link to the bundled browser with it, and the integration suite then fails at
+`beforeAll` with `bundled browser missing at ...`, pointing at the browser rather than at the bump
+that removed it.
 
 #### The fourth pin is different, and it is the heaviest thing on this page
 
@@ -58,10 +62,13 @@ refuses to unpack anything whose hash it does not already know, which is what ma
 enforced rather than merely intended.
 
 ```powershell
-$rev = (Invoke-WebRequest 'https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/LAST_CHANGE').Content
+# -UseBasicParsing is not optional: without it, Windows PowerShell 5.1 - the shell this
+# project uses everywhere - refuses the first call with a *non-terminating* error, leaving
+# $rev empty. The next two lines then build a 404 url that reads like a bucket problem.
+$rev = (Invoke-WebRequest 'https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/LAST_CHANGE' -UseBasicParsing).Content.Trim()
 $zip = "vendor\chromium\chrome-win-$rev.zip"
 New-Item -ItemType Directory -Force vendor\chromium | Out-Null
-Invoke-WebRequest "https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/$rev/chrome-win.zip" -OutFile $zip
+Invoke-WebRequest "https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/$rev/chrome-win.zip" -OutFile $zip -UseBasicParsing
 $rev; (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 ```
 
