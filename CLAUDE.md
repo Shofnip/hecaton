@@ -100,6 +100,13 @@ from `@hecaton/storage`. Never build these paths by hand. The last one is Electr
 kept under the app's directory rather than the shared `%APPDATA%/Electron`, and it is the single
 entry allowed to survive the "delete all my data" action — the running process holds it open.
 
+**Never run anything destructive against the real `%APPDATA%/hecaton`.** It holds the owner's
+logged-in game accounts. Redirect `APPDATA` to a throwaway directory **and assert that
+`appDataDir()` resolved inside it before acting** — the variable passes through several processes
+(shell → npm → Electron → a PowerShell worker), and inferring that it survived is not the same as
+knowing. The probes that exercised the delete path refuse to run when that assertion fails, which
+is the shape to copy.
+
 ## Commands
 
 ```
