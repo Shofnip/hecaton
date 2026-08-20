@@ -56,6 +56,7 @@ interface PanelState {
   configError?: string
   configQuarantinedAs?: string
   releaseNotes?: string
+  needsReleaseNotes: boolean
 }
 
 /** What an update check came back with (mirrors the core's UpdateCheck). */
@@ -218,6 +219,13 @@ const ICONS: Record<string, Shape[]> = {
     ['path', { d: 'M12 9v4' }],
     ['path', { d: 'M12 17h.01' }],
   ],
+  // Deliberately not `alert`, which the terms warning owns: release notes are
+  // news, and reusing the warning triangle would make them read as a hazard.
+  info: [
+    ['circle', { cx: '12', cy: '12', r: '10' }],
+    ['path', { d: 'M12 16v-4' }],
+    ['path', { d: 'M12 8h.01' }],
+  ],
   logs: [
     ['path', { d: 'M15 12h-5' }],
     ['path', { d: 'M15 8h-5' }],
@@ -332,8 +340,10 @@ let state: PanelState = {
   audioFollowsFocus: true,
   theme: 'dark',
   // False until main says otherwise, so a stray frame before the first push
-  // cannot flash the warning at someone who has already read it.
+  // cannot flash the warning at someone who has already read it. The release
+  // notes take the same default, and for the same reason.
   needsTerms: false,
+  needsReleaseNotes: false,
   version: '',
 }
 
@@ -489,10 +499,25 @@ function configRecoveredMessage(savedAs: string | undefined): string | undefined
  */
 let releaseNotesShown = false
 function renderReleaseNotes(): void {
-  if (releaseNotesShown || state.needsTerms || state.releaseNotes === undefined) return
+  if (releaseNotesShown || state.needsTerms || !state.needsReleaseNotes) return
   releaseNotesShown = true
+  openReleaseNotes()
+}
 
+/**
+ * The notes themselves, shown automatically once and re-openable from
+ * Configurações afterwards.
+ *
+ * Both entrances land here, and both acknowledge on close. Acknowledging twice
+ * writes the same version back and changes nothing, which is cheaper than a
+ * branch that has to know which entrance it came from — and it means reading
+ * them from the settings before the automatic modal ever appeared still counts
+ * as having read them.
+ */
+function openReleaseNotes(): void {
   const notes = state.releaseNotes
+  if (notes === undefined) return
+
   openModal(
     (dialog, close) => {
       modalHead(dialog, `Novidades da versão ${state.version}`, close)
@@ -505,10 +530,14 @@ function renderReleaseNotes(): void {
       body.append(pre)
       dialog.append(body)
     },
-    // onClose rather than the X button's handler: Escape and a click on the
-    // backdrop close it too, and a dismissal that did not count as one would
-    // bring the notes back at every launch.
-    { onClose: () => run(() => window.hecaton.acknowledgeReleaseNotes()) },
+    {
+      // onClose rather than the X button's handler: Escape and a click on the
+      // backdrop close it too, and a dismissal that did not count as one would
+      // bring the notes back at every launch.
+      onClose: () => run(() => window.hecaton.acknowledgeReleaseNotes()),
+      // Prose, not controls: the default 440px gave ~55 characters a line.
+      extraClass: 'wide',
+    },
   )
 }
 
@@ -1114,6 +1143,19 @@ function openSettings(): void {
     terms.append(icon('alert', 18), el('span', undefined, 'Aviso sobre os termos do jogo'))
     terms.addEventListener('click', openTerms)
     body.append(terms)
+
+    // Same shape as the terms entry above, and there for the same reason: the
+    // notes open by themselves exactly once, so without this "what changed in
+    // this version?" has nowhere to go a day later. Absent when the changelog
+    // has no section for the running version — an entry that opened an empty
+    // dialog would be worse than no entry.
+    if (state.releaseNotes !== undefined) {
+      const notes = el('button', 'neutral-btn')
+      notes.type = 'button'
+      notes.append(icon('info', 18), el('span', undefined, `Novidades da versão ${state.version}`))
+      notes.addEventListener('click', openReleaseNotes)
+      body.append(notes)
+    }
 
     body.append(updateRow())
 

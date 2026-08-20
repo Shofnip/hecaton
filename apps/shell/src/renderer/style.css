@@ -688,6 +688,15 @@ svg {
   width: min(380px, 92vw);
 }
 
+/*
+ * Wider, for a dialog whose content is prose rather than controls. 440px over a
+ * changelog gives ~55 characters a line, which is what made the wrapping look
+ * ragged even once the source's own hard breaks were gone.
+ */
+.modal.wide {
+  width: min(620px, 94vw);
+}
+
 .modal.danger {
   border-color: color-mix(in srgb, var(--danger) 40%, transparent);
 }
@@ -984,6 +993,23 @@ svg {
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 10px 12px;
+}
+
+/*
+ * The same notes when they ARE the dialog rather than a preview inside a
+ * settings row.
+ *
+ * 180px is right for the update row, where the notes sit under a button and
+ * must not push the rest of Configurações off screen. In the release-notes
+ * modal it was the defect: a box frozen at 180px inside a dialog with nothing
+ * else in it, scrolling three lines at a time however large the window was.
+ * Here the height follows the viewport, and the modal's own `max-height: 92vh`
+ * is what stops it growing past the screen.
+ */
+.modal .update-notes {
+  font-size: 13px;
+  max-height: min(60vh, 520px);
+  color: var(--text);
 }
 
 /* ---- first-run terms gate (D3b) ----

@@ -34,7 +34,7 @@ import {
   verifyUserDataDeletion,
 } from '@hecaton/core'
 import { TERMS_VERSION, interpretUpdateCheck, needsTermsAcknowledgement } from '@hecaton/core'
-import { changelogSection, needsReleaseNotes } from '@hecaton/core'
+import { changelogSection, displayNotes, needsReleaseNotes } from '@hecaton/core'
 import type { UpdateCheck } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
 import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } from '@hecaton/core'
@@ -323,13 +323,20 @@ interface PanelState {
   /** File name a corrupt config was kept under; the panel phrases the rest. */
   configQuarantinedAs?: string
   /**
-   * What changed in the version now running, sent only until it is dismissed.
+   * What changed in the version now running, whenever the changelog says.
    *
    * Read from a file in the package, never from the network: the notes for the
    * version already running would need a request at launch, and ADR-0014 is
    * precisely the decision that the app makes none the user did not ask for.
    */
   releaseNotes?: string
+  /**
+   * Whether those notes should open by themselves, which is only true until the
+   * user dismisses them once. Kept apart from the text for the same reason
+   * `needsTerms` is kept apart from the warning: the panel offers the notes
+   * again from Configurações afterwards, and "available" is not "due".
+   */
+  needsReleaseNotes: boolean
 }
 
 /** Everything the renderer is allowed to know. */
@@ -341,11 +348,12 @@ function currentState(): PanelState {
     audioFollowsFocus: globals.audioFollowsFocus,
     theme: globals.theme,
     needsTerms: needsTermsAcknowledgement(globals.termsAcknowledged),
+    needsReleaseNotes: needsReleaseNotes(globals.releaseNotesShownFor, version()),
     version: version(),
   }
   if (configError !== undefined) state.configError = configError
   if (configQuarantinedAs !== undefined) state.configQuarantinedAs = configQuarantinedAs
-  const notes = pendingReleaseNotes()
+  const notes = releaseNotes()
   if (notes !== undefined) state.releaseNotes = notes
   return state
 }
@@ -705,17 +713,23 @@ async function checkForUpdates(): Promise<UpdateCheck> {
 }
 
 /**
- * The notes for the running version, while they are still owed.
+ * The notes for the running version, whenever the changelog has a section for it.
+ *
+ * Sent regardless of whether they are still owed, because the panel offers them
+ * twice: once automatically after an update, and afterwards as an entry in
+ * Configurações. Whether to open the modal by itself is the separate
+ * `needsReleaseNotes` flag - the text being available is not the same question
+ * as the text being due.
  *
  * Missing file, unreadable file, or a version nobody wrote notes for are all the
  * same ordinary answer: nothing to show. That is what keeps the changelog
  * optional rather than a file the app depends on - a release whose notes were
  * not written says nothing instead of failing.
  */
-function pendingReleaseNotes(): string | undefined {
-  if (!needsReleaseNotes(globals.releaseNotesShownFor, version())) return undefined
+function releaseNotes(): string | undefined {
   try {
-    return changelogSection(readFileSync(CHANGELOG, 'utf8'), version())
+    const section = changelogSection(readFileSync(CHANGELOG, 'utf8'), version())
+    return section === undefined ? undefined : displayNotes(section)
   } catch {
     return undefined
   }

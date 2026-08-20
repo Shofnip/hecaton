@@ -310,9 +310,12 @@ A long-running orchestrator with child processes fails silently by default. Acti
   `config.json`. `level` and `event` are literals in the app's own code; `pid` comes from the
   launcher; `slotId` is read from config but forced through `requirePositiveInteger`, so no string
   can ride there. There are exactly two emitters: `Orchestrator.emit` for every lifecycle entry, and
-  `apps/shell/src/main/main.ts` for one more, `config.error`, whose `message` is whatever
-  `loadConfiguration` threw — usually the config parser's text, sometimes a filesystem error — and is
-  redacted like any other. **`gameId` is safe by type too, since 2026-08-09**, and it is the field
+  `apps/shell/src/main/main.ts` for two more — `config.error`, whose `message` is whatever
+  `loadConfiguration` threw (usually the config parser's text, sometimes a filesystem error), and
+  `config.quarantined`, whose `message` names the file a corrupt `config.json` was kept under. Both
+  are redacted like any other. `config.quarantined` arrived with the recovery path and this
+  enumeration was not updated with it, which is worth naming: a sentence written as exhaustive is
+  only worth anything while it still is. **`gameId` is safe by type too, since 2026-08-09**, and it is the field
   that shows why the distinction is worth stating: it used to accept any non-blank string, so a
   hand-edited `config.json` naming a URL there wrote that URL — query string and all — into a log
   line, and the following `slot.crash` showed the same URL redacted in `message` and in the clear in
@@ -639,8 +642,25 @@ marks it read, so closing the app without opening it leaves the notes owed. `not
 carries no payload for the reason `terms:acknowledge` does not: which version was on screen is
 main's knowledge, since main is what read the file.
 
+**And it is re-openable**, from an entry in Configurações beside the terms warning, for the reason
+that entry exists: shown once and never again means "what changed in this version?" has nowhere to
+go a day later. So the panel is told two separate things — `releaseNotes`, the text, sent whenever
+the changelog has a section for the running version, and `needsReleaseNotes`, whether it should open
+by itself. Available is not the same question as due. Both entrances acknowledge on close, which is
+idempotent and means reading the notes from Configurações first still counts. The entry is absent
+when there is no section, rather than opening an empty dialog.
+
 Missing file, unreadable file, or a version nobody wrote notes for are all the same ordinary answer
 — nothing to show. That is what keeps the changelog optional rather than a file the app depends on.
+
+The text is not shown raw. `displayNotes` in the core unwraps the hard line breaks Markdown is
+written with and strips emphasis markers, and it exists because of what the panel looked like
+without it: the changelog is wrapped at ~95 columns by the formatter, the panel renders
+`white-space: pre-wrap`, so every line wrapped at the box width **and then again** at the source's
+own newline, with the continuation indented two spaces — and `**bold**` arrived as literal
+asterisks, since the renderer sets `textContent` and always will. It runs on the GitHub release body
+too, after the 4000-character cap rather than before it: that string comes from the network and the
+unwrapping uses backtracking regular expressions, so capping first bounds what they ever see.
 
 ### A config that cannot be read at all
 

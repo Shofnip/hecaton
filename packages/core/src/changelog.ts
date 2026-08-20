@@ -43,6 +43,67 @@ export function changelogSection(markdown: string, version: string): string | un
   return text === '' ? undefined : text
 }
 
+/** A line that starts a block of its own: a bullet, a number, or a heading. */
+const BLOCK_START = /^\s*(?:[-*+]\s|\d+[.)]\s|#{1,6}\s)/
+
+/**
+ * Turns note text into what the panel should actually put on screen.
+ *
+ * Found by looking at the running app rather than at the code, which is where
+ * this project keeps finding its layout defects. The notes are written as
+ * Markdown and hard-wrapped at ~95 columns by the formatter; the panel renders
+ * them in a ~440px box with `white-space: pre-wrap`, which **keeps those
+ * newlines**. So every line soft-wrapped at the box width and then broke again
+ * at the source's own newline, with the continuation indented two spaces — one
+ * sentence arriving as three ragged lines.
+ *
+ * Two jobs, both of which exist because the panel renders **text, not markup**:
+ *
+ * 1. **Unwrap.** A line that does not start a block is a continuation of the one
+ *    before it and is joined with a space. Blank lines stay, because they are the
+ *    paragraph breaks the author meant; bullets and headings stay on their own
+ *    lines, because they are structure rather than wrapping.
+ * 2. **Drop emphasis markers.** `**bold**` arrives as literal asterisks
+ *    otherwise. The renderer sets `textContent` — which is what makes a
+ *    `<script>` in a GitHub release note five words of plain text, and is not up
+ *    for negotiation — so the markers have to go here instead.
+ *
+ * It runs on both note sources: this project's own `CHANGELOG.md`, and the
+ * release body fetched from GitHub, which is Markdown too.
+ */
+export function displayNotes(text: string): string {
+  const out: string[] = []
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    const previous = out[out.length - 1]
+    const continues =
+      line !== '' && !BLOCK_START.test(line) && previous !== undefined && previous.trim() !== ''
+    if (continues) out[out.length - 1] = `${previous} ${line}`
+    else out.push(line)
+  }
+
+  return out
+    .map(stripEmphasis)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/**
+ * Removes the markers, keeps the words.
+ *
+ * Each pattern requires a non-space character next to the marker, so a bullet
+ * (`* item`) and arithmetic (`2 * 3`) survive: what is stripped is a marker that
+ * actually wraps something.
+ */
+function stripEmphasis(line: string): string {
+  return line
+    .replace(/\*\*(\S(?:.*?\S)?)\*\*/g, '$1')
+    .replace(/(?<!\*)\*(\S(?:.*?\S)?)\*(?!\*)/g, '$1')
+    .replace(/(?<![\w_])_(\S(?:.*?\S)?)_(?![\w_])/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+}
+
 /**
  * Whether the notes for the running version are still owed.
  *

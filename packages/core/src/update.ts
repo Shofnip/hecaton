@@ -24,6 +24,7 @@
  *    would push English core text into the UI for the most ordinary case there
  *    is.
  */
+import { displayNotes } from './changelog.js'
 
 /**
  * How much of a changelog is carried into the panel.
@@ -78,6 +79,17 @@ export function isNewerVersion(candidate: string, current: string): boolean {
  * Control characters go; `\t`, `\n` and `\r` stay, because a changelog is written
  * with them. Markup is not filtered: the panel sets `textContent`, so a `<script>`
  * in a release note is five words of text and nothing else.
+ *
+ * `displayNotes` then does the presentation half — unwrapping the hard line
+ * breaks Markdown is written with, and dropping the emphasis markers that would
+ * otherwise reach the screen as literal asterisks.
+ *
+ * **The cap comes first, and the order is the point.** This string arrives from
+ * the network, and `displayNotes` runs regular expressions with backtracking over
+ * it; main already refuses a body past 1 MB, but handing a megabyte of hostile
+ * asterisks to a lazy quantifier is a cost with no upside. Capping first bounds
+ * what the regexes ever see to 4000 characters. The cost is that unwrapping can
+ * leave slightly fewer than 4000 visible, which nobody will notice.
  */
 function cleanNotes(value: unknown): string {
   if (typeof value !== 'string') return ''
@@ -87,7 +99,7 @@ function cleanNotes(value: unknown): string {
     const printable = code >= 0x20 && code !== 0x7f
     if (printable || char === '\t' || char === '\n' || char === '\r') out += char
   }
-  return out.slice(0, UPDATE_NOTES_MAX)
+  return displayNotes(out.slice(0, UPDATE_NOTES_MAX))
 }
 
 /**

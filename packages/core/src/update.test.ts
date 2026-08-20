@@ -120,9 +120,31 @@ describe('interpretUpdateCheck', () => {
     expect(result.status === 'update-available' && result.notes).toBe('abc')
   })
 
-  it('keeps the newlines and tabs a changelog is written with', () => {
-    const result = interpretUpdateCheck(200, release({ body: 'um\ndois\r\n\ttrês' }), '0.1.0')
-    expect(result.status === 'update-available' && result.notes).toBe('um\ndois\r\n\ttrês')
+  it('keeps the line structure a changelog is written with, and joins the rest', () => {
+    // This test used to assert that every newline survived verbatim, and that
+    // was right until the notes were looked at on screen: the source is
+    // hard-wrapped at ~95 columns, the panel renders `white-space: pre-wrap` in
+    // a narrow box, so each line wrapped at the box width and *then* broke again
+    // at the source's own newline. `displayNotes` now unwraps continuations.
+    //
+    // What is still protected is the part that mattered: structure survives.
+    // Bullets stay on their own lines and a blank line still separates
+    // paragraphs — those are the author's, not the formatter's.
+    const structure = interpretUpdateCheck(
+      200,
+      release({ body: '## Fixes\n\n- um\n- dois' }),
+      '0.1.0',
+    )
+    expect(structure.status === 'update-available' && structure.notes).toBe(
+      '## Fixes\n\n- um\n- dois',
+    )
+
+    const wrapped = interpretUpdateCheck(
+      200,
+      release({ body: '- um item\r\n  continuado' }),
+      '0.1.0',
+    )
+    expect(wrapped.status === 'update-available' && wrapped.notes).toBe('- um item continuado')
   })
 
   it('never carries a url out of the response', () => {
