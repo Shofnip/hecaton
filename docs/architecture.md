@@ -466,6 +466,10 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
   refused, and a `%ProgramData%` that cannot be resolved skips the claim entirely. Each is the
   app's own instrument failing rather than evidence about the user. The cost is that the layer can
   be absent without the user or the owner noticing: only the third case writes a log line.
+  The two-account case — the one thing about the lock that was ever taken on inference — was
+  **observed on 2026-08-21**: a throwaway standard Windows account, in its own interactive
+  session, met the running app and got `held-by-another-user` from both the adapter and the app
+  itself. Nothing about the layer rests on reasoning now.
 - **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
   `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.
 

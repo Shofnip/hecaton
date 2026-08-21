@@ -160,7 +160,7 @@ Recorded once here so a later session does not read any of it as a bug to fix.
   when its worker fails to run, and the call site treats an unresolvable seal path as `allow`. The
   cost is that all three layers can be absent without anyone noticing: of those three paths, only
   the last writes a log line.
-- **The two-account case is still an inference**, though a much narrower one than it was: P6b
+- **The two-account case is still an inference** [see Correction], though a much narrower one than it was: P6b
   observed `ACCESS_DENIED` across a real session boundary from a different security context, and
   the adapter's integration test exercises the classification against a real kernel denial on
   every run. A run from a second interactive account remains a pre-release check.
@@ -188,3 +188,19 @@ world-readable file.
 **Anything with an account, a licence key or a server.** ADR-0015 examined that in full and closed
 it. Nothing here reopens it: the whole mechanism is local, offline, and readable by the user whose
 machine it runs on.
+
+## Correction (2026-08-21)
+
+The last Consequence closes a forward-looking obligation — "a run from a second interactive
+account remains a pre-release check" — and that obligation has since been discharged, so the
+sentence would otherwise send a future session to redo it.
+
+It was accurate when written. On **2026-08-21** probe P6e ran it: a throwaway **standard** Windows
+account (not an administrator, so its token carries no `Administrators` SID to change the access
+check), in its own interactive session, against this app holding `Global\Hecaton.Instance` in the
+owner's session. Both layers reported `held-by-another-user` — the `MutexInstanceLock` adapter and
+the whole app. That also produced the first `held-by-another-user` the app has ever emitted: P6c
+could only reach `held-by-this-user`, because it ran two instances under one account.
+
+So the mutex layer now rests on nothing inferred. `docs/architecture.md` carries the present-tense
+record; this note exists only so the body's standing instruction is not acted on twice.

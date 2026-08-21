@@ -54,7 +54,7 @@ turned out wrong, that is a new ADR, not a correction.
 Only for factual errors. An ADR whose historical context has since changed is not wrong: it
 records what was true when the decision was taken, which is the point of the format.
 
-ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013 and ADR-0014 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008 and ADR-0009 carry
+ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014 and ADR-0018 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008 and ADR-0009 carry
 two or more each, which is what a dated `[see Correction (YYYY-MM-DD)]` marker is for: with more than one, an
 undated marker no longer says which.
 
@@ -79,7 +79,7 @@ undated marker no longer says which.
 | [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization      | Superseded in part by ADR-0018                                                        |
 | [0016](0016-ship-our-own-chromium.md)                      | The app ships its own Chromium                | Accepted                                                                              |
 | [0017](0017-repaint-an-embedded-screen.md)                 | Reload an embedded screen before showing it   | Accepted                                                                              |
-| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Accepted                                                                              |
+| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Accepted (with Correction)                                                            |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
