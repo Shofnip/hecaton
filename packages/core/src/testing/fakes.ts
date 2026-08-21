@@ -10,11 +10,14 @@ import type { GridCell } from '../grid.js'
 import type {
   AudioController,
   BrowserLauncher,
+  InstanceLock,
   LaunchRequest,
+  MachineIdentity,
   ProfileArchive,
   Storage,
   WindowManager,
 } from '../ports.js'
+import type { InstanceLockState, MachineFacts } from '../instance-claim.js'
 import type { LogEntry, Logger } from '../log.js'
 
 export class FakeProfileArchive implements ProfileArchive {
@@ -176,15 +179,70 @@ export class FakeAudioController implements AudioController {
 export class FakeStorage<T> implements Storage<T> {
   saves = 0
 
+  /**
+   * Set to make `load` reject.
+   *
+   * A file that will not load is a real state with real consequences - it is
+   * what tells the instance guard that a hardware seal has been tampered with -
+   * and a fake that can only succeed cannot express it.
+   */
+  failLoad: Error | undefined
+
   constructor(private value: T | undefined = undefined) {}
 
   load(): Promise<T | undefined> {
+    if (this.failLoad) return Promise.reject(this.failLoad)
     return Promise.resolve(this.value)
   }
 
   save(value: T): Promise<void> {
     this.value = value
     this.saves++
+    return Promise.resolve()
+  }
+}
+
+/** The physical desktop probes P6 and P6b ran on, as WMI answered on it. */
+export const PHYSICAL_MACHINE: MachineFacts = {
+  manufacturer: 'ASUS',
+  model: 'System Product Name',
+  productUuid: '8F3A1C22-6B4D-11EE-9C1A-04421A1B2C3D',
+  boardSerial: '230512345600123',
+}
+
+export class FakeMachineIdentity implements MachineIdentity {
+  reads = 0
+
+  constructor(private readonly facts: MachineFacts = PHYSICAL_MACHINE) {}
+
+  read(): Promise<MachineFacts> {
+    this.reads++
+    return Promise.resolve(this.facts)
+  }
+
+  /**
+   * Readable rather than realistic, so a failing assertion shows what was
+   * hashed. The real adapter's digest is sha256; what the core relies on is only
+   * that it is a stable one-way function of the canonical id.
+   */
+  digest(canonicalId: string): string {
+    return `digest(${canonicalId})`
+  }
+}
+
+export class FakeInstanceLock implements InstanceLock {
+  claims = 0
+  releases = 0
+
+  constructor(private readonly state: InstanceLockState = 'free') {}
+
+  claim(): Promise<InstanceLockState> {
+    this.claims++
+    return Promise.resolve(this.state)
+  }
+
+  release(): Promise<void> {
+    this.releases++
     return Promise.resolve()
   }
 }

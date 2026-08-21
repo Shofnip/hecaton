@@ -165,6 +165,33 @@ See ADR-0005 (and **both** its Corrections) and ADR-0008.
 
 ---
 
+## The app refuses to start and says why
+
+**Symptom**
+
+A small window opens instead of the panel: _"O Hecaton não pôde iniciar"_, with one reason.
+
+**Cause and what to do**, one per reason — all four come from the machine claim
+([ADR-0018](adr/0018-one-instance-per-machine.md)), which runs before the panel exists and before
+anything writes `config.json`:
+
+| Reason on screen                                   | What it means                                                                                                                     | What to do                                                                                                                                                                                      |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _Já existe um Hecaton aberto nesta máquina_        | The `Global\` mutex is held by **your own** Windows account — often a second logon session, or a copy whose window you cannot see | Close the other one. `Get-Process electron` across sessions, or sign out of the other session                                                                                                   |
+| _Outra conta do Windows está com o Hecaton aberto_ | Another Windows account holds it. You cannot see or close their process, by design                                                | That user closes theirs, or their session is ended                                                                                                                                              |
+| _Esta parece ser uma máquina virtual_              | `Win32_ComputerSystem` Manufacturer/Model matched a known hypervisor                                                              | Nothing, on a real VM. On physical hardware it means your vendor wrote a hypervisor-looking string into SMBIOS — check with `Get-CimInstance Win32_ComputerSystem`                              |
+| _Esta máquina não é a que está registrada_         | The seal in `C:\ProgramData\hecaton\machine.json` does not match this hardware, or will not parse                                 | If the machine is yours — a motherboard swap does this — delete that file **as an administrator** and start again; it writes a fresh seal. A standard user cannot delete it, which is the point |
+
+Two of these have a failure mode worth knowing about, because they are indistinguishable from the
+real thing: a hostile account on the machine can create the mutex first with a closed DACL, or drop
+a bogus `machine.json` in place. Both show as the rows above. There is no way to tell them apart
+without elevation, and the ADR explains why that is accepted rather than solved.
+
+The verdict is in the log too — `instance.claim`, with the reason as its message. **The machine id
+is never in the log**, so there is nothing to redact before sending one to someone.
+
+---
+
 ## The app will not start, and nothing at all happens
 
 **Symptom**
@@ -177,6 +204,12 @@ again does the same. Task Manager shows `electron.exe` processes that you did no
 A previous instance is still alive with its windows hidden, holding the single-instance lock. A
 second launch takes `requestSingleInstanceLock()`, loses, and quits silently — which is the
 designed behaviour and looks identical to "the app is broken".
+
+**Since ADR-0018 this covers less ground than it used to.** A second launch that gets past
+Electron's own lock now hits the machine claim, and that one is never silent: it opens a small
+window naming the reason. So "nothing at all happens" narrowed to the same-session case — same
+Windows account, same logon session, same Electron user-data directory. Anything else shows the
+refusal screen, and the section below is the one to read.
 
 Until 2026-08-09 it could get into that state on its own. `before-quit` calls
 `event.preventDefault()` and re-issues `app.quit()` only after both PowerShell workers are

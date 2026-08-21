@@ -6,6 +6,7 @@
     { "path": "./packages/storage" },
     { "path": "./packages/browser-engine" },
     { "path": "./packages/window-manager" },
+    { "path": "./packages/machine-lock" },
     { "path": "./apps/shell" }
   ]
 }

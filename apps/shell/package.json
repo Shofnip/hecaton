@@ -13,6 +13,7 @@
     "@hecaton/browser-engine": "*",
     "@hecaton/core": "*",
     "@hecaton/games": "*",
+    "@hecaton/machine-lock": "*",
     "@hecaton/storage": "*",
     "@hecaton/window-manager": "*"
   },

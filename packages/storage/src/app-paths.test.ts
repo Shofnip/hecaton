@@ -6,6 +6,7 @@ import {
   configFilePath,
   electronUserDataDir,
   logsDir,
+  machineSealPath,
   profilesDir,
 } from './app-paths.js'
 
@@ -69,5 +70,30 @@ describe('paths derived from it', () => {
   it('keeps profiles separate from config, so clearing one cannot touch the other', () => {
     expect(profilesDir(WINDOWS_ENV, 'win32')).not.toBe(configFilePath(WINDOWS_ENV, 'win32'))
     expect(profilesDir(WINDOWS_ENV, 'win32')).not.toBe(logsDir(WINDOWS_ENV, 'win32'))
+  })
+})
+
+describe('machineSealPath', () => {
+  it('puts the seal under ProgramData, machine-wide by design', () => {
+    // The one file this app writes outside its own data directory. It has to be
+    // shared by every account on the machine - that is what makes it a machine
+    // seal rather than a per-user note - and ProgramData is the location Windows
+    // gives that meaning to. ADR-0018.
+    expect(machineSealPath({ PROGRAMDATA: 'C:\\ProgramData' }, 'win32')).toBe(
+      join('C:\\ProgramData', 'hecaton', 'machine.json'),
+    )
+  })
+
+  it('fails loudly when ProgramData is missing', () => {
+    // Never a silent fallback to somewhere writable. A seal in the wrong place
+    // is not a degraded seal, it is a different machine on every launch.
+    expect(() => machineSealPath({}, 'win32')).toThrow(/PROGRAMDATA/)
+  })
+
+  it('refuses to invent a location off Windows', () => {
+    // The other paths fall back so the suite runs on Linux CI. This one must
+    // not: a machine-wide file is a Windows concept here, and guessing a POSIX
+    // equivalent would drop a shared file somewhere nobody has audited.
+    expect(() => machineSealPath({ HOME: '/home/x' }, 'linux')).toThrow(/Windows/)
   })
 })

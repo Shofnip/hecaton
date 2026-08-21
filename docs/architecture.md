@@ -229,6 +229,8 @@ hecaton/
                         #   liveness, profile archiving, per-process audio mute + volume (WASAPI)
     window-manager/     # embeds the spawned browser into the shell (Win32 SetParent) and drives
                         #   it — move/hide/show/reload/close — applying the layout the renderer sends
+    machine-lock/       # machine adapter: the Global\ mutex that makes one instance per machine,
+                        #   and the WMI read behind the hardware seal (ADR-0018)
     storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/hecaton
     games/              # registry - one file per integrated game
   scripts/              # fetch-chromium.mjs: the pinned browser, verified and unpacked
@@ -340,8 +342,20 @@ backups and would need cleanup code to compensate. The consequence worth remembe
 session data can exist in two places, so "where can cookies land on this machine?" has two
 answers, and an orphaned throwaway profile survives an abrupt kill until Windows reclaims it.
 
+**And one file lives outside the app's data directory entirely.** The hardware seal at
+`C:\ProgramData\hecaton\machine.json` holds a single field: a sha256 of this machine's identity,
+written on the first allowed launch and never rewritten. It is machine-wide by definition - the
+whole point is that every Windows account on the machine reads the same file, which `%APPDATA%`
+cannot do - and it is deliberately a digest, because `ProgramData` is world-readable and the raw
+SMBIOS fields would be a disclosure. It holds nothing of the user's, so `data:deleteAll` does not
+remove it: that action deletes the user's data, and this is the machine's. See
+[ADR-0018](adr/0018-one-instance-per-machine.md).
+
+So "where can data about this machine land?" has three answers - `%APPDATA%/hecaton`, the temp
+directory, and `C:\ProgramData\hecaton` - and only the first two hold anything about a session.
+
 Paths come from `@hecaton/storage` (`appDataDir`, `configFilePath`, `logsDir`,
-`profilesDir`, `electronUserDataDir`) and are never assembled by hand.
+`profilesDir`, `electronUserDataDir`, `machineSealPath`) and are never assembled by hand.
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration
 step on load. Nearly free now; expensive to retrofit once users have saved files.
@@ -417,8 +431,14 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
 - **All navigation and all permissions denied**: `will-navigate`/`will-redirect` prevented,
   `window.open` denied, and all three permission handlers deny. A game url opens in the Chromium
   the app ships ([ADR-0016](adr/0016-ship-our-own-chromium.md)), never inside Electron.
-- **Single-instance lock**: a second launch quits and surfaces the existing panel, so two
-  panels cannot orchestrate the same slots or race the config and profiles.
+- **One instance per machine** ([ADR-0018](adr/0018-one-instance-per-machine.md)), claimed before
+  the panel exists and before anything writes `config.json`. Three layers, decided by a pure
+  function in the core: a `Global\` mutex that spans Windows logon sessions, a refusal to run
+  inside a recognised hypervisor, and a hardware seal in `C:\ProgramData`. A refusal opens a
+  small `blocked.html` window naming which layer said no - script-free, using CSS `:target` on the
+  verdict in the URL fragment, so it needs no IPC channel. Electron's own
+  `requestSingleInstanceLock` stays for the same-session case, where it can focus the running
+  panel instead of merely refusing.
 - **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
   `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.
 
@@ -426,6 +446,12 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
 
 The app never stores passwords — logins live only inside the Chrome profile in `userDataDir`.
 No profile data leaves the machine. No telemetry (if ever, explicit opt-in).
+
+The app stores exactly **one** identifier, and only since ADR-0018: a sha256 of two hardware
+fields, in the machine seal above, used to refuse a second instance. It is never logged - not even
+truncated - it is never sent anywhere, and it is a digest rather than the values precisely so the
+file cannot disclose them. That is the single exception to ADR-0015's "the app stores no identifier
+of any kind"; the rest of that ADR is unchanged.
 
 The app makes **exactly one** network request, and only when the user asks for it: the update check
 above. It sends nothing but the request itself — no identifier, no version, no usage — and it is the

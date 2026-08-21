@@ -41,6 +41,22 @@ export type { IpcChannel, OverlayRequest, ScreenPlacement } from './ipc.js'
 
 export { normalizeUrl } from './normalize-url.js'
 
+export {
+  canonicalMachineId,
+  claimInstance,
+  evaluateInstanceClaim,
+  isVirtualMachine,
+  sealToWrite,
+} from './instance-claim.js'
+export type {
+  InstanceClaimFacts,
+  InstanceClaimVerdict,
+  InstanceGuardDeps,
+  InstanceLockState,
+  MachineFacts,
+  MachineSeal,
+} from './instance-claim.js'
+
 export { TERMS_VERSION, needsTermsAcknowledgement } from './terms.js'
 
 export { UPDATE_NOTES_MAX, interpretUpdateCheck, isNewerVersion } from './update.js'
@@ -61,7 +77,9 @@ export type { OrchestratorDeps, SlotSnapshot } from './orchestrator.js'
 export type {
   AudioController,
   BrowserLauncher,
+  InstanceLock,
   LaunchRequest,
+  MachineIdentity,
   ProfileArchive,
   Storage,
   WindowManager,

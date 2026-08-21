@@ -1,6 +1,12 @@
 # ADR-0015 — No metrics, no accounts, no monetization
 
-**Status:** Accepted · **Date:** 2026-07-29, with the metrics reversal of 2026-07-30
+**Status:** Superseded in part by [ADR-0018](0018-one-instance-per-machine.md) ·
+**Date:** 2026-07-29, with the metrics reversal of 2026-07-30
+
+ADR-0018 reverses exactly one sentence below - "**No pseudonymous id exists**, so the app stores no
+identifier of any kind" - and nothing else. The app now stores one: a sha256 of two hardware fields,
+in one local file, to enforce one instance per machine. No metrics, no accounts, no monetization and
+no new network surface; nothing derived from it leaves the machine.
 
 ## Context
 

@@ -75,9 +75,10 @@ undated marker no longer says which.
 | [0012](0012-hecaton-and-the-data-directory.md)             | The product is Hecaton; no migration        | Accepted (with Correction)                                                            |
 | [0013](0013-a-portable-unsigned-zip-under-apache-2.md)     | A portable, unsigned zip under Apache-2.0   | Accepted (with Correction)                                                            |
 | [0014](0014-the-apps-first-network-request.md)             | The app's first network request             | Accepted (with Correction)                                                            |
-| [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization    | Accepted                                                                              |
+| [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization    | Superseded in part by ADR-0018                                                        |
 | [0016](0016-ship-our-own-chromium.md)                      | The app ships its own Chromium              | Accepted                                                                              |
 | [0017](0017-repaint-an-embedded-screen.md)                 | Reload an embedded screen before showing it | Accepted                                                                              |
+| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware | Accepted                                                                              |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
@@ -95,6 +96,14 @@ Phase 3 added two more of the same kind. 0012's "no migration code, ever" is the
 feature a future session would write in an afternoon, and writing it would create a permanent code
 path that moves live logged-in sessions. 0014's "only when the user asks" is one `setInterval` away
 from becoming an automatic check, which is telemetry whatever it is called.
+
+0018 belongs to that family too, from the other direction: it is the one a future session is most
+likely to think it should _strengthen_. Every layer in it has a measured ceiling written into the
+ADR, and the obvious improvements have all been tried — `HypervisorPresent` refuses the owner's own
+physical desktop, a custom DACL on the mutex is worse than the default and does not work, and a
+lock file needs a stale-lock rule that is itself the hole. It also carries the project's single
+exception to "the app stores no identifier", which is the sentence in ADR-0015 someone will
+eventually quote as still absolute.
 
 0016 is the newest of that family, and in two ways. Its "no fallback to an installed Chrome" reads
 as an unkindness a future session would fix in ten minutes, and fixing it destroys the one property

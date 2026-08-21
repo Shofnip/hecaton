@@ -33,7 +33,13 @@ import {
   requireEveryScreenStopped,
   verifyUserDataDeletion,
 } from '@hecaton/core'
-import { TERMS_VERSION, interpretUpdateCheck, needsTermsAcknowledgement } from '@hecaton/core'
+import {
+  TERMS_VERSION,
+  claimInstance,
+  interpretUpdateCheck,
+  needsTermsAcknowledgement,
+} from '@hecaton/core'
+import type { InstanceClaimVerdict, MachineSeal } from '@hecaton/core'
 import { changelogSection, displayNotes, needsReleaseNotes } from '@hecaton/core'
 import type { UpdateCheck } from '@hecaton/core'
 import { DEFAULT_GLOBAL_CONFIG } from '@hecaton/core'
@@ -45,6 +51,7 @@ import {
   bundledBrowserPath,
 } from '@hecaton/browser-engine'
 import { NativeWindowManager } from '@hecaton/window-manager'
+import { MutexInstanceLock, WmiMachineIdentity } from '@hecaton/machine-lock'
 import {
   APP_DIR_NAME,
   ELECTRON_DIR_NAME,
@@ -56,6 +63,7 @@ import {
   deleteUserData,
   electronUserDataDir,
   logsDir,
+  machineSealPath,
   profilesDir,
 } from '@hecaton/storage'
 import { buildGameRegistry } from '@hecaton/games'
@@ -777,6 +785,69 @@ function quitAfterDeletion(): void {
   setTimeout(() => app.quit(), QUIT_AFTER_DELETION_MS)
 }
 
+/**
+ * Held for the life of the process; the mutex it owns is what makes "one Hecaton
+ * per machine" true across Windows logon sessions (ADR-0018).
+ */
+const instanceLock = new MutexInstanceLock()
+
+/**
+ * The refusal screen, for the launches that never get a panel.
+ *
+ * A real window loading a real file, because there is no alternative: the app's
+ * own error banner lives in the panel and arrives over IPC, and neither exists
+ * yet at this point. `dialog.showErrorBox` was the other option and was not
+ * taken - it renders one unstyled paragraph with no room to explain the recourse
+ * for a foreign seal, which is the one refusal a legitimate user can hit.
+ *
+ * The verdict travels as the URL fragment and selects one section with CSS
+ * `:target`, so the page carries no script and no new IPC channel - `ipc.ts`
+ * says a thirty-first channel is a decision for the owner, and a refusal screen
+ * is not the place to spend it.
+ */
+function showBlocked(verdict: InstanceClaimVerdict): void {
+  Menu.setApplicationMenu(null)
+  const blocked = new BrowserWindow({
+    width: 620,
+    height: 460,
+    title: 'Hecaton',
+    resizable: false,
+    webPreferences: panelWebPreferences(),
+  })
+  lockDownWindow(blocked)
+  void blocked.loadFile(join(RENDERER_DIR, 'blocked.html'), { hash: verdict })
+}
+
+/**
+ * Takes the machine claim and, when it is refused, puts the reason on screen.
+ *
+ * The decision itself is `claimInstance` in the core; this hands it the three
+ * adapters and turns a refusal into a window. The catch-all is the deliberate
+ * fail-open: the only thing here that can throw is resolving the seal path, and
+ * refusing to start because `%ProgramData%` could not be located would charge
+ * the user for the app's own instrument failing. Same posture the core takes for
+ * a machine identity it cannot read.
+ */
+async function claimMachine(): Promise<InstanceClaimVerdict> {
+  try {
+    const verdict = await claimInstance({
+      identity: new WmiMachineIdentity(),
+      lock: instanceLock,
+      seal: new JsonFileStorage<MachineSeal>(machineSealPath()),
+      logger,
+    })
+    if (verdict !== 'allow') showBlocked(verdict)
+    return verdict
+  } catch (error) {
+    logger.log({
+      level: 'warn',
+      event: 'instance.claim-failed',
+      message: error instanceof Error ? error.message : String(error),
+    })
+    return 'allow'
+  }
+}
+
 function createPanel(): void {
   // No application menu: it is not in the design, and a native menu bar sits
   // between the title bar and the client area, offsetting where the web content's
@@ -892,6 +963,12 @@ if (!app.requestSingleInstanceLock()) {
     // the core's, not this adapter's.
     logger.prune()
 
+    // Before the panel, and before anything can write config.json - which is the
+    // point. json-file-storage.ts leans on there being one process to rule out a
+    // race over that file, and until now that was only true within one Windows
+    // session.
+    if ((await claimMachine()) !== 'allow') return
+
     try {
       await loadConfiguration()
     } catch (error) {
@@ -939,8 +1016,10 @@ if (!app.requestSingleInstanceLock()) {
     if (disposed) return
     disposed = true
     event.preventDefault()
-    void Promise.allSettled([audioController?.dispose(), windowManager?.dispose()]).finally(() =>
-      app.quit(),
-    )
+    void Promise.allSettled([
+      audioController?.dispose(),
+      windowManager?.dispose(),
+      instanceLock.release(),
+    ]).finally(() => app.quit())
   })
 }

@@ -1,0 +1,92 @@
+/*
+ * The refusal screen's styles.
+ *
+ * Its own file rather than the panel's style.css: this window loads before
+ * anything else exists and must render correctly even if the panel's stylesheet
+ * is broken — it is the screen that has to work when something already went
+ * wrong. Small enough to read in one go, with the panel's dark tokens copied in
+ * rather than imported, for the same reason.
+ *
+ * No font-face here. The panel bundles Sora; this page falls back to Segoe UI,
+ * so a missing font file cannot leave the refusal unreadable.
+ */
+
+:root {
+  --bg: #15171b;
+  --panel: #1d2026;
+  --border: #2c3038;
+  --text: #e7e9ec;
+  --muted: #9298a2;
+  --warn: #d9b13b;
+}
+
+body {
+  margin: 0;
+  padding: 28px 32px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.lead {
+  margin: 0 0 20px;
+  color: var(--muted);
+}
+
+/*
+ * One section per verdict, selected by the URL fragment main.ts loads the page
+ * with. :target rather than a script because the CSP forbids inline script and
+ * this page has no reason to carry a file of its own — the fragment is the whole
+ * input, and it comes from the main process, not from anything a user typed.
+ *
+ * The fallback is deliberate: an unknown or missing fragment shows no section,
+ * leaving the heading and the lead. That still says the app refused and why in
+ * general terms, which beats showing four reasons of which three are wrong.
+ */
+.reason {
+  display: none;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 16px 18px;
+}
+
+.reason:target {
+  display: block;
+}
+
+.reason h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.reason p {
+  margin: 0 0 10px;
+}
+
+.reason p:last-child {
+  margin-bottom: 0;
+}
+
+code {
+  font-family: Consolas, 'Cascadia Mono', monospace;
+  font-size: 13px;
+  color: var(--warn);
+  overflow-wrap: anywhere;
+}
+
+.footer {
+  margin: 20px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}

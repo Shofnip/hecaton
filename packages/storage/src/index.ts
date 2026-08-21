@@ -5,6 +5,7 @@ export {
   configFilePath,
   electronUserDataDir,
   logsDir,
+  machineSealPath,
   profilesDir,
 } from './app-paths.js'
 export { CorruptJsonError, JsonFileStorage } from './json-file-storage.js'

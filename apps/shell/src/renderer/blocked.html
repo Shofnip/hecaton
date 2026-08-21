@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hecaton</title>
+    <!-- Same policy as the panel and the overlay. This page carries no script at
+         all: which reason to show is selected by the URL fragment through CSS
+         :target, so there is nothing here to inject into. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'"
+    />
+    <link rel="stylesheet" href="./blocked.css" />
+  </head>
+  <!-- The refusal screen. It exists because there is nowhere else to say this:
+       the panel is never created when a claim is refused, so the app's own error
+       banner - which needs a live panel and an IPC push - cannot be reached. -->
+  <body>
+    <main>
+      <h1>O Hecaton não pôde iniciar</h1>
+
+      <p class="lead">O aplicativo roda em uma cópia por máquina.</p>
+
+      <section class="reason" id="held-by-this-user">
+        <h2>Já existe um Hecaton aberto nesta máquina</h2>
+        <p>
+          Ele foi aberto pela sua conta do Windows — pode estar em outra sessão, ou minimizado na
+          barra de tarefas. Feche o outro Hecaton e abra este de novo.
+        </p>
+      </section>
+
+      <section class="reason" id="held-by-another-user">
+        <h2>Outra conta do Windows está com o Hecaton aberto</h2>
+        <p>
+          Outro usuário desta máquina está executando o aplicativo. Só um Hecaton roda por máquina,
+          então é preciso que essa pessoa feche o dela — ou que a sessão dela seja encerrada.
+        </p>
+      </section>
+
+      <section class="reason" id="virtual-machine">
+        <h2>Esta parece ser uma máquina virtual</h2>
+        <p>
+          O Hecaton não roda dentro de VMware, VirtualBox, Hyper-V, QEMU e semelhantes. Se esta é
+          uma máquina física, o fabricante gravou na BIOS um nome que parece o de um hipervisor.
+        </p>
+      </section>
+
+      <section class="reason" id="foreign-machine">
+        <h2>Esta máquina não é a que está registrada</h2>
+        <p>
+          O Hecaton guarda uma marca do hardware em
+          <code>C:\ProgramData\hecaton\machine.json</code> na primeira vez que roda, e a marca deste
+          computador não confere com a que está gravada.
+        </p>
+        <p>
+          Isso acontece quando a pasta foi copiada de outro computador — e também quando a placa-mãe
+          foi trocada. Se a máquina é sua, apague aquele arquivo
+          <strong>como administrador</strong> e abra o Hecaton de novo: ele grava uma marca nova.
+        </p>
+      </section>
+
+      <p class="footer">Feche esta janela.</p>
+    </main>
+  </body>
+</html>

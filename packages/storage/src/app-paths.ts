@@ -90,3 +90,35 @@ export function electronUserDataDir(
 ): string {
   return join(appDataDir(env, platform), ELECTRON_DIR_NAME)
 }
+
+/**
+ * The hardware seal that binds one Hecaton to one machine (ADR-0018).
+ *
+ * The single file this app writes outside its own data directory, and the
+ * reason it is here rather than built inline at the call site: a path this
+ * consequential belongs where an audit of "what does this app touch" already
+ * looks.
+ *
+ * `%ProgramData%` is the point. The seal has to be the same file for every
+ * account on the machine, which `%APPDATA%` cannot be. What lands there is a
+ * digest, never raw hardware identifiers - the directory is world-readable, and
+ * measured in probe P6, a standard user gets ReadAndExecute on the file and
+ * cannot delete or overwrite one another account created.
+ *
+ * No fallback in either direction. A missing `PROGRAMDATA` throws instead of
+ * guessing, because a seal written somewhere else is not a weaker seal - it is a
+ * different machine identity on every launch, which refuses the user forever.
+ */
+export function machineSealPath(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform !== 'win32') {
+    throw new Error('the machine seal is Windows-only; there is no supported path elsewhere')
+  }
+  const programData = env['PROGRAMDATA']
+  if (!programData) {
+    throw new Error('PROGRAMDATA is not set; cannot determine where the machine seal lives')
+  }
+  return join(programData, APP_DIR_NAME, 'machine.json')
+}

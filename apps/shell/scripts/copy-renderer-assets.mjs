@@ -23,7 +23,9 @@ const TO = join(HERE, '..', 'dist', 'renderer')
 const ASSETS = [
   'index.html',
   'overlay.html',
+  'blocked.html',
   'style.css',
+  'blocked.css',
   'assets/sora-latin.woff2',
   'assets/sora-latin-ext.woff2',
   'assets/Sora-OFL.txt',

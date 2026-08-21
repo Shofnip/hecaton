@@ -34,6 +34,12 @@ target game: **Poke IdleWorld**; any `https://` URL works too.
 ## Requirements
 
 - **Windows** (the window embedding and audio are Win32-specific)
+- **A machine you are not sharing with a second running copy.** Hecaton runs one instance per
+  machine - across Windows accounts, not just your own session - and it does not run inside a
+  virtual machine. It writes one file outside its own folder to enforce that:
+  `C:\ProgramData\hecaton\machine.json`, holding a hash of your hardware and nothing else. See
+  [ADR-0018](docs/adr/0018-one-instance-per-machine.md), which is explicit about what the limit
+  does and does not achieve.
 - Nothing else. The app **ships its own Chromium** and launches only that one, so there is no
   browser to install and no version of yours it can disagree with. It also means the games' browser
   updates when Hecaton does and at no other time — see
@@ -65,7 +71,9 @@ extracted folder, so replacing the folder with a newer version keeps them. To re
 **Configurações → Apagar todos os meus dados**, which deletes that directory and closes the app —
 stop every screen first, since the browser holds its profile open. A folder with the app's own cache
 stays behind; it holds no login. A clean-session screen also leaves a throwaway profile in your temp
-directory if the app was killed before it could clean up.
+directory if the app was killed before it could clean up. The machine seal in `C:\ProgramData` also
+stays: it belongs to the machine rather than to you, holds nothing of yours, and removing it needs
+an administrator.
 
 ## Build from source
 

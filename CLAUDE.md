@@ -100,15 +100,24 @@ logs can contain page URLs with session tokens in query strings, and a profile _
 logged-in session, so a single ignore-rule mistake would leak a real account. Same path in
 dev and prod also kills a class of packaging bug.
 
-**One exception, deliberate:** a clean-session slot (`persistProfile: false`) gets a throwaway
-profile under the OS temp directory, deleted on `stop()` — see
-[ADR-0005](docs/adr/0005-never-delete-a-persistent-profile.md). Temp is the right home for
-discardable data: backup tools skip it and Windows reclaims it, neither of which is true of
-`%APPDATA%`. So session data can exist in two places, and an audit of "where do cookies land"
-must cover both.
+**Two exceptions, both deliberate.**
 
-Use `appDataDir()`, `configFilePath()`, `logsDir()`, `profilesDir()` and `electronUserDataDir()`
-from `@hecaton/storage`. Never build these paths by hand. The last one is Electron's own cache,
+1. A clean-session slot (`persistProfile: false`) gets a throwaway profile under the OS temp
+   directory, deleted on `stop()` — see
+   [ADR-0005](docs/adr/0005-never-delete-a-persistent-profile.md). Temp is the right home for
+   discardable data: backup tools skip it and Windows reclaims it, neither of which is true of
+   `%APPDATA%`. So session data can exist in two places, and an audit of "where do cookies land"
+   must cover both.
+2. The machine seal, `C:\ProgramData\hecaton\machine.json` —
+   [ADR-0018](docs/adr/0018-one-instance-per-machine.md). One field, a sha256 of two hardware
+   fields, written on the first allowed launch and **never rewritten**. It has to be machine-wide,
+   which `%APPDATA%` cannot be, and it is a digest because `ProgramData` is world-readable. It
+   holds nothing of the user's, so `data:deleteAll` leaves it alone — that action deletes the
+   user's data and this is the machine's. Raw hardware identifiers go in **neither** this file nor
+   the log.
+
+Use `appDataDir()`, `configFilePath()`, `logsDir()`, `profilesDir()`, `electronUserDataDir()` and
+`machineSealPath()` from `@hecaton/storage`. Never build these paths by hand. The last one is Electron's own cache,
 kept under the app's directory rather than the shared `%APPDATA%/Electron`, and it is the single
 entry allowed to survive the "delete all my data" action — the running process holds it open.
 

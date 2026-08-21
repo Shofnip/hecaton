@@ -10,6 +10,7 @@
  * one, that decision belongs in the core.
  */
 import type { GridCell } from './grid.js'
+import type { InstanceLockState, MachineFacts } from './instance-claim.js'
 
 export interface LaunchRequest {
   slotId: number
@@ -137,4 +138,50 @@ export interface ProfileArchive {
    * Chrome holds its cache files open while running.
    */
   clearCache(profileDir: string): Promise<void>
+}
+
+/**
+ * What the machine says about itself, read once at start-up.
+ *
+ * The port hands back the raw WMI answers rather than a verdict, so every
+ * judgement about them - which fields are placeholders, which manufacturer
+ * strings mean a hypervisor - stays in `instance-claim.ts` where the fast suite
+ * can reach it. An adapter that returned `isVirtual: boolean` would be holding
+ * the business rule.
+ */
+export interface MachineIdentity {
+  /** Empty strings for anything the machine would not answer; never throws. */
+  read(): Promise<MachineFacts>
+  /**
+   * One-way digest of a canonical identity, for the form that goes on disk.
+   *
+   * Here rather than in the core because hashing is `node:crypto`, and here
+   * rather than nowhere because the seal lives in a machine-wide directory that
+   * every account on the machine can read: the raw SMBIOS uuid and board serial
+   * must not be sitting in it. The digest is not a secret - the source is public,
+   * so anyone can recompute their own - it just stops the file from disclosing
+   * hardware identifiers to whoever opens it.
+   *
+   * Must be stable across runs and across app versions. Changing it re-seals
+   * nothing and refuses every machine that already carries a seal.
+   */
+  digest(canonicalId: string): string
+}
+
+/**
+ * The live "one Hecaton on this machine" lock.
+ *
+ * Held for the whole life of the process and dropped when it exits, however it
+ * exits - which is why the adapter is a named `Global\` mutex rather than a
+ * file: a killed process leaves no orphan to clean up, and there is no stale
+ * lock to teach the app to ignore. Measured in probes P6 and P6b.
+ *
+ * `claim` distinguishes the two ways it can already be taken because they need
+ * different words on the blocked window: the same Windows account is the user's
+ * own second copy, another account is somebody else's session they cannot see.
+ */
+export interface InstanceLock {
+  claim(): Promise<InstanceLockState>
+  /** Releases a claim. A no-op when this process never held it. */
+  release(): Promise<void>
 }
