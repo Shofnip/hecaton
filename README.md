@@ -52,22 +52,33 @@ needs neither.
 
 ## Install
 
-Download the zip from the [releases page](https://github.com/Shofnip/hecaton/releases/latest),
-extract it anywhere, and run `Hecaton.exe`. No installer, no elevation — and no uninstaller either,
-so removing the folder is the uninstall.
+Download `Hecaton-<version>-win-x64.exe` from the
+[releases page](https://github.com/Shofnip/hecaton/releases/latest) and run it. It installs for your
+Windows account only, into `%LOCALAPPDATA%\Programs\Hecaton` by default — you can point it
+somewhere else on the way through, which is worth doing if your `C:` is tight, because the app is
+**792 MB installed** and most of that is the browser it ships. It never asks for administrator
+rights. Uninstalling is the usual Windows way, from _Apps & features_, and it takes the whole
+folder with it.
 
-Two things to expect, both of them consequences of a decision rather than accidents:
+Three things to expect, all of them consequences of a decision rather than accidents:
 
 - **Windows will warn you on first run** — "Windows protected your PC", _More info_ → _Run anyway_.
   The build is not signed, because a code-signing certificate is issued to a verified legal identity
   that every user then sees. For a tool handed to a few friends, that trade was not worth making.
-- **A `.sha256` is published beside the zip**, and it is the only thing that tells an authentic
-  build from a lookalike — anyone can compile this source and produce something that looks the same.
-  Check it with `sha256sum -c Hecaton-<version>-win-x64.zip.sha256`, or
-  `Get-FileHash <zip> -Algorithm SHA256` in PowerShell.
+- **A `.sha256` is published beside the installer**, and it is the only thing that tells an
+  authentic build from a lookalike — anyone can compile this source and produce something that
+  looks the same. Check it **before** running it, since after "Run anyway" it is too late:
+  `sha256sum -c Hecaton-<version>-win-x64.exe.sha256`, or `Get-FileHash <file> -Algorithm SHA256` in
+  PowerShell. `LICENSE.txt`, `NOTICE.txt` and `CHANGELOG.txt` are published loose beside it for the
+  same reason — so they can be read before anything runs.
+- **Uninstalling from _Apps & features_ does not touch your logins.** It removes the program and leaves
+  `%APPDATA%/hecaton` alone, which is deliberate: an uninstaller that deleted logged-in game
+  sessions would be doing it silently on every update as well, which is a thing this project
+  measured rather than assumed
+  ([ADR-0019](docs/adr/0019-an-assisted-installer-for-a-792-mb-app.md)).
 
 That leaves your logins and settings behind on purpose: they live in `%APPDATA%/hecaton`, not in the
-extracted folder, so replacing the folder with a newer version keeps them. To remove them, use
+install directory, so installing a newer version over the old one keeps them. To remove them, use
 **Configurações → Apagar todos os meus dados**, which deletes that directory and closes the app —
 stop every screen first, since the browser holds its profile open. A folder with the app's own cache
 stays behind; it holds no login. A clean-session screen also leaves a throwaway profile in your temp

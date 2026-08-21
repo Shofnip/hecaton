@@ -10,7 +10,7 @@
  * already running would have to come from a request at launch, and
  * [ADR-0014](../../docs/adr/0014-the-apps-first-network-request.md) is exactly
  * the decision that the app makes no request the user did not ask for. A file in
- * the zip costs one request less than zero.
+ * the package costs one request less than zero.
  *
  * Parsing is deliberately small: headings and the lines under them. A markdown
  * library would be a dependency in the main process to read a file this project

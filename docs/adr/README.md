@@ -54,32 +54,33 @@ turned out wrong, that is a new ADR, not a correction.
 Only for factual errors. An ADR whose historical context has since changed is not wrong: it
 records what was true when the decision was taken, which is the point of the format.
 
-ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014 and ADR-0018 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008 and ADR-0009 carry
+ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014 and ADR-0018 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009 and ADR-0013 carry
 two or more each, which is what a dated `[see Correction (YYYY-MM-DD)]` marker is for: with more than one, an
 undated marker no longer says which.
 
 ## Index
 
-| ADR                                                        | Decision                                      | Status                                                                                |
-| ---------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------- |
-| [0001](0001-electron-over-tauri.md)                        | Electron for the shell                        | Accepted                                                                              |
-| [0002](0002-real-windows-over-thumbnails.md)               | Real OS windows, not a screencast             | Superseded in part by [0011](0011-embed-spawned-chrome-into-the-shell.md)             |
-| [0003](0003-spawn-over-cdp.md)                             | Spawn Chrome instead of using CDP             | Superseded in part by [0016](0016-ship-our-own-chromium.md) · w/ Corrections          |
-| [0004](0004-appdata-over-repo-dir.md)                      | All app state in `%APPDATA%` (one file aside) | Superseded in part by ADR-0018 · w/ Corrections                                       |
-| [0005](0005-never-delete-a-persistent-profile.md)          | The app never deletes a profile               | Accepted · w/ Corrections                                                             |
-| [0006](0006-games-ship-only-in-the-repository.md)          | No user-supplied game definitions             | Accepted · w/ Corrections                                                             |
-| [0007](0007-electron-security-posture.md)                  | The Electron security posture                 | Superseded in part by [0014](0014-the-apps-first-network-request.md) · w/ Corrections |
-| [0008](0008-archive-a-removed-slot-profile.md)             | Archive a removed slot's profile              | Accepted · w/ Corrections                                                             |
-| [0009](0009-login-is-bound-to-the-tab.md)                  | The game's login is bound to the tab          | Accepted · w/ Corrections                                                             |
-| [0010](0010-audio-follows-focus-without-a-dependency.md)   | Audio follows focus via WASAPI shell-out      | Accepted (with Correction)                                                            |
-| [0011](0011-embed-spawned-chrome-into-the-shell.md)        | Embed spawned Chrome into the shell           | Accepted (with Correction)                                                            |
-| [0012](0012-hecaton-and-the-data-directory.md)             | The product is Hecaton; no migration          | Accepted (with Correction)                                                            |
-| [0013](0013-a-portable-unsigned-zip-under-apache-2.md)     | A portable, unsigned zip under Apache-2.0     | Accepted (with Correction)                                                            |
-| [0014](0014-the-apps-first-network-request.md)             | The app's first network request               | Accepted (with Correction)                                                            |
-| [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization      | Superseded in part by ADR-0018                                                        |
-| [0016](0016-ship-our-own-chromium.md)                      | The app ships its own Chromium                | Accepted                                                                              |
-| [0017](0017-repaint-an-embedded-screen.md)                 | Reload an embedded screen before showing it   | Accepted                                                                              |
-| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Accepted (with Correction)                                                            |
+| ADR                                                        | Decision                                      | Status                                                                                        |
+| ---------------------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [0001](0001-electron-over-tauri.md)                        | Electron for the shell                        | Accepted                                                                                      |
+| [0002](0002-real-windows-over-thumbnails.md)               | Real OS windows, not a screencast             | Superseded in part by [0011](0011-embed-spawned-chrome-into-the-shell.md)                     |
+| [0003](0003-spawn-over-cdp.md)                             | Spawn Chrome instead of using CDP             | Superseded in part by [0016](0016-ship-our-own-chromium.md) · w/ Corrections                  |
+| [0004](0004-appdata-over-repo-dir.md)                      | All app state in `%APPDATA%` (one file aside) | Superseded in part by ADR-0018 · w/ Corrections                                               |
+| [0005](0005-never-delete-a-persistent-profile.md)          | The app never deletes a profile               | Accepted · w/ Corrections                                                                     |
+| [0006](0006-games-ship-only-in-the-repository.md)          | No user-supplied game definitions             | Accepted · w/ Corrections                                                                     |
+| [0007](0007-electron-security-posture.md)                  | The Electron security posture                 | Superseded in part by [0014](0014-the-apps-first-network-request.md) · w/ Corrections         |
+| [0008](0008-archive-a-removed-slot-profile.md)             | Archive a removed slot's profile              | Accepted · w/ Corrections                                                                     |
+| [0009](0009-login-is-bound-to-the-tab.md)                  | The game's login is bound to the tab          | Accepted · w/ Corrections                                                                     |
+| [0010](0010-audio-follows-focus-without-a-dependency.md)   | Audio follows focus via WASAPI shell-out      | Accepted (with Correction)                                                                    |
+| [0011](0011-embed-spawned-chrome-into-the-shell.md)        | Embed spawned Chrome into the shell           | Accepted (with Correction)                                                                    |
+| [0012](0012-hecaton-and-the-data-directory.md)             | The product is Hecaton; no migration          | Accepted (with Correction)                                                                    |
+| [0013](0013-a-portable-unsigned-zip-under-apache-2.md)     | A portable, unsigned zip under Apache-2.0     | Superseded in part by [0019](0019-an-assisted-installer-for-a-792-mb-app.md) · w/ Corrections |
+| [0014](0014-the-apps-first-network-request.md)             | The app's first network request               | Accepted (with Correction)                                                                    |
+| [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization      | Superseded in part by ADR-0018                                                                |
+| [0016](0016-ship-our-own-chromium.md)                      | The app ships its own Chromium                | Accepted                                                                                      |
+| [0017](0017-repaint-an-embedded-screen.md)                 | Reload an embedded screen before showing it   | Accepted                                                                                      |
+| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Accepted (with Correction)                                                                    |
+| [0019](0019-an-assisted-installer-for-a-792-mb-app.md)     | An assisted installer for a 792 MB app        | Accepted                                                                                      |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the

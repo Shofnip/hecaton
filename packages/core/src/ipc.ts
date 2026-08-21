@@ -75,10 +75,12 @@ export const IPC_CHANNELS = [
   // friendly name, which is the one thing this app must never expose.
   //
   // `data:deleteAll` is the only way to delete a *live* profile in this app, and
-  // deliberately the only one: it exists because a portable zip has no
-  // uninstaller to ask the question in (D4, reversed 2026-08-08). There is no
-  // command-line equivalent — see the note in main.ts about the flag that was
-  // removed.
+  // deliberately the only one: it exists because nothing else asks the question —
+  // first because a portable zip had no uninstaller (D4, reversed 2026-08-08), and
+  // since ADR-0019 because the uninstaller that came back deliberately does not
+  // ask. There is no command-line equivalent — see the note in main.ts about the
+  // flag that was removed, and about why the installer's return did not bring it
+  // back.
   'data:reveal',
   'data:deleteAll',
   // The terms warning (D3b), acknowledged once. No payload: what version was

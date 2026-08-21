@@ -96,25 +96,90 @@ jobs:
       - run: npm run package --workspace @hecaton/shell
 
       # The hash is the whole point of an unsigned release, so it is written in the
-      # format sha256sum -c reads and published beside the zip. It matters more for
-      # a zip than it did for an installer: there is no install step at all, so the
-      # hash is the only thing between "downloaded from the release page" and
-      # "downloaded from somewhere that looked like it".
+      # format sha256sum -c reads and published beside the installer. It carries
+      # more weight than it looks: the installer is the thing SmartScreen will warn
+      # about, and after "Run anyway" there is nothing else between "downloaded
+      # from the release page" and "downloaded from somewhere that looked like it".
       - name: Compute the SHA256
         shell: pwsh
         run: |
-          $zip = Get-ChildItem release/*-win-*.zip | Select-Object -First 1
-          $hash = (Get-FileHash $zip.FullName -Algorithm SHA256).Hash.ToLower()
-          "$hash *$($zip.Name)" | Out-File "$($zip.FullName).sha256" -Encoding ascii -NoNewline
-          "$($zip.Name)  $hash"
+          # Exactly one, not the first of several - and the second match is real,
+          # not hypothetical. electron-builder writes the uninstaller stub beside
+          # the installer as `<name>.__uninstaller.exe` (NsisTarget.js:349, read
+          # against electron-builder 26.15.3), which matches this glob. It is
+          # unlinked again on the success path (NsisTarget.js:302), so the count is
+          # one today - by the lifetime of a temp file inside a dependency, which
+          # is not what a release should rest on.
+          #
+          # The count is checked rather than the order, because order is not a
+          # property to reason about here. An earlier version of this comment
+          # claimed the stub sorts first, from code points - `_` is 0x5F, `e` is
+          # 0x65 - and that is wrong: measured on NTFS, in both creation orders,
+          # Get-ChildItem returns the real installer first, because the index is
+          # ordered by upcased UTF-16 where `E` is 0x45. So `Select-Object -First
+          # 1` was not picking the stub; it was resting on an ordering nobody had
+          # measured, which is the defect either way.
+          #
+          # Measured 2026-08-21, by breaking the custom NSIS on purpose: a failed
+          # build leaves BOTH `Hecaton-<version>-win-x64.exe` (226 KB, written by
+          # the first makensis pass, which targets the real artifact path) and
+          # `Hecaton-<version>-win-x64.__uninstaller.exe` (188 KB). Count 2, so
+          # this guard fires. It never gets the chance: `npm run package` above
+          # exits non-zero and fails the job first. Do not reorder these two steps.
+          #
+          # SilentlyContinue so a missing release/ reaches the message below rather
+          # than dying on a path error: GitHub prepends $ErrorActionPreference =
+          # 'stop' to every pwsh block, which is also what makes `throw` fail the
+          # step.
+          $found = @(Get-ChildItem release/*-win-*.exe -ErrorAction SilentlyContinue)
+          if ($found.Count -ne 1) {
+            throw "expected exactly one installer in release/, found $($found.Count): $($found.Name -join ', ')"
+          }
+          $installer = $found[0]
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower()
+          "$hash *$($installer.Name)" | Out-File "$($installer.FullName).sha256" -Encoding ascii -NoNewline
+          "$($installer.Name)  $hash"
+
+          # Decided once, here, behind the check above. The publish step used to
+          # re-run the same glob with `Select-Object -First 1`, which put the
+          # guard and the use of it in different steps - so a later edit could
+          # reintroduce exactly the case the check exists to catch.
+          #
+          # `utf8` is BOM-less on pwsh 6+, and that matters more than it looks:
+          # -Append writes into an already non-empty file, so a BOM would land
+          # mid-file and become part of the key name. On Windows PowerShell 5.1
+          # the same value emits one, which makes `shell: pwsh` above load-bearing
+          # for this line.
+          "HECATON_INSTALLER=$($installer.FullName)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Apache-2.0 §4, one step ahead of the installer's licence page. The page is
+      # shown to somebody who has already decided to run an unsigned executable;
+      # these are the copies they can read before that. They are collected from the
+      # packaged tree rather than from the repository root so that what the release
+      # page serves is byte-identical to what the installer puts on disk.
+      #
+      # This step failing is what guarantees all three get published, not the
+      # `if-no-files-found: error` below: that option is aggregate, so it fires
+      # only when *no* pattern matched anything, and a release missing one .txt
+      # would upload happily. Copy-Item raises here instead, because GitHub
+      # prepends $ErrorActionPreference = 'stop' to every pwsh block.
+      - name: Collect the licence, notice and changelog
+        shell: pwsh
+        run: |
+          foreach ($file in 'LICENSE.txt', 'NOTICE.txt', 'CHANGELOG.txt') {
+            Copy-Item "release/win-unpacked/$file" "release/$file"
+          }
 
       # Kept even when not publishing, so a workflow_dispatch run is inspectable.
       - uses: actions/upload-artifact@v7
         with:
-          name: hecaton-zip
+          name: hecaton-installer
           path: |
-            release/*-win-*.zip
-            release/*-win-*.zip.sha256
+            release/*-win-*.exe
+            release/*-win-*.exe.sha256
+            release/LICENSE.txt
+            release/NOTICE.txt
+            release/CHANGELOG.txt
           if-no-files-found: error
 
       - name: Publish the release
@@ -123,9 +188,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The paths are expanded here on purpose: PowerShell does not glob for
-          # native commands, so gh would receive `release/*-win-*.zip` literally.
-          $zip = (Get-ChildItem release/*-win-*.zip | Select-Object -First 1).FullName
-          gh release create '${{ github.ref_name }}' $zip "$zip.sha256" `
+          # $env:HECATON_INSTALLER is the path the SHA step resolved and checked;
+          # nothing is globbed again here, deliberately. The three .txt paths are
+          # literal and expand fine - PowerShell does not glob for native commands,
+          # which is why the old `release/*-win-*.exe` had to be resolved before
+          # `gh` ever saw it.
+          #
+          # Unbraced on purpose. "${env:HECATON_INSTALLER.sha256}" would NOT append
+          # a suffix: the braced form allows dots inside the name, so it would look
+          # up a variable literally called `HECATON_INSTALLER.sha256` and expand to
+          # nothing. The bare form terminates the name at the dot, because `.` is
+          # not a variable-name character. Measured, and true in 5.1 and 7 alike.
+          gh release create '${{ github.ref_name }}' `
+            $env:HECATON_INSTALLER "$env:HECATON_INSTALLER.sha256" `
+            release/LICENSE.txt release/NOTICE.txt release/CHANGELOG.txt `
             --title 'Hecaton ${{ github.ref_name }}' `
             --generate-notes

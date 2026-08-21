@@ -1,8 +1,9 @@
 # Changelog
 
 O que mudou em cada versão. O aplicativo mostra a seção da versão que você está
-rodando, uma vez, logo depois de atualizar — e este arquivo viaja dentro do zip,
-para poder ser lido sem abrir o aplicativo.
+rodando, uma vez, logo depois de atualizar — e este arquivo viaja junto do
+executável, como `CHANGELOG.txt`, e sai solto na página da versão, para poder ser
+lido sem abrir o aplicativo e antes de instalar qualquer coisa.
 
 Escrito para quem usa, não para quem programa. O histórico técnico completo está
 nos commits.

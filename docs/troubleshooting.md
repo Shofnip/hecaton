@@ -62,7 +62,8 @@ image ships. The two native modules (`node-window-manager` and its transitive
 anyone deciding to fix this. Measured: the release workflow runs `npm ci` without
 `--ignore-scripts` on `windows-latest`, packages the app, and the resulting artifact runs with both
 `addon.node` files present and loading. (Measured against an NSIS installer on 2026-07-30 and again
-against the zip that replaced it on 2026-08-08; the release is a zip now.) `npm` hides install-script output unless a script fails,
+against the zip that replaced it on 2026-08-08; since ADR-0019 the release is an installer again,
+which is the shape the first of those two measurements used.) `npm` hides install-script output unless a script fails,
 which is why a successful build shows no `gyp` lines at all — absence of gyp output is not evidence
 that nothing was compiled.
 
@@ -154,14 +155,27 @@ one to know about:
   archived to `slot-N.old-<stamp>` — a persistent session, but only after removing its slot
   explicitly archived it.
 - **`data:deleteAll`** (Configurações → _Apagar todos os meus dados_) removes `%APPDATA%/hecaton`
-  whole, **live profiles included**. It exists because a portable zip has no uninstaller to ask
-  the question in, and it is guarded by an explicit confirmation and by every screen having to be
+  whole, **live profiles included**. It exists because the uninstaller deliberately does not ask
+  the question, and it is guarded by an explicit confirmation and by every screen having to be
   stopped first.
 
 The third arrived on 2026-08-08 and this page was not updated with it, which is worth naming: the
 sentence that used to be here read as a structural guarantee that the app _cannot_ destroy a
 logged-in session, and someone auditing "where can cookies go" from it would have counted wrong.
 See ADR-0005 (and **both** its Corrections) and ADR-0008.
+
+**A fourth path exists that is not the app's**, and an audit of "where can cookies go" has to count
+it. Since [ADR-0019](adr/0019-an-assisted-installer-for-a-792-mb-app.md) the release is an
+installer, and the uninstaller electron-builder generates accepts `--delete-app-data` on its command
+line. Given it, the uninstaller deletes `%APPDATA%\Hecaton` — every logged-in profile — with no
+confirmation anywhere. `deleteAppDataOnUninstall: false` in `electron-builder.yml` does **not**
+disable it; that setting governs a different branch, and this one has no guard at all
+(`app-builder-lib/templates/nsis/uninstaller.nsh:220-231` parses the flag, `:237` does the
+deletion; read against electron-builder 26.15.3, the pinned version).
+
+Nothing reaches it by accident. Clicking Uninstall does not pass the flag, and an update passes
+`--updated` instead — probe P1 measured both. It takes someone typing it. The ADR records why it was
+accepted rather than closed, and what closing it would have cost.
 
 ---
 
@@ -358,8 +372,9 @@ fallback to an installed Chrome. The binary is not in git, so a fresh clone does
 `node_modules`.
 
 The path in the message tells the two cases apart. Under `node_modules/electron/dist/resources` it
-is a development tree that has not fetched the browser; under an extracted release folder's
-`resources` it is an incomplete package, which is a build problem rather than yours.
+is a development tree that has not fetched the browser; under the installed app's `resources`
+(`%LOCALAPPDATA%\Programs\Hecaton` by default) it is an incomplete package, which is a build
+problem rather than yours.
 
 **What to do**
 

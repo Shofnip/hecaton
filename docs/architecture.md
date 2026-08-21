@@ -581,6 +581,17 @@ user-initiated update check, which is the app's only network request · no telem
 no monetization. The security review of the surfaces this phase created was done on 2026-08-09 and
 its findings are below.
 
+**Phase 4 — the app stands on its own. Three fronts, all landed, none released yet.** The app
+**ships its own Chromium** and launches nothing else
+([ADR-0016](adr/0016-ship-our-own-chromium.md)); it allows **one instance per machine**, across
+Windows accounts rather than within one session, sealed to the hardware
+([ADR-0018](adr/0018-one-instance-per-machine.md)); and the artifact is an **assisted installer**
+rather than the zip ([ADR-0019](adr/0019-an-assisted-installer-for-a-792-mb-app.md)). The first two
+are what made the third necessary: 792 MB is not something to ask a friend to extract, and a second
+launch is now an ordinary event that has to fail gracefully. Each front was gated on a probe —
+Turnstile against the bundled browser (P5), the mutex and the seal against a second Windows account
+(P6), and the artifact itself (P8), which is what ruled the `portable` exe out.
+
 **There is an installed base now, and two decisions change character because of it.** Renaming
 `APP_DIR_NAME` again is no longer free — [ADR-0012](adr/0012-hecaton-and-the-data-directory.md)
 says outright that its "no migration code, ever" held only because nothing had shipped, and that
@@ -643,6 +654,11 @@ to appear in three places; the installer's licence page was the one that could n
 zip carries no README, so this is the only one left that a user cannot miss. The same text stays
 reachable from Configurações afterwards.
 
+**The installer came back in ADR-0019 and that page was not reclaimed for this**, which is a choice
+rather than an oversight: the page shows the Apache-2.0 licence, which is what Apache-2.0 §4 obliges
+it to show, and a warning stacked underneath a licence nobody reads is a warning nobody reads. The
+first-run gate stays the one place it cannot be missed.
+
 The rule lives in `packages/core/src/terms.ts` — `TERMS_VERSION` and `needsTermsAcknowledgement` —
 and the text, being UI, lives in the renderer in Portuguese. What is persisted is
 `termsAcknowledged`, the **version** last acknowledged rather than a flag, so a materially changed
@@ -656,8 +672,12 @@ buys and costs — restored there on 2026-08-08 after going missing in the UI re
 ### Deleting everything, from the panel
 
 Choosing the zip removed the only moment the app could ever ask "and your logins?": an uninstaller
-runs, an extracted folder deleted in Explorer does not. So the settings modal carries a **Seus
-dados** section — naming both places session data can land, `%APPDATA%/hecaton` and the OS temp
+runs, an extracted folder deleted in Explorer does not. **ADR-0019 brought the uninstaller back and
+deliberately did not give it that question**, so the arrangement below is unchanged and is now a
+decision twice over. The reason is probe P1: an update runs the _previous_ release's uninstaller in
+silent mode, so any deletion branch inside one is frozen into every copy already handed out and can
+never be repaired for whoever installed it. A question asked in the right place is worth less than a
+deletion that cannot be un-shipped. So the settings modal carries a **Seus dados** section — naming both places session data can land, `%APPDATA%/hecaton` and the OS temp
 directory of a clean-session screen, with a button that opens the first — and, in the risk zone,
 **Apagar todos os meus dados**. It is the only action in the app that deletes a live profile;
 [ADR-0005](adr/0005-never-delete-a-persistent-profile.md)'s 2026-08-08 Correction records why it
@@ -694,10 +714,18 @@ Nothing in the app reads a log file, and nothing sends one anywhere: the diagnos
 attaching a file by hand, which is safe because redaction is at the logger boundary rather than in
 any feature.
 
-In the packaged zip (`electron-builder` 26.15.3, Electron 43.2.0, 339 asar entries): no `src/`, no
-`*.test.ts`, no `core/src/testing/` fakes, no `spike/` — the exclusions
+In the packaged zip (`electron-builder` 26.15.3, Electron 43.2.0, 339 asar entries): no
+`@hecaton/*/src/`, no `*.test.ts`, no `core/src/testing/` fakes, no `spike/` — the exclusions
 [ADR-0007](adr/0007-electron-security-posture.md) decision 2 rests on, verified in the artifact
-because the source tree looked perfect on the build where they _were_ shipping. The packaged
+because the source tree looked perfect on the build where they _were_ shipping.
+
+**"No `src/`" is narrower than it reads, and this line said the broad thing until 2026-08-21.**
+Third-party dependencies ship their own — `node-addon-api`'s headers and `node-window-manager`'s
+TypeScript, ~20 entries — because the negation in `electron-builder.yml` is scoped to
+`node_modules/@hecaton/*` and deliberately touches nothing else. That was already true of the zip
+measured here; the wording, not the artifact, was wrong. It matters because this paragraph is what a
+later reviewer re-runs: grep the asar for `src/`, get twenty hits, and the one hit that would matter
+looks exactly like the twenty that do not. The packaged
 `index.html` carries the identical CSP, the packaged main still uses `loadFile`, `LICENSE.txt` and
 `NOTICE.txt` are present at the archive root, and `Hecaton.exe` reports `NotSigned`, which is the
 decision and not an accident. The packaged app was launched with `APPDATA` redirected to a throwaway
@@ -762,7 +790,8 @@ no request the user did not ask for. So they come from a file.
 `CHANGELOG.md` travels twice and the copies do different jobs: inside the asar, copied into `dist/`
 by the build, which is what the app reads — one path, identical in development and in the package,
 no `app.isPackaged` branch — and beside the exe as `CHANGELOG.txt`, readable without opening the app
-at all, which matters for a zip that has no store page.
+at all, which matters when there is no store page. Since ADR-0019 the release workflow publishes a
+third copy loose on the release page, so it can also be read before installing anything.
 
 `changelogSection` in the core takes the body under the heading for the running version;
 `needsReleaseNotes` says whether it is still owed. **Absent reads as unseen**, the same choice

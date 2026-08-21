@@ -95,6 +95,23 @@ them is checked by any test, and all three fail quietly:
 3. **The window geometry.** `win32-worker.ts` carries frame maths measured against a specific
    browser-drawn title bar. If embedded screens sit a few pixels wrong, this is why.
 
+#### The `electron-builder` pin has a check of its own
+
+Not part of the browser ritual above — this one is owed when the **`electron-builder`** row of the
+pin table moves, and only then.
+
+**Confirm the installer still cleans up after itself.** Install the built artifact, then check that
+`%LOCALAPPDATA%\@hecatonshell-updater` is **absent**. That directory is a ~200 MB copy of the
+installer which electron-builder makes on every install and never removes, and
+`apps/shell/build-resources/installer.nsh` deletes it from `customInstall`. Measured working on
+2026-08-21 (`spike/p8-artifact/verify-cleanup.ps1`, as a controlled pair against a build without the
+include).
+
+It needs a moment attached because it is the thing most likely to break on a bump without anything
+going red: that macro reads a define, a template line number and a shell-var context which all
+belong to electron-builder rather than to us, and the failure mode is silence — 200 MB per install,
+outliving the app, with no symptom.
+
 ### 2. Confirm the browser is not downloading its 4 GB model again
 
 **Check the size, not the presence.** It creates `OptGuideOnDeviceModel` and
@@ -146,8 +163,27 @@ git push origin v0.1.0
 
 The workflow then builds on a clean `windows-latest` checkout, runs `npm run check`, refuses if the
 tag and `apps/shell/package.json` disagree, **fetches the pinned Chromium and verifies its SHA256**,
-packages the zip, publishes it with its SHA256, and generates the release notes from the commits. A
-hash mismatch fails the job with nothing unpacked, so a bad download cannot become a release.
+packages the assisted installer ([ADR-0019](adr/0019-an-assisted-installer-for-a-792-mb-app.md)),
+and publishes it with its SHA256 plus `LICENSE.txt`, `NOTICE.txt` and `CHANGELOG.txt` loose beside
+it, generating the release notes from the commits. A hash mismatch fails the job with nothing
+unpacked, so a bad download cannot become a release. It also refuses if `release/` holds anything
+but exactly one `*-win-*.exe`, and the second match it is guarding against is a real file rather
+than a worry: electron-builder writes the uninstaller stub as `<name>.__uninstaller.exe`, which
+matches that glob. It deletes it again on the success path, so the count is one — by the lifetime of
+a temp file inside a dependency. The checked path is then carried to the publish step through
+`GITHUB_ENV`, so "which file is the release" is decided once.
+
+**The count is what is checked, not the order, and that distinction was earned.** This document said
+the stub "sorts before" the installer, reasoned from code points. Measured on NTFS, in both creation
+orders, `Get-ChildItem` returns the **installer** first — the index is ordered by upcased UTF-16,
+where `E` is 0x45 and `_` is 0x5F. So the old `Select-Object -First 1` was not picking the wrong
+file; it was resting on an ordering nobody had measured, which is the defect either way.
+
+A build that **fails** leaves two matches, not one: measured 2026-08-21 by breaking the custom NSIS
+deliberately, `release/` held `Hecaton-<version>-win-x64.exe` at 226 KB — the first makensis pass
+targets the real artifact path — beside `Hecaton-<version>-win-x64.__uninstaller.exe` at 188 KB. So
+the guard would fire, and it never gets the chance, because `npm run package` exits non-zero and
+fails the job before the hash is computed. The order of those two steps is the control.
 
 **`npm audit --omit=dev` runs in that job**, so an advisory that reaches the **shipped** tree fails
 the build. Note what it does not see: 440 MB of bundled Chromium is not an npm dependency, and its
@@ -163,6 +199,15 @@ when somebody presses the button ([ADR-0014](adr/0014-the-apps-first-network-req
 author saying so is the distribution channel.
 
 Say the two things they will otherwise discover: **SmartScreen warns on first run** (_More info_ →
-_Run anyway_), because nothing is signed, and the **SHA256 published beside the zip** is the only
-thing that distinguishes an authentic build from a lookalike anyone could compile from the public
-source.
+_Run anyway_), because nothing is signed, and the **SHA256 published beside the installer** is the
+only thing that distinguishes an authentic build from a lookalike anyone could compile from the
+public source. Since 2026-08-21 that warning arrives on an **installer** rather than on an extracted
+folder, which makes checking the hash first worth saying out loud: after _Run anyway_ the thing has
+already run.
+
+And say the third, because it is the one they cannot discover: **uninstalling leaves their logins
+alone.** `%APPDATA%/hecaton` survives the uninstaller by design — every path a user reaches by
+clicking, at least; the flag in ADR-0019's first consequence is the exception and takes deliberate
+typing — so a reinstall finds every session where it was. Removing them is _Configurações → Zona de
+risco → Apagar todos os meus dados_ inside the app — the **Seus dados** section above it only opens
+the folder.

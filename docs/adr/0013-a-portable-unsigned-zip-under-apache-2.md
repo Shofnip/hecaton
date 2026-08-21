@@ -1,6 +1,12 @@
 # ADR-0013 — The distribution posture: a portable, unsigned zip under Apache-2.0
 
-**Status:** Accepted · **Date:** 2026-07-29, with the packaging reversal of 2026-08-08
+**Status:** Superseded in part by [ADR-0019](0019-an-assisted-installer-for-a-792-mb-app.md) ·
+**Date:** 2026-07-29, with the packaging reversal of 2026-08-08
+
+Only the **format** is superseded: the artifact is an assisted installer again, and the alternative
+this ADR rejected under _Alternatives rejected_ is the one that was taken. Everything else here —
+Apache-2.0, the public repository, nothing signed, GitHub Releases, the exact pins, the terms
+warning, and where the data lives — stands.
 
 ## Context
 
@@ -171,8 +177,23 @@ matters most.
 **The artifact is 332 MB zipped over 792 MB unpacked**, not 134 MB, measured 2026-08-20 and
 recorded in `apps/shell/electron-builder.yml`. The compression reasoning in that bullet is
 unaffected and still holds — most of the added bulk is already-compressed binaries, so there is
-even less for LZMA to win.
+even less for LZMA to win. [see Correction (2026-08-21)]
 
 **The decision itself is untouched:** a portable, unsigned zip under Apache-2.0, published on
 GitHub Releases with its SHA256. Whether an artifact this size stays a zip is probe P8's question.
 Both errors appeared when the code changed.
+
+## Correction (2026-08-21)
+
+The compression sentence in the Correction directly above — "most of the added bulk is
+already-compressed binaries, so there is even less for LZMA to win" — was a prediction, and probe P8
+measured it false. The identical 792 MB payload is **316.7 MiB as deflate and 199.9 MiB as LZMA**:
+117 MiB less, 37%. An unoptimised Chromium snapshot compresses well, which is the same reason it is
+four times the size of a branded Chrome install in the first place.
+
+What that changes and what it does not: the 2026-08-08 figure it was extending (`compression:
+maximum` saving 0.27% for 3.5 minutes) is still right, because that option cannot touch the zip
+target's deflate at all. The error is only in the extrapolation to the bundled payload, and it was
+wrong the day it was written rather than overtaken later. It mattered because it made the zip look
+like it was giving up nothing, and [ADR-0019](0019-an-assisted-installer-for-a-792-mb-app.md) — the
+decision that replaced it — turns on that number.

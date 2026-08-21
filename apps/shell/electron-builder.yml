@@ -1,13 +1,18 @@
 # Packaging for Hecaton. Every value here that could have gone another way was
-# decided in ADR-0013 (the distribution posture), so the reasoning is named rather
-# than repeated.
+# decided in ADR-0013 (the distribution posture) and, for the format itself, in
+# ADR-0019, so the reasoning is named rather than repeated.
 #
-# There is no unit test for this file: a YAML config has no behaviour to assert.
-# What verifies it is inspecting the built artifact - that the renderer still
-# loads from file:// with its CSP, that the core fakes and spike/ are absent from
-# the package, and that the navigation handlers still deny everything. Reading the
-# config proves none of that. The last such pass is recorded in architecture.md,
-# under "The pre-release security review".
+# Two tests read this file, and neither of them verifies it. tests/artifact.test.ts
+# holds the target and the installer's shape to what README.md and release.yml say
+# about them, and tests/bundled-browser.test.ts holds the extraResources line to
+# where the app looks - both are agreement checks between documents, not evidence
+# about a built artifact.
+#
+# What verifies it is inspecting one: that the renderer still loads from file://
+# with its CSP, that the core fakes and spike/ are absent from the package, and
+# that the navigation handlers still deny everything. Reading the config proves
+# none of that. The last such pass is recorded in architecture.md, under "The
+# pre-release security review".
 
 # No domain of the owner's exists (ADR-0013 made one unnecessary), so the appId uses the
 # GitHub namespace they do control rather than inventing a company domain.
@@ -51,52 +56,127 @@ files:
 # update channels.
 publish: null
 
-# `compression: maximum` is deliberately NOT set. Measured 2026-08-08: it saved
-# 380 KB of 134 MB - 0.27% - and cost 3.5 minutes of build time, because it drives
-# LZMA for 7z/NSIS targets and leaves the zip's deflate alone. The zip was ~134 MB
-# where the NSIS installer was 96 MB, and that gap is deflate versus LZMA with no
-# lever inside the zip target. A 7z target would close it and is rejected: Windows
-# cannot extract .7z without extra software, which defeats the point of the zip.
+# `compression: maximum` is still not set, and the reason changed under it.
 #
-# Re-measured 2026-08-20, after the bundled Chromium joined the artifact as
-# extraResources (ADR-0016): 332 MB zipped, 792 MB unpacked. The reasoning above is
-# unchanged - most of the new bulk is already-compressed binaries, so there is even
-# less for LZMA to win. Whether an artifact this size stays a zip at all is probe
-# P8's question, not this file's.
+# Measured 2026-08-08, while the artifact was a zip: it saved 380 KB of 134 MB -
+# 0.27% - for 3.5 minutes of build time, because it drives LZMA for 7z/NSIS
+# targets and leaves the zip's deflate alone. That is why it was rejected then,
+# and the rejection was carried forward on 2026-08-20 with the reasoning that
+# most of the new bulk was already-compressed binaries and LZMA had even less to
+# win.
 #
-# A portable zip, not an installer (ADR-0013; the NSIS installer was built and
-# then dropped on 2026-08-08). The user extracts it wherever they like and runs
-# Hecaton.exe; updating is replacing the folder.
+# Probe P8 measured that and it is wrong. The same 792 MB payload is 316.7 MiB as
+# deflate and 199.9 MiB as LZMA - 117 MiB less, 37%. An unoptimised Chromium
+# snapshot compresses well.
 #
-# What makes this shippable is ADR-0004, decided long before a zip was considered:
-# nothing the app persists lives beside its binary - it is all under
-# %APPDATA%/hecaton - so the extracted folder is disposable and can sit anywhere.
-# (Clean-session slots are the one exception, and they write to the OS temp
-# directory, which is further from the extracted folder still. See ADR-0005.)
+# What claimed that difference is `differentialPackage: false` below, not this
+# option: with the blockmap on, the first installer built came out at 226.4 MiB in
+# 44 s, and turning it off produced 200.1 MiB in 210 s. So the 26 MiB that looked
+# like unpulled LZMA was block-aligned compression, and it is already collected.
 #
-# The cost: deleting the folder leaves %APPDATA%/hecaton behind, and the
-# persistent profiles there are logged-in sessions. There is no uninstaller to ask
-# about that, which is why "Apagar todos os meus dados" is an action inside the
-# panel - see ADR-0013's consequences and ADR-0005's 2026-08-08 Correction.
+# And `compression: maximum` on top of that was measured rather than assumed this
+# time, on the real payload: 209,820,351 bytes against 209,820,253 - **98 bytes
+# larger**. It buys nothing here, because turning the blockmap off already puts the
+# payload through solid LZMA. Left unset, now for a measured reason rather than an
+# extrapolated one.
+#
+# An assisted NSIS installer, not the portable zip of ADR-0013 (ADR-0019). Probe
+# P8 is what reversed it: a `portable` exe re-extracts 792 MB on *every* launch -
+# 14.7 s against 3.2 s from an installed folder - and two launches share one
+# unpack path, so the second deletes the first app's files, bundled browser
+# included, while its window is still on screen.
+#
+# What makes any of these shippable is ADR-0004, decided long before a format was
+# considered: nothing the app persists lives beside its binary - it is all under
+# %APPDATA%/hecaton - so the install directory holds no user data and can sit
+# anywhere. (Clean-session slots are the one exception, and they write to the OS
+# temp directory, which is further from it still. See ADR-0005.)
+#
+# The uninstaller therefore removes the program and leaves every logged-in
+# profile behind, which is deliberate and is why "Apagar todos os meus dados"
+# stays an action inside the panel - see ADR-0019, ADR-0013's consequences and
+# ADR-0005's 2026-08-08 Correction.
 win:
-  target: zip
+  target: nsis
   # Generated by scripts/make-icon.mjs from the panel's own .logo tokens, so the
   # exe carries the identity the app shows in its sidebar. electron-builder
   # converts this into the multi-size .ico. Explicitly not the game's poke.ico,
   # which would present Hecaton as if it were Poke IdleWorld.
   icon: build-resources/icon.png
 
-# Names the platform and architecture, because a zip carries none of the metadata
-# an installer would and the file name is all the user has to go on.
+nsis:
+  # Assisted, not one-click - and this is the load-bearing one. A one-click
+  # installer has no page to show a licence on, and Apache-2.0 §4 obliges
+  # whoever distributes the binary to hand over the License. When the artifact
+  # was a zip that obligation was met by shipping LICENSE.txt beside the exe,
+  # which the first zip forgot entirely; here the page carries it and the file
+  # travels as well.
+  oneClick: false
+  # The repository's own LICENSE, not a copy. A second copy in build-resources
+  # would drift from the first, and the one that drifts is always the one nobody
+  # reads. Verified in the generated script as `MUI_PAGE_LICENSE`, so the
+  # extensionless filename is not a problem for NSIS.
+  license: ../../LICENSE
+
+  # Per user, into %LOCALAPPDATA%\Programs\Hecaton. per-machine *and unsigned* is
+  # the worst pairing Windows offers - it raises the yellow "Unknown publisher"
+  # dialog on every install and every update, to protect a binary a handful of
+  # people will install. ADR-0013 reversed per-machine within the session it was
+  # proposed, and that reversal survives the format change.
+  perMachine: false
+  allowElevation: false
+
+  # 792 MB installed. A user whose C: drive is small has to be able to put it
+  # somewhere else - which the zip let them do by construction, and which an
+  # installer takes away unless this is on.
+  allowToChangeInstallationDirectory: true
+
+  # Explicitly false rather than absent, because absence would look like nobody
+  # considered it. Probe P1 measured that an update runs the *previous*
+  # release's uninstaller in silent mode, so a delete branch here would be
+  # frozen into every uninstaller already handed out and could never be repaired
+  # for whoever installed. The one route to that data is the panel's action,
+  # behind a confirmation and behind every screen having to be stopped first.
+  #
+  # This does not close the whole hole, and ADR-0019 says so at length: the
+  # generated uninstaller accepts `--delete-app-data` on its command line
+  # regardless of this setting, and that branch has no guard. It needs deliberate
+  # invocation - neither the update path nor clicking Uninstall reaches it - and
+  # the owner accepted it as a declared consequence on 2026-08-21.
+  deleteAppDataOnUninstall: false
+
+  # The one piece of custom NSIS this project carries, and it exists to undo
+  # something electron-builder does rather than to add anything: every install
+  # leaves a ~200 MB copy of the installer in %LOCALAPPDATA% that no uninstaller
+  # removes. The file explains itself.
+  #
+  # This line buys loudness, not wiring, which is worth knowing before somebody
+  # deletes it as redundant: electron-builder looks for `installer.nsh` in
+  # buildResources by convention, so the file is picked up either way. With the
+  # line, renaming or moving it throws InvalidConfigurationError and fails the
+  # build; without it, the same rename returns null, `!ifmacrodef customInstall`
+  # is quietly false, and the 200 MB comes back with no error anywhere.
+  include: build-resources/installer.nsh
+
+  # No blockmap. It exists for electron-updater's differential downloads, and
+  # ADR-0014 rejected electron-updater - so this is the same decision as
+  # `publish: null` above, applied to the other file that advertises an update
+  # channel that does not exist.
+  differentialPackage: false
+
+# Names the platform and architecture, because the file name is most of what the
+# user has to go on before running an unsigned executable.
 artifactName: Hecaton-${version}-win-${arch}.${ext}
 
 # The project's own licence and notice, beside the exe.
 #
 # Not optional and not decoration: Apache-2.0 §4 obliges whoever distributes the
-# binary to include a copy of the License and to keep the NOTICE. The installer
-# used to satisfy that with its licence page; a zip has no page, so the files have
-# to travel. Verified 2026-08-08 that the first zip shipped neither - it carried
-# only Electron's and Chromium's own licences, which are a different obligation.
+# binary to include a copy of the License and to keep the NOTICE. The licence page
+# satisfies the first half at install time, and these files are what the user
+# still has afterwards - a page you clicked through once is not a copy you kept.
+# Verified 2026-08-08 that the first zip shipped neither - it carried only
+# Electron's and Chromium's own licences, which are a different obligation, and it
+# had no page either, which is how the gap opened.
 #
 # `.txt` because Windows has no handler for an extensionless LICENSE, and a file a
 # user cannot open by double-clicking may as well not be there.
@@ -104,8 +184,8 @@ artifactName: Hecaton-${version}-win-${arch}.${ext}
 # asar (copied into dist/ by the build) it is what the app reads to show what
 # changed after an update, at a path identical in development and in the package.
 # Beside the exe it is readable without opening the app at all - which matters
-# for a zip, where there is no store page and no release notes to read on the way
-# in.
+# when there is no store page, and the release workflow publishes a third copy
+# loose beside the artifact so it can be read before installing anything.
 # The browser the app ships (ADR-0016), fetched by scripts/fetch-chromium.mjs
 # before this runs. `to:` is joined with process.resourcesPath by
 # `bundledBrowserPath`, and tests/bundled-browser.test.ts holds this line, that

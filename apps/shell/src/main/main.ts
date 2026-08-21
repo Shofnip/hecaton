@@ -105,6 +105,14 @@ app.setPath('userData', electronUserDataDir())
 // confirmation had ever lived in NSIS. ADR-0005's guarantee reads "no live profile
 // is ever deleted ... never by a flag", and a flag is exactly what it had become.
 //
+// The installer came back on 2026-08-21 (ADR-0019) and this did not, which is the
+// sentence that matters here: the premise the flag needed is what was rejected,
+// not the packaging that happened to remove it. ADR-0019 says why - probe P1
+// measured that an update runs the *previous* release's uninstaller silently, so a
+// deletion decided in NSIS is frozen into every copy already handed out and can
+// never be repaired for whoever installed it. Wiring this back up because there is
+// an uninstaller again would undo that reasoning without meeting it.
+//
 // `planUserDataDeletion` in the core and `deleteUserData` in storage stay: they are
 // tested, they were never installer-specific, and the caller they were waiting for
 // now exists - the `data:deleteAll` handler below, reachable only from the panel,
@@ -553,7 +561,8 @@ function registerIpc(): void {
 
     'data:deleteAll': async (payload) => {
       // The only path in this app that deletes a live profile, and it exists
-      // because a portable zip has no uninstaller to ask the question in. Three
+      // because the uninstaller deliberately does not ask the question (ADR-0019;
+      // before that there was no uninstaller at all to ask it in). Three
       // things guard it, and none of them is the confirmation dialog: the panel's
       // confirmation is UX.
       //
