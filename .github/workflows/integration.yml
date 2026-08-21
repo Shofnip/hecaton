@@ -1,6 +1,6 @@
 # Integration tests: the real bundled browser, real OS windows, real disk.
 #
-# Three of the nine suites drive a browser, and all three drive the one the app ships.
+# Three of the integration suites drive a browser, and all three drive the one the app ships.
 # Two of them used to reach for an installed Google Chrome and skip when none was found,
 # which stopped being safe the moment the app stopped requiring one - on a correct machine
 # they skipped and the run still reported green. They now fail instead.

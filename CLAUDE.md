@@ -16,10 +16,16 @@ every phase, no exceptions. If an `if` encoding a business rule shows up inside 
 that rule belongs in the core.
 
 Where each kind of test goes: pure logic in `packages/core` is tested directly, in the fast
-suite. **Adapters are covered by `*.integration.test.ts` against the real thing** — the
+suite. **An adapter's I/O is covered by `*.integration.test.ts` against the real thing** — the
 bundled Chromium (fetch it first), real windows, real disk — never by fakes, which would test
 the fake. The fakes exist
 so the **core** can be tested without I/O, including auto-restart on crash.
+
+The one exception, and it is narrow: **pure code that lives in an adapter package because of what
+it imports, not because it does I/O, is tested in the fast suite.** `chrome-args.ts`,
+`browser-process-query.ts`, `browser-paths.ts`, `app-paths.ts` and `WmiMachineIdentity.digest` are
+the whole list. Nothing is faked in those tests — that is what keeps the rule honest. Read as an
+absolute, the paragraph above would push a pinned sha256 into a manual, Windows-only run.
 
 **Never `--no-verify`, and never commit around a red test.** The pre-commit hook running
 `npm run check` is what turns this rule from discipline into a guarantee; bypassing it removes
@@ -67,7 +73,8 @@ then stage by name.
   adapter.
 - **Adapters are thin and hold no business rules.** Each sits behind a narrow interface
   declared in `core/src/ports.ts` (`BrowserLauncher`, `WindowManager`, `AudioController`,
-  `Storage`, `ProfileArchive`). Fakes for them live in `core/src/testing/`, excluded from the build so
+  `Storage`, `ProfileArchive`, `MachineIdentity`, `InstanceLock`) — or, for the logger, in
+  `core/src/log.ts`, where `Logger` sits beside the redaction rule it exists to enforce. Fakes for them live in `core/src/testing/`, excluded from the build so
   they never ship.
 - **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}` and
   nothing else. URLs are **https only**, in the registry and in custom slots alike. Do not
@@ -90,7 +97,10 @@ land on the end user.
 ## Language
 
 Code, filenames, comments, commits and docs in **English**. **App UI in Portuguese** —
-including the `name` field in game definitions, which is UI text.
+including the `name` field in game definitions, which is UI text. Two documents are Portuguese for
+that same reason: `docs/design/design.md`, which is largely a transcription of the UI text, and
+`CHANGELOG.md`, which **is** UI text — the app renders it in the release-notes modal and it ships
+beside the exe as `CHANGELOG.txt`.
 
 ## Data locations
 
@@ -109,17 +119,20 @@ dev and prod also kills a class of packaging bug.
    `%APPDATA%`. So session data can exist in two places, and an audit of "where do cookies land"
    must cover both.
 2. The machine seal, `C:\ProgramData\hecaton\machine.json` —
-   [ADR-0018](docs/adr/0018-one-instance-per-machine.md). One field, a sha256 of two hardware
-   fields, written on the first allowed launch and **never rewritten**. It has to be machine-wide,
+   [ADR-0018](docs/adr/0018-one-instance-per-machine.md). One field: a sha256 of the product UUID
+   plus the board serial when that is not an OEM placeholder, written on the first allowed launch
+   and **never rewritten**. It has to be machine-wide,
    which `%APPDATA%` cannot be, and it is a digest because `ProgramData` is world-readable. It
    holds nothing of the user's, so `data:deleteAll` leaves it alone — that action deletes the
    user's data and this is the machine's. Raw hardware identifiers go in **neither** this file nor
    the log.
 
 Use `appDataDir()`, `configFilePath()`, `logsDir()`, `profilesDir()`, `electronUserDataDir()` and
-`machineSealPath()` from `@hecaton/storage`. Never build these paths by hand. The last one is Electron's own cache,
-kept under the app's directory rather than the shared `%APPDATA%/Electron`, and it is the single
-entry allowed to survive the "delete all my data" action — the running process holds it open.
+`machineSealPath()` from `@hecaton/storage`. Never build these paths by hand. `electronUserDataDir()` is Electron's own
+cache, kept under the app's directory rather than the shared `%APPDATA%/Electron`, and it is the
+single entry **inside `%APPDATA%/hecaton`** allowed to survive the "delete all my data" action —
+the running process holds it open. `machineSealPath()` is exception 2 above and lives outside that
+directory entirely, so that action never reaches it.
 
 **Never run anything destructive against the real `%APPDATA%/hecaton`.** It holds the owner's
 logged-in game accounts. Redirect `APPDATA` to a throwaway directory **and assert that

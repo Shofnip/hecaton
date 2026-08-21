@@ -802,8 +802,8 @@ const instanceLock = new MutexInstanceLock()
  *
  * The verdict travels as the URL fragment and selects one section with CSS
  * `:target`, so the page carries no script and no new IPC channel - `ipc.ts`
- * says a thirty-first channel is a decision for the owner, and a refusal screen
- * is not the place to spend it.
+ * says any channel beyond the ones it lists stops the work for the owner, and a
+ * refusal screen is not the place to spend that.
  */
 function showBlocked(verdict: InstanceClaimVerdict): void {
   Menu.setApplicationMenu(null)

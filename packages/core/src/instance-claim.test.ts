@@ -205,6 +205,16 @@ describe('evaluateInstanceClaim', () => {
     ).toBe('allow')
   })
 
+  it('does not refuse over an unreadable seal it has no identity to check', () => {
+    // The other half of the same gate, and the half that was untested until a
+    // documentation audit noticed the ADR claiming otherwise. Without it,
+    // lifting the sealUnreadable branch out of the identity guard would refuse
+    // every machine WMI cannot answer for, and the suite would stay green.
+    expect(evaluateInstanceClaim(facts({ machineId: undefined, sealUnreadable: true }))).toBe(
+      'allow',
+    )
+  })
+
   it('still refuses an unidentified machine that is virtual or locked', () => {
     expect(evaluateInstanceClaim(facts({ machineId: undefined, virtualMachine: true }))).toBe(
       'virtual-machine',

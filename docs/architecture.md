@@ -250,8 +250,10 @@ about the repository itself rather than about any package — see `tests/repo-co
 which verifies that `check` covers the steps `ci.yml` writes as `- run: npm …` (bar `npm ci`, which
 is environment setup) — a named step, whose
 `run:` sits on its own line, and anything not invoked through `npm` are both invisible to it — that
-no test file falls outside every Vitest config, and that no package is missing from the root
-`tsconfig` references.
+no test file falls outside every Vitest config, that no package is missing from the root
+`tsconfig` references, and that no workspace escapes `tsconfig.test.json` and therefore has tests
+that are type-checked nowhere. It also refuses to let an `*.integration.test.ts` leak into the fast
+config, which would put a browser launch in the red-green loop.
 
 `*.test.ts` is the fast suite and must stay free of I/O; `*.integration.test.ts` drives real
 processes, windows and disk and runs separately.
@@ -271,9 +273,17 @@ makes strict TDD practical rather than theatre.
 - **Config merge:** global defaults + per-slot overrides, including `mute` and `persistProfile`.
 - **`userDataDir` path resolution** per slot — pure string work, no disk access.
 
-Adapters get integration tests, never unit tests, and each sits behind a narrow interface
-(`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `AudioController`, `Storage`,
-`ProfileArchive`) with a fake for core tests. Auto-restart-on-crash is testable against the fake
+Adapters are covered against the real thing, never against fakes, and each sits behind a narrow
+interface (`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `AudioController`,
+`Storage`, `ProfileArchive`, `MachineIdentity`, `InstanceLock`, and `Logger` — which is declared in
+`log.ts` rather than `ports.ts`, beside the redaction rule it enforces) with a fake for core
+tests. There
+is one deliberate exception, and it is narrow: **pure code that sits in an adapter package because
+of what it imports, not because it does I/O**, is tested in the fast suite, with nothing faked.
+The whole list is `chrome-args.ts`, `browser-process-query.ts`, `browser-paths.ts`, `app-paths.ts`
+and `WmiMachineIdentity.digest` — the last being a pinned sha256 whose value, if it ever changed,
+would refuse every machine that already carries a seal, which is precisely the thing that should
+not be reachable only by a manual Windows-only run. Auto-restart-on-crash is testable against the fake
 without launching a browser.
 
 That narrowness is what absorbed the Playwright→spawn switch without the core noticing. Keep
@@ -307,6 +317,13 @@ when a second game proves the need. The `name` field is UI text, therefore Portu
 security boundary, not a style rule: it keeps game sessions encrypted, and it keeps
 `javascript:`, `file:` and `data:` out — each of which would turn a configuration field into
 code execution or disk access. A custom slot is not a way around it.
+
+One thing happens **before** that check and is worth knowing, because it is a rewrite of user input
+at a security boundary: `normalizeUrl` in the core turns a bare host into an `https://` one, so a
+user typing `exemplo.com` gets a working slot instead of a rejection. It only ever _adds_ the
+scheme — anything already carrying `scheme://` is passed through untouched, so `http://` is still
+refused rather than silently upgraded, and there is no input that reaches the launcher having been
+turned into something the user did not write.
 
 **Security:** definitions ship only in the repository — same trust level as hardcoded, since
 all code is versioned and reviewed. A user-supplied games folder is **rejected, not deferred**:
@@ -386,13 +403,19 @@ A long-running orchestrator with child processes fails silently by default. Acti
   where they come from — a distinction worth keeping, because `slotId` does come from the user's
   `config.json`. `level` and `event` are literals in the app's own code; `pid` comes from the
   launcher; `slotId` is read from config but forced through `requirePositiveInteger`, so no string
-  can ride there. There are exactly two emitters: `Orchestrator.emit` for every lifecycle entry, and
-  `apps/shell/src/main/main.ts` for two more — `config.error`, whose `message` is whatever
-  `loadConfiguration` threw (usually the config parser's text, sometimes a filesystem error), and
-  `config.quarantined`, whose `message` names the file a corrupt `config.json` was kept under. Both
-  are redacted like any other. `config.quarantined` arrived with the recovery path and this
-  enumeration was not updated with it, which is worth naming: a sentence written as exhaustive is
-  only worth anything while it still is. **`gameId` is safe by type too, since 2026-08-09**, and it is the field
+  can ride there. There are three emitters. `Orchestrator.emit` writes every lifecycle entry.
+  `apps/shell/src/main/main.ts` writes three more — `config.error`, whose `message` is whatever
+  `loadConfiguration` threw (usually the config parser's text, sometimes a filesystem error);
+  `config.quarantined`, whose `message` names the file a corrupt `config.json` was kept under; and
+  `instance.claim-failed`, whose `message` is whatever the machine claim threw, in practice a
+  complaint about `%ProgramData%`. And `claimInstance` in `packages/core/src/instance-claim.ts`
+  writes two — `instance.claim`, whose `message` is the verdict and is therefore one of a fixed set
+  of words, and `instance.seal-failed`, whose `message` is the filesystem error from writing the
+  seal. All of them are redacted like any other. **The machine id is in none of them**, not even
+  truncated: it is never handed to the logger at all (ADR-0018). This enumeration has now been
+  stale twice — `config.quarantined` arrived with the recovery path and the machine claim arrived
+  with ADR-0018, and neither updated it — which is worth naming rather than quietly fixing: a
+  sentence written as exhaustive is only worth anything while it still is. **`gameId` is safe by type too, since 2026-08-09**, and it is the field
   that shows why the distinction is worth stating: it used to accept any non-blank string, so a
   hand-edited `config.json` naming a URL there wrote that URL — query string and all — into a log
   line, and the following `slot.crash` showed the same URL redacted in `message` and in the clear in
@@ -438,7 +461,11 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
   small `blocked.html` window naming which layer said no - script-free, using CSS `:target` on the
   verdict in the URL fragment, so it needs no IPC channel. Electron's own
   `requestSingleInstanceLock` stays for the same-session case, where it can focus the running
-  panel instead of merely refusing.
+  panel instead of merely refusing. **All three layers can fail open, and that is deliberate** — a
+  lock worker that will not start reports the machine free, an unreadable machine identity is not
+  refused, and a `%ProgramData%` that cannot be resolved skips the claim entirely. Each is the
+  app's own instrument failing rather than evidence about the user. The cost is that the layer can
+  be absent without the user or the owner noticing: only the third case writes a log line.
 - **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
   `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.
 
@@ -447,8 +474,8 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
 The app never stores passwords — logins live only inside the Chrome profile in `userDataDir`.
 No profile data leaves the machine. No telemetry (if ever, explicit opt-in).
 
-The app stores exactly **one** identifier, and only since ADR-0018: a sha256 of two hardware
-fields, in the machine seal above, used to refuse a second instance. It is never logged - not even
+The app stores exactly **one** identifier, and only since ADR-0018: a sha256 of the machine's
+product UUID plus its board serial when that is not an OEM placeholder, in the machine seal above, used to refuse a second instance. It is never logged - not even
 truncated - it is never sent anywhere, and it is a digest rather than the values precisely so the
 file cannot disclose them. That is the single exception to ADR-0015's "the app stores no identifier
 of any kind"; the rest of that ADR is unchanged.
@@ -526,16 +553,18 @@ The load-bearing points:
 - Modals and the volume popover render in a **second, always-on-top, transparent overlay window**,
   because a child Chrome window always paints over the panel's DOM. Both windows share the same
   locked-down `webPreferences`; the bundled Sora font and Poke favicon keep `connect-src 'none'`.
-- The window-manager and audio adapters run **persistent PowerShell workers** (Win32 and WASAPI),
-  disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
+- The window-manager, audio and machine-lock adapters run **persistent PowerShell workers** (Win32,
+  WASAPI and the `Global\` mutex), disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
   shell-outs are async so they never freeze the main thread; a screen closes gracefully by a
   `WM_CLOSE` posted to the embedded child.
-- **Disposal is bounded, and that is load-bearing.** `before-quit` defers the quit until both
+- **Disposal is bounded, and that is load-bearing.** `before-quit` defers the quit until all three
   workers are disposed, so an unbounded wait there is not a slow shutdown but a permanent one:
   the app stays alive with its windows already hidden, holding the single-instance lock, and the
   next launch quits silently against it. Each worker gives its polite `exit` a deadline and kills
-  the process either way. Found in the wild on 2026-08-09, and covered by an integration test per
-  worker that drives a real PowerShell which prints READY and then ignores stdin forever.
+  the process either way. Found in the wild on 2026-08-09. The Win32 and WASAPI workers are each
+  covered by an integration test that drives a real PowerShell which prints READY and then ignores
+  stdin forever; the mutex worker's one-second bound is unconditional rather than tested that way,
+  and its suite covers claiming, release, and leaving no orphan when the holder is killed.
 
 Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundThrottling`) and a
 global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,
@@ -582,9 +611,12 @@ request is a `fetch` in the main process where no CSP applies. Anyone reading th
 the app is offline is reading it wrong, and anyone relaxing it to add a request is relaxing the
 wrong thing.
 
-`main.ts` holds two constants and no logic: the API address
+`main.ts` holds the two url constants — the API address
 (`api.github.com/repos/Shofnip/hecaton/releases/latest`) and the release page that
-`shell.openExternal` receives. **No url is ever read out of the fetched document** — the core
+`shell.openExternal` receives — and turns the network into a status: it reports `offline` when no
+response arrives, and `malformed` when the body will not parse or exceeds `UPDATE_BODY_MAX`, which
+is the second of ADR-0014's two ceilings on untrusted input and is enforced twice, against the
+declared `content-length` and against the text actually read. Every other decision is the core's. **No url is ever read out of the fetched document** — the core
 validator does not carry one at all, which is a stronger guarantee than carrying one carefully.
 `packages/core/src/update.ts` owns the rest: what a status code means, whether a tag is newer
 (numerically, so `0.10.0` beats `0.9.0`), and a 4000-character cap with control characters stripped
@@ -753,7 +785,8 @@ Missing file, unreadable file, or a version nobody wrote notes for are all the s
 
 The text is not shown raw. `displayNotes` in the core unwraps the hard line breaks Markdown is
 written with and strips emphasis markers, and it exists because of what the panel looked like
-without it: the changelog is wrapped at ~95 columns by the formatter, the panel renders
+without it: the changelog is hand-wrapped at ~80 columns — Prettier sets no `proseWrap`, so it
+leaves Markdown prose exactly as written — the panel renders
 `white-space: pre-wrap`, so every line wrapped at the box width **and then again** at the source's
 own newline, with the continuation indented two spaces — and `**bold**` arrived as literal
 asterisks, since the renderer sets `textContent` and always will. It runs on the GitHub release body

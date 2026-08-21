@@ -175,20 +175,22 @@ A small window opens instead of the panel: _"O Hecaton não pôde iniciar"_, wit
 ([ADR-0018](adr/0018-one-instance-per-machine.md)), which runs before the panel exists and before
 anything writes `config.json`:
 
-| Reason on screen                                   | What it means                                                                                                                     | What to do                                                                                                                                                                                      |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| _Já existe um Hecaton aberto nesta máquina_        | The `Global\` mutex is held by **your own** Windows account — often a second logon session, or a copy whose window you cannot see | Close the other one. `Get-Process electron` across sessions, or sign out of the other session                                                                                                   |
-| _Outra conta do Windows está com o Hecaton aberto_ | Another Windows account holds it. You cannot see or close their process, by design                                                | That user closes theirs, or their session is ended                                                                                                                                              |
-| _Esta parece ser uma máquina virtual_              | `Win32_ComputerSystem` Manufacturer/Model matched a known hypervisor                                                              | Nothing, on a real VM. On physical hardware it means your vendor wrote a hypervisor-looking string into SMBIOS — check with `Get-CimInstance Win32_ComputerSystem`                              |
-| _Esta máquina não é a que está registrada_         | The seal in `C:\ProgramData\hecaton\machine.json` does not match this hardware, or will not parse                                 | If the machine is yours — a motherboard swap does this — delete that file **as an administrator** and start again; it writes a fresh seal. A standard user cannot delete it, which is the point |
+| Reason on screen                                   | What it means                                                                                                                                                                                                                                                           | What to do                                                                                                                                                                                      |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _Já existe um Hecaton aberto nesta máquina_        | The `Global\` mutex is held by **your own** Windows account — often a second logon session, or a copy whose window you cannot see                                                                                                                                       | Close the other one. `Get-Process electron` across sessions, or sign out of the other session                                                                                                   |
+| _Outra conta do Windows está com o Hecaton aberto_ | Another Windows account holds it. You cannot see or close their process, by design                                                                                                                                                                                      | That user closes theirs, or their session is ended                                                                                                                                              |
+| _Esta parece ser uma máquina virtual_              | `Win32_ComputerSystem` Manufacturer/Model matched a known hypervisor                                                                                                                                                                                                    | Nothing, on a real VM. On physical hardware it means your vendor wrote a hypervisor-looking string into SMBIOS — check with `Get-CimInstance Win32_ComputerSystem`                              |
+| _Esta máquina não é a que está registrada_         | The seal in `C:\ProgramData\hecaton\machine.json` does not match this hardware, or could not be read at all — **any** failure to read it refuses the launch, not only a parse error, provided the machine has a readable identity to compare against in the first place | If the machine is yours — a motherboard swap does this — delete that file **as an administrator** and start again; it writes a fresh seal. A standard user cannot delete it, which is the point |
 
 Two of these have a failure mode worth knowing about, because they are indistinguishable from the
 real thing: a hostile account on the machine can create the mutex first with a closed DACL, or drop
 a bogus `machine.json` in place. Both show as the rows above. There is no way to tell them apart
 without elevation, and the ADR explains why that is accepted rather than solved.
 
-The verdict is in the log too — `instance.claim`, with the reason as its message. **The machine id
-is never in the log**, so there is nothing to redact before sending one to someone.
+The verdict is in the log too — `instance.claim`, with the reason as its message. A refused launch
+does write that line, so `%APPDATA%/hecaton/logs` exists and has an entry even when nothing else
+was created. **The machine id is never in the log**, so there is nothing to redact before sending
+one to someone.
 
 ---
 
@@ -205,6 +207,11 @@ A previous instance is still alive with its windows hidden, holding the single-i
 second launch takes `requestSingleInstanceLock()`, loses, and quits silently — which is the
 designed behaviour and looks identical to "the app is broken".
 
+**One more shape of "nothing happens", and it is brief:** the machine claim shells out to
+PowerShell, and if that process never answers, the claim waits fifteen seconds before failing open
+and starting the app anyway. A launch that stalls that long and then works normally is this, not a
+hang.
+
 **Since ADR-0018 this covers less ground than it used to.** A second launch that gets past
 Electron's own lock now hits the machine claim, and that one is never silent: it opens a small
 window naming the reason. So "nothing at all happens" narrowed to the same-session case — same
@@ -212,13 +219,14 @@ Windows account, same logon session, same Electron user-data directory. Anything
 refusal screen, and the section below is the one to read.
 
 Until 2026-08-09 it could get into that state on its own. `before-quit` calls
-`event.preventDefault()` and re-issues `app.quit()` only after both PowerShell workers are
-disposed, and `dispose()` waited for the worker's reply to `exit` **with no deadline**. A worker
+`event.preventDefault()` and re-issues `app.quit()` only after its PowerShell workers are disposed
+— three of them now, Win32, WASAPI and the machine-lock mutex (ADR-0018) — and `dispose()` waited for the worker's reply to `exit` **with no deadline**. A worker
 that neither answered nor died left the app running forever with no window to close. Observed
 once, nine minutes in and still going, with both workers alive.
 
-Both workers now bound that wait (`GRACEFUL_EXIT_MS`) and kill the process either way, so the
-shutdown cannot stall on a silent worker. If you see this on an older build, or from some other
+The two persistent workers now bound that wait (`GRACEFUL_EXIT_MS`) and kill the process either
+way, and the mutex worker bounds its own at a second, so the shutdown cannot stall on a silent
+worker. If you see this on an older build, or from some other
 cause:
 
 **What to do**
@@ -227,8 +235,13 @@ cause:
 taskkill /IM electron.exe /F
 ```
 
-Then check for orphaned workers, because a killed app cannot clean up after itself — this is the
-one case where they outlive it:
+Then check for orphaned workers, because a killed app cannot clean up after itself — the Win32 and
+WASAPI workers are the one case where they outlive it. **The machine-lock worker is not**, and that
+is measured rather than assumed: `taskkill /F` on the parent, without `/T`, and it is gone within
+four seconds and the machine is claimable again. The difference is structural — the mutex worker
+does nothing but wait on stdin, so it always notices the pipe close, while a worker blocked inside
+a command (a `SendMessage` to a hung browser window) is not reading stdin at all. So a force-killed
+Hecaton never locks the machine out; that is why ADR-0018 chose a mutex over a lock file.
 
 ```
 powershell "Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" | Select ProcessId, ParentProcessId"

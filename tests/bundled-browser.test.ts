@@ -104,7 +104,7 @@ describe('the revision pin is the same one the release ritual describes', () => 
 })
 
 describe('every integration suite that drives a browser drives the one the app ships', () => {
-  // Three of the nine integration suites drive a browser, and all three used to
+  // Three of the integration suites drive a browser, and all three used to
   // reach for an installed Google Chrome. Two let `describe.skipIf` remove the
   // suite when none was found — harmless while the app required Chrome, and a
   // silent hole the moment the README said there is no browser to install: on a

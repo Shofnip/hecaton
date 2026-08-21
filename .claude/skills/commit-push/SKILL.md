@@ -59,8 +59,8 @@ failure blocks the commit anyway — running it first just means finding out soo
 **Integration tests are not part of this.** They launch the browser the app ships (fetch it
 first with `node scripts/fetch-chromium.mjs`) and move real windows,
 take minutes, and are run deliberately: `npm run test:integration`. Run them when you
-touched `browser-engine`, `window-manager` or `storage`, and say in the commit message
-that you did.
+touched `browser-engine`, `window-manager`, `storage` or `machine-lock`, and say in the commit
+message that you did.
 
 ## 3. Stage explicit paths
 

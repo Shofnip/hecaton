@@ -143,8 +143,8 @@ npm run test:integration  # the real browser, real windows, real disk — Window
 The codebase is a small monorepo: a pure, I/O-free `packages/core` (grid math, slot state machine,
 registry, config, the orchestrator, the IPC contract) tested in the fast suite against fakes, and
 thin adapters behind narrow ports — the bundled browser via spawn and per-process audio (`browser-engine`),
-window embedding over Win32 (`window-manager`), disk and logs (`storage`) — covered by the
-integration suite. The Electron shell lives in `apps/shell`; the game registry in `packages/games`.
+window embedding over Win32 (`window-manager`), disk and logs (`storage`), the machine lock and
+hardware seal (`machine-lock`) — covered by the integration suite. The Electron shell lives in `apps/shell`; the game registry in `packages/games`.
 
 The fast suite must stay fast, so it is worth running in a loop. Anything that launches a process,
 moves a window or touches disk goes in `*.integration.test.ts`. Strict TDD throughout — see
@@ -157,9 +157,12 @@ rotated logs, and the per-slot browser profiles under `profiles/`. Nothing the a
 written into the repository — a profile _is_ a logged-in session (cookies, saved passwords), and
 keeping it out of the working tree removes that risk at the source.
 
-A screen set to a **clean session** is the one exception: its profile is a throwaway directory
-under the OS temp folder, removed when the screen stops. If the app is killed before that, the
-directory survives until Windows reclaims it — worth knowing on a shared machine.
+Two things live outside that directory. A screen set to a **clean session** keeps its profile in a
+throwaway directory under the OS temp folder, removed when the screen stops; if the app is killed
+before that, the directory survives until Windows reclaims it — worth knowing on a shared machine.
+And the machine seal at `C:\ProgramData\hecaton\machine.json` (see Requirements above) holds a
+hash of your hardware and nothing of yours, which is why _Apagar todos os meus dados_ leaves it
+alone.
 
 The app **never stores passwords** — logins live only inside the bundled browser's own profile. No
 profile data leaves the machine, and there is no telemetry.
@@ -170,7 +173,9 @@ no usage, not even which version you are on, since the comparison happens on you
 is downloaded or installed either: if there is a newer version, the app offers to open the release
 page in your browser and the rest is yours.
 
-**Configurações → Seus dados** names both of those locations and opens the first. Beside it,
+**Configurações → Seus dados** names `%APPDATA%/hecaton` and the temp folder, and opens the first.
+It does not mention the machine seal — that is named on the refusal screen, which is the only place
+it matters. Beside it,
 **Apagar todos os meus dados** deletes `%APPDATA%/hecaton` — profiles, config and logs — after an
 explicit confirmation, and closes the app. It is the only way the app deletes a profile that is
 still in use, there is no command-line equivalent, and every screen has to be stopped before it
@@ -182,6 +187,7 @@ will run.
 - [`docs/adr/`](docs/adr/README.md) — one immutable record per decision, including what was rejected and why
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) — problems already hit, by the symptom you see first
 - [`docs/releasing.md`](docs/releasing.md) — cutting a release, and the checks no test performs
+- [`docs/design/design.md`](docs/design/design.md) — the video-wall UI spec the renderer is built to
 - `CLAUDE.md` — rules that are not derivable from the code
 
 ## License

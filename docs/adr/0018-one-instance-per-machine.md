@@ -2,10 +2,14 @@
 
 **Status:** Accepted · **Date:** 2026-08-20
 
-Supersedes, in part, [ADR-0015](0015-what-the-app-deliberately-does-not-collect.md): its
-"**no installation id**, the app stores no identifier of any kind" now has one exception, written
-out below. Everything else in 0015 stands — no metrics, no accounts, no monetization, no network
-call beyond the update check, and nothing leaving the machine.
+Supersedes, in part, two earlier decisions, one sentence each.
+[ADR-0015](0015-what-the-app-deliberately-does-not-collect.md)'s "**No pseudonymous id exists**, so
+the app stores no identifier of any kind" now has one exception, and
+[ADR-0004](0004-appdata-over-repo-dir.md)'s "everything the app writes goes to `%APPDATA%`" gains a
+**second** exception — its own 2026-07-21 Correction already narrowed that rule to state the app
+_persists_, because clean-session profiles go to the OS temp directory. What 0015 gives up is the
+identifier; what 0004 gives up is the location; both are the same file, described below. Everything else in either ADR stands — no metrics, no accounts, no
+monetization, no network call beyond the update check, and nothing leaving the machine.
 
 ## Context
 
@@ -24,9 +28,10 @@ person runs one farm. That is a control aimed at the user, which is worth saying
 place where a future session will read it, because it explains why the layers below are shaped the
 way they are: they are aimed at someone who is not trying to defeat them.
 
-Four probes fed this. P7 measured which hardware fields are real on a physical machine; P6
+Five probes fed this. P7 measured which hardware fields are real on a physical machine; P6
 measured the mutex and the `ProgramData` ACLs; P6b crossed a real session boundary to close P6's
-one open question; P6c ran the whole thing through the built app.
+one open question; P6c ran the whole thing through the built app; P6d measured that a force-killed
+parent leaves no stale mutex, and why that does not generalise to the other two workers.
 
 ## Decision
 
@@ -38,9 +43,21 @@ adapters below hold none of it.
 process. A standard user can create one without `SeCreateGlobalPrivilege` (that privilege governs
 file-mapping objects, not mutexes), and the **default** security descriptor is exactly what is
 wanted: it names SYSTEM, the creator's logon session and the creator's user SID, and nobody else.
-So the two cases separate cleanly by exception — `WaitHandleCannotBeOpenedException` means free,
-`ACCESS_DENIED` means another Windows account holds it — with no custom DACL, no lock file, and no
-stale lock to clean up, because a kernel object dies with its last handle.
+So the three cases separate cleanly, with no custom DACL and no lock file. **Free and
+same-account are told apart by the constructor's `createdNew` out-parameter**, not by an exception:
+the constructor creates the object when the name is unused and opens it when it is not.
+**`ACCESS_DENIED` is the one that arrives as an exception**, and it means another Windows account
+holds it. (`WaitHandleCannotBeOpenedException` is handled too, but it is a defensive fallback — it
+means the name is taken by a different kind of wait handle — not the ordinary free path. Dropping
+the out-parameter to "simplify" the worker would make a second instance of the same account read as
+free, which is the whole layer.)
+
+And there is **no stale lock to clean up**, because a kernel object dies with its last handle. That
+is measured, not reasoned: probe P6d force-killed the parent with `taskkill /F`, without `/T`, and
+the worker was gone within four seconds with the name claimable again. It holds here because the
+mutex worker does nothing but wait on stdin, so it always notices the pipe close — unlike the Win32
+and WASAPI workers, which can be blocked inside a command and are the orphans
+`docs/troubleshooting.md` records.
 
 A mutex opened _successfully_ means the same Windows account already has one running, which is a
 different message to show than another account's; the code says `held-by-this-user`, not
@@ -51,8 +68,9 @@ account therefore opens it fine.
 `Win32_ComputerSystem.Manufacturer` and `Model` against a list of markers.
 
 **3 — A hardware seal at `C:\ProgramData\hecaton\machine.json`**, written on the first allowed
-launch and never rewritten. A machine whose seal does not match is refused. This is the only file
-the app writes outside its own data directory.
+launch and never rewritten. A machine whose seal does not match is refused. It is the only thing
+the app **persists** outside its own data directory — the throwaway clean-session profiles under
+`%TEMP%` (ADR-0005) are the other place it writes, and they are deleted on stop.
 
 **What identifies a machine:** `Win32_ComputerSystemProduct.UUID`, required, plus
 `Win32_BaseBoard.SerialNumber` when it is not an OEM placeholder. **What is stored is a plain
@@ -61,15 +79,24 @@ someone's SMBIOS identifiers to every account on their machine — and to anyone
 is a disclosure the seal does not need to make. The digest is unsalted on purpose: a salt would
 have to ship inside a public-source binary or sit beside the file it protects.
 
-**The machine id never reaches the log, in any form, not even truncated.** The log records the
-event and the verdict — words like `virtual-machine`, `foreign-machine` — and nothing else. This is
-the same rule that keeps urls out of the log, applied for the same reason: this project's
-diagnostic path is asking a user to send a log file to someone.
+**The machine id never reaches the log, in any form, not even truncated.** `instance.claim` records
+the verdict and nothing else — words like `virtual-machine`, `foreign-machine`. Two neighbouring
+events do carry a free-form error string, `instance.seal-failed` and `instance.claim-failed`, and
+neither can contain the id either; all three are redacted at the logger boundary like every other
+entry, and `docs/architecture.md` keeps the current inventory of emitters. This is the same rule
+that keeps urls out of the log, applied for the same reason: this project's diagnostic path is
+asking a user to send a log file to someone.
 
 **One deliberate fail-open, and one deliberate fail-closed.** A machine identity that cannot be
 read at all lets the app start: that is this app's own instrument failing, and charging the user
-for it is wrong. A seal that disagrees — or that exists and will not parse — refuses: that is
-positive evidence, not an absence.
+for it is wrong. A seal that disagrees refuses — that is positive evidence, not an absence — and so
+does a seal that exists and **cannot be read for any reason at all**, since `claimInstance` catches
+every error from the load and only a missing file comes back as "no seal". A seal that cannot be
+read is a seal that cannot be verified; the recourse is the same one the screen already gives.
+
+The two are ordered, and the order matters: **both refusal branches sit inside the identity check**,
+so a machine that could not be identified is not refused over its seal either. The fail-open wins,
+and that case has its own test.
 
 **The recourse for a legitimate refusal is stated on the refusal screen.** Replacing a motherboard
 changes the identity, and the honest answer is that the user must delete the seal **as an
@@ -116,18 +143,23 @@ Recorded once here so a later session does not read any of it as a bug to fix.
   `config.json` now names a lock that actually spans the machine. P6c confirmed the ordering end to
   end: a refused launch wrote no `config.json` at all.
 - **ADR-0015's "no identifier of any kind" is now false as written**, and this is the whole of the
-  exception: one sha256 of two hardware fields, in one file, on the user's own disk. Nothing
+  exception: one sha256 of the product UUID — plus the board serial when that is not an OEM
+  placeholder — in one file, on the user's own disk. Nothing
   derived from it is sent anywhere, and there is still no network surface beyond the update check,
   so **"there is no telemetry" in `README.md` stays true**.
-- **The app writes outside its own data directory for the first time.** An audit of "what does this
-  app touch" now has a third answer — `%APPDATA%/hecaton`, the temp directory for clean-session
+- **The app persists something outside its own data directory for the first time.** An audit of
+  "what does this app touch" now has a third answer — `%APPDATA%/hecaton`, the temp directory for clean-session
   profiles (ADR-0005), and `C:\ProgramData\hecaton`. `data:deleteAll` does **not** remove the seal:
   it deletes the user's data, and the seal is the machine's.
-- **A legitimate user can be refused**, by a motherboard swap or by a guest whose vendor strings
-  look like a hypervisor's. Both have a stated recourse and neither is silent.
+- **A legitimate user can be refused**, by a motherboard swap or by physical hardware whose vendor
+  strings look like a hypervisor's. Neither is silent, but only the first has a recourse: delete
+  the seal as an administrator. **The hypervisor refusal is a dead end by design** — an override
+  would be a flag that removes the layer, so the screen names the cause and offers nothing.
 - **A new failure mode at start-up runs before the panel**, so anything that throws there is a
   window that never opens. That is why the identity adapter never throws, the lock reports free
-  when its worker fails to run, and the call site treats an unresolvable seal path as `allow`.
+  when its worker fails to run, and the call site treats an unresolvable seal path as `allow`. The
+  cost is that all three layers can be absent without anyone noticing: of those three paths, only
+  the last writes a log line.
 - **The two-account case is still an inference**, though a much narrower one than it was: P6b
   observed `ACCESS_DENIED` across a real session boundary from a different security context, and
   the adapter's integration test exercises the classification against a real kernel denial on

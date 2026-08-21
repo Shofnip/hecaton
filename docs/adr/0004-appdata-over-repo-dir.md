@@ -1,6 +1,13 @@
 # ADR-0004 — Everything the app writes goes to `%APPDATA%`, including in development
 
-**Status:** Accepted · **Date:** 2026-07-21
+**Status:** Superseded in part by [ADR-0018](0018-one-instance-per-machine.md) · **Date:** 2026-07-21
+
+> **Superseded in part by [ADR-0018](0018-one-instance-per-machine.md) (2026-08-20):** one file is
+> now written outside `%APPDATA%` — the machine seal at `C:\ProgramData\hecaton\machine.json`,
+> holding a sha256 and nothing else. It has to be shared by every Windows account on the machine,
+> which `%APPDATA%` cannot be. The substance of this ADR is untouched: everything the app persists
+> **on the user's behalf** — config, logs, profiles — is still under `%APPDATA%/hecaton` in
+> development and in production alike, and nothing is ever written into the repository.
 
 ## Context
 
