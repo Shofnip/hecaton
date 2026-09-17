@@ -8,6 +8,27 @@ lido sem abrir o aplicativo e antes de instalar qualquer coisa.
 Escrito para quem usa, não para quem programa. O histórico técnico completo está
 nos commits.
 
+## 0.2.0
+
+O aplicativo passou a se bastar: ele traz o próprio navegador e vem em um
+instalador.
+
+- **Não precisa mais ter o Chrome instalado.** O Hecaton traz o navegador dele,
+  e é sempre esse que abre as telas. Some daí a pergunta "qual Chrome está
+  rodando?" e somem as surpresas quando o seu navegador se atualiza sozinho.
+- **Instalador no lugar da pasta zipada.** Você escolhe onde instalar, aparece
+  em _Aplicativos e recursos_ e tem atalho no menu Iniciar. Desinstalar **não**
+  apaga seus logins — para isso continua existindo _Configurações → Zona de
+  risco → Apagar todos os meus dados_.
+- **Um Hecaton por computador.** Abrir um segundo agora avisa em vez de duas
+  cópias disputarem os mesmos perfis.
+- Os relatórios de erro não guardam mais o nome da sua conta do Windows.
+
+**Se você usava a 0.1.0**, a pasta que você extraiu do zip continua onde estava —
+o instalador não conhece e não remove ela. Depois de conferir que a versão nova
+abre, pode apagar essa pasta à mão. Seus logins não estão lá dentro: eles ficam
+em `%APPDATA%\hecaton` e as duas versões usam os mesmos.
+
 ## 0.1.0
 
 Primeira versão.

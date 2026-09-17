@@ -104,9 +104,10 @@ ambiguous at the one moment it matters, which is when Turnstile rejects one.
 
 - **The pin** is a `chromium-browser-snapshots` revision with a SHA256, both in
   `scripts/fetch-chromium.mjs`. The binary is never committed; the script downloads it, **verifies
-  the hash before unpacking anything**, removes seven files the app does not ship (798 MB → 440 MB,
-  the largest being Chromium's own 358 MB UI-test binary), and links the tree under Electron's
-  resources directory for development.
+  the hash before unpacking anything**, removes seven files the app does not ship — leaving 445 MB
+  in 251 files on the revision pinned today, and on the previous pin the same seven took 798 MB down
+  to 440 MB, the largest being Chromium's own 358 MB UI-test binary — and links the tree under
+  Electron's resources directory for development.
 - **One load path.** `bundledBrowserPath(process.resourcesPath)` joins on
   `chromium\chrome-win\chrome.exe`. `extraResources` puts the tree there in the package and the
   fetch script's junction puts it there in development, so there is no `app.isPackaged` branch and
@@ -234,7 +235,7 @@ hecaton/
     storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/hecaton
     games/              # registry - one file per integrated game
   scripts/              # fetch-chromium.mjs: the pinned browser, verified and unpacked
-  vendor/                 # where it lands (gitignored, 440 MB) - see ADR-0016
+  vendor/                 # where it lands (gitignored, 445 MB) - see ADR-0016
   tests/                # checks on the repository itself, not on any package
   docs/architecture.md
 ```
@@ -427,6 +428,20 @@ A long-running orchestrator with child processes fails silently by default. Acti
   sayable in one sentence, and it fails at the moment the user can act — a named error on load rather
   than a slot that crashes later. The cost is that a config with a malformed `gameId` no longer
   loads at all, which is this file's rule for every other field.
+
+- **The second redaction: the Windows account name, added 2026-09-17.** `redactUrls` never claimed
+  to cover filesystem paths, and the security review of that date found what that left. The
+  launcher's own failure message is `the browser did not start for profile <path> within 20000ms`,
+  `Orchestrator.recordFailure` puts it into `slot.crash` verbatim, and that path is under
+  `%APPDATA%/hecaton/profiles` — which begins with the account name. A clean-session slot's temp
+  directory begins with it too. It had never been written on the owner's machine, because that
+  failure path had never fired there; **latent is not absent**, and the log is the file this project
+  asks people to hand to a friend. `redactUserPaths`, beside `redactUrls` in the same file, replaces
+  `C:\Users\<name>` with `[user]` and keeps everything below it — which slot's profile, and whether it
+  was the throwaway one, is the whole diagnostic value of a path. The bare directory with no name
+  after it is left alone, so a message _about_ the directory stays readable. Both redactions are
+  applied by `formatLogRecord` on the way in, so a written line is the only kind there is. Accepting
+  the account name as a declared consequence was the other option on the table and was not taken.
 
   So the guarantee that holds is: the app's own inputs cannot put a URL in a log, and anything a URL
   could hide inside — `message` — is redacted. It is a tested control and it is what makes a log file
@@ -738,6 +753,79 @@ lines above the section describing the request, and a test in `security.test.ts`
 "forbids the app from making network requests at all" while asserting something narrower and true.
 Neither weakened a control; both are exactly the confusion ADR-0014 exists to prevent, arriving
 within a day of the decision it describes.
+
+### The pre-release security review, 2026-09-17
+
+The surfaces **Phase 4** created — the bundled browser, the machine lock, the installer — plus a
+re-run of the 2026-08-09 checks against the artifact that ships now, which is an installer rather
+than a zip. Recorded here for the same reason that one is: a review whose result lives only in a
+session transcript is a review nobody can re-run.
+
+**What held, in the source.** `npm audit --omit=dev` finds **nothing** in the tree that ships. The
+main process still contains exactly one `fetch`, at one call site, reached only from `update:check`,
+and one `shell.openExternal`, both handed constants — and the body ceiling is still enforced after
+reading rather than from `content-length`, which probe P3 measured as absent on the real response.
+The preload still exposes a fixed set of named methods and no channel taken from the caller, and the
+IPC guard still refuses any frame that is not the panel or the overlay. Every slot still launches
+with its own `--user-data-dir`, no remote-debugging port and `--disable-extensions`. The WMI filter
+still doubles apostrophes and refuses a path where a file name belongs. On the machine lock: the
+mutex name is a module constant rather than anything a caller supplies, the seal carries one field,
+the machine digest is **never handed to the logger at all**, and `blocked.html` carries no script and
+its own CSP. In the NSIS include, the directory removal is still a bare `RMDir`, which is what makes
+a malformed define a no-op instead of erasing `%LOCALAPPDATA%`.
+
+**What held, in the artifact** — built here from this tree, `electron-builder` 26.15.3, Electron
+43.7.1, 355 asar entries. No `@hecaton/*/src/`, no `*.test.ts`, no `core/src/testing/` fakes, no
+`spike/`. **And no third-party `src/` either**, which is a change worth naming rather than a
+correction: the 2026-08-09 review measured ~20 such entries from `node-addon-api` and
+`node-window-manager`, and this build has none, so the grep that review warns about — twenty
+harmless hits hiding the one that would matter — now returns nothing at all. The packaged
+`index.html` carries the identical CSP, the packaged main still uses `loadFile` and never `loadURL`,
+`LICENSE.txt`/`NOTICE.txt`/`CHANGELOG.txt` sit beside the exe with the changelog carrying this
+version's section, `resources\elevate.exe` is present as ADR-0019 says it will be, and `Hecaton.exe`
+reports `NotSigned`, which is the decision and not an accident. The bundled browser is
+`156.0.8065.0` in 251 files, with **all seven** unshipped executables absent. Launched with `APPDATA`
+redirected to a throwaway directory — asserted by looking at what was written, not assumed — it
+claimed the instance (`instance.claim` / `allow`), wrote its logs and Electron cache **only** inside
+that directory with nothing landing in the real `%APPDATA%/hecaton`, and painted the panel with the
+first-run terms warning over it.
+
+**What it found.** Six things, none of them a way in, and the two that mattered were clocks rather
+than defects:
+
+1. **The Electron pin was three patch releases behind** — `43.4.0` (Chromium 150.0.7871.224) against
+   `43.7.1` (150.0.7871.250). Raised to `43.7.1`, which is the conservative half of the choice: the
+   43 line is still supported, and moving to 44 would have been a new major under the panel and the
+   native modules. `npm run check` and the whole integration suite are green on it.
+2. **The bundled browser was a month behind trunk** — revision `1682878` against a `LAST_CHANGE` of
+   `1699959`. Raised, by hand and hash-first the way `docs/releasing.md` requires. This is the pin
+   that only a release moves, so a release that skipped it would have shipped August's browser.
+3. **The Windows account name could reach a log**, through a filesystem path in a failure message.
+   Fixed at the logger boundary; the whole reasoning is under _Errors and logging_ above.
+4. **The workflows pinned GitHub's actions by major tag**, resolving a build input at build time in
+   the one job that produces an unsigned binary. Now pinned by commit sha, version in a comment.
+5. **`fetch-chromium.mjs` interpolated a path into a PowerShell literal without doubling
+   apostrophes** — the rule `browser-process-query.ts` already applies. Fixed. It is a development
+   and CI script and the path is the repository's own, so this is a hardening, not a hole.
+6. **`powershell` is resolved through `PATH`** in all seven shell-outs rather than by absolute path.
+   Left as it is, deliberately: anyone who can prepend to that `PATH` already runs code as this user,
+   so the change buys nothing the attacker has not already got.
+
+**Three things named rather than fixed**, because they cost bytes and not safety. The package ships
+16 source maps — six from `node-window-manager` and `extract-file-icon`, ten from the app's own
+`dist/` — and the `!node_modules/@hecaton/*/dist/**/*.map` negation covers neither group; none
+carries `sourcesContent`, so they are dead bytes rather than source. It also ships six
+`tsconfig.json` and six `tsconfig.tsbuildinfo` from the workspace packages, ~41 KB each; the
+`tsbuildinfo` files were **read** rather than assumed, and hold relative paths only — no build-machine
+path travels in them. And `npm install` now warns that `electron-winstaller@5.4.0`, new under
+`electron-builder`, has install scripts not covered by `allowScripts`. It stays uncovered: this build
+targets NSIS and never runs it, and approving an install script the product does not need is the
+opposite of why that list exists.
+
+**What this review did not cover.** The three re-measurements a raised browser revision obliges —
+Turnstile against a real login, the seven stripped files exercised through a running slot, and the
+window geometry — are in `docs/releasing.md` and belong to the person cutting the release, not to a
+static inspection.
 
 ## Verification
 

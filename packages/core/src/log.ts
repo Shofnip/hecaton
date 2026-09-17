@@ -11,6 +11,11 @@
  * the entry type has none — and not inside a message, which is why redaction
  * scrubs the message text rather than trusting callers to keep urls out of it.
  * Several of this project's own error messages embed the offending url.
+ *
+ * A second thing is scrubbed for the same reason, added by the security review
+ * of 2026-09-17: the Windows user directory, which is where the account name
+ * sits. A log is the file this project asks people to hand to a friend, and the
+ * launcher's own timeout message quotes the profile path.
  */
 
 export type LogLevel = 'info' | 'warn' | 'error'
@@ -38,6 +43,9 @@ export interface Logger {
 
 const URL_PATTERN = /https?:\/\/[^\s'"]+/g
 
+/** `C:\\Users\\<name>`, in either slash and any casing. The name is the point. */
+const USER_DIRECTORY = /[A-Za-z]:[\\/]users[\\/][^\\/\s'"]+/gi
+
 /**
  * Replaces every http(s) url in a string with a placeholder.
  *
@@ -49,6 +57,22 @@ const URL_PATTERN = /https?:\/\/[^\s'"]+/g
  */
 export function redactUrls(text: string): string {
   return text.replace(URL_PATTERN, '[url]')
+}
+
+/**
+ * The Windows user directory, wherever it appears in a string.
+ *
+ * `C:\\Users\\<name>` and nothing below it: the account name is the identifying
+ * part, and everything after it — which slot's profile, whether it was the
+ * throwaway one under Temp — is the whole diagnostic value of a path. Any drive
+ * letter, either separator, any casing, because that is what Windows hands back.
+ *
+ * The bare directory with no name after it is left alone. Nothing identifies
+ * anybody there, and rewriting it would make a message *about* the directory
+ * unreadable.
+ */
+export function redactUserPaths(text: string): string {
+  return text.replace(USER_DIRECTORY, '[user]')
 }
 
 /**
@@ -107,6 +131,6 @@ export function formatLogRecord(entry: LogEntry, timestamp: string): LogRecord {
   if (entry.slotId !== undefined) record.slotId = entry.slotId
   if (entry.gameId !== undefined) record.gameId = entry.gameId
   if (entry.pid !== undefined) record.pid = entry.pid
-  if (entry.message !== undefined) record.message = redactUrls(entry.message)
+  if (entry.message !== undefined) record.message = redactUserPaths(redactUrls(entry.message))
   return record
 }

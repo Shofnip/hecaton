@@ -17,6 +17,16 @@
 # because D12 named build-time packages the largest new surface of this phase: a
 # compromised one injects straight into the binary other people execute, and with
 # no signature nothing downstream would notice.
+#
+# The three that remain are GitHub's own and are pinned **by commit sha**, with the
+# version in a trailing comment, since the security review of 2026-09-17. A tag is
+# a moving pointer: `@v5` is whatever that tag names on the day the job runs, and
+# the argument above - an unsigned binary, nothing downstream noticing - is exactly
+# the argument against resolving a build input at build time. The cost is that
+# raising one is now an edit here rather than nothing, which is the same trade as
+# every other pin in this project. `docs/releasing.md` does not list these: they
+# are not a security clock the way Chromium is, and an action that stops working
+# fails the job loudly rather than silently.
 
 name: Release
 
@@ -41,9 +51,9 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -171,7 +181,7 @@ jobs:
           }
 
       # Kept even when not publishing, so a workflow_dispatch run is inspectable.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: hecaton-installer
           path: |

@@ -382,7 +382,7 @@ problem rather than yours.
 node scripts/fetch-chromium.mjs
 ```
 
-It re-links in about a second if `vendor/chromium` is already there, and downloads 354 MB if it is
+It re-links in about a second if `vendor/chromium` is already there, and downloads 340 MB if it is
 not. It refuses to unpack anything whose SHA256 does not match the pin, so a failure here is a
 failure to verify, never a silent partial install.
 

@@ -49,9 +49,9 @@ Currently pinned, in `scripts/fetch-chromium.mjs`:
 
 |          |                                                                    |
 | -------- | ------------------------------------------------------------------ |
-| Revision | `1682878`                                                          |
-| Version  | `154.0.8014.0`                                                     |
-| SHA256   | `ca3ee2bc84c81de987d7a9091e0bfe5024d905838c06429a4f3732e9d9d5e4a2` |
+| Revision | `1699959`                                                          |
+| Version  | `156.0.8065.0`                                                     |
+| SHA256   | `e26d2f77c37e98e2d537cc550b0cd04e7e456e74340f4db1ffb20db820bb8d08` |
 
 `tests/bundled-browser.test.ts` holds this table to the script, so the two cannot describe different
 revisions.
@@ -186,7 +186,7 @@ the guard would fire, and it never gets the chance, because `npm run package` ex
 fails the job before the hash is computed. The order of those two steps is the control.
 
 **`npm audit --omit=dev` runs in that job**, so an advisory that reaches the **shipped** tree fails
-the build. Note what it does not see: 440 MB of bundled Chromium is not an npm dependency, and its
+the build. Note what it does not see: 445 MB of bundled Chromium is not an npm dependency, and its
 security posture is step 1's pin and nothing else. Build-time advisories are accepted deliberately — they are denial-of-service issues in
 tooling that runs on the build machine, over patterns the build itself supplies — and that
 acceptance is what this step keeps honest rather than remembered. If it fails, read what it is

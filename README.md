@@ -47,7 +47,7 @@ target game: **Poke IdleWorld**; any `https://` URL works too.
 
 Building from source needs **Node 22.12+** as well (Electron 43 requires it, and Vitest 4 pulls in a
 Vite that does too), plus
-about **1.2 GB of free disk** for the browser step below, 440 MB of it permanent; running a release
+about **1.2 GB of free disk** for the browser step below, 445 MB of it permanent; running a release
 needs neither.
 
 ## Install
@@ -56,7 +56,7 @@ Download `Hecaton-<version>-win-x64.exe` from the
 [releases page](https://github.com/Shofnip/hecaton/releases/latest) and run it. It installs for your
 Windows account only, into `%LOCALAPPDATA%\Programs\Hecaton` by default — you can point it
 somewhere else on the way through, which is worth doing if your `C:` is tight, because the app is
-**792 MB installed** and most of that is the browser it ships. It never asks for administrator
+**809 MB installed** and most of that is the browser it ships. It never asks for administrator
 rights. Uninstalling is the usual Windows way, from _Apps & features_, and it takes the whole
 folder with it.
 
@@ -113,10 +113,10 @@ node scripts/fetch-chromium.mjs
 
 That downloads a pinned Chromium revision, **verifies its SHA256 before unpacking anything**, drops
 the files the app does not ship, and links the result where both the development run and the
-packaged build look for it. It is a 354 MB download the first time and a second the next, since the
+packaged build look for it. It is a 340 MB download the first time and a second the next, since the
 unpacked tree lives in `vendor/` and survives `npm install` — only the link under `node_modules`
 has to be remade. Budget **~1.2 GB while it runs** — the verified zip is only deleted once the tree
-is unpacked and stripped — and **440 MB** left in `vendor/` afterwards.
+is unpacked and stripped — and **445 MB** left in `vendor/` afterwards.
 The binary is not in git: what is pinned is the revision and the hash, in
 `scripts/fetch-chromium.mjs`.
 

@@ -52,9 +52,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // receives no stable-branch security backports. That was the owner's decision, and
 // what it costs is written down in ADR-0016 rather than discovered later.
 // ---------------------------------------------------------------------------
-const REVISION = '1682878'
-const SHA256 = 'ca3ee2bc84c81de987d7a9091e0bfe5024d905838c06429a4f3732e9d9d5e4a2'
-const VERSION = '154.0.8014.0'
+const REVISION = '1699959'
+const SHA256 = 'e26d2f77c37e98e2d537cc550b0cd04e7e456e74340f4db1ffb20db820bb8d08'
+const VERSION = '156.0.8065.0'
 const URL = `https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/${REVISION}/chrome-win.zip`
 
 /**
@@ -63,8 +63,11 @@ const URL = `https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/$
  * An allowlist would be better and is not practical for 261 files of somebody
  * else's build, so this is the deliberate opposite: a named list of what is
  * dropped, each entry with a reason, in the same spirit as the `files` allowlist
- * in electron-builder.yml. Measured 2026-08-20: removing these takes the tree
- * from 798 MB / 261 files to 440 MB / 254 files, and the browser still launches,
+ * in electron-builder.yml. Measured 2026-08-20 on revision 1682878: removing
+ * these takes the tree from 798 MB / 261 files to 440 MB / 254 files. Re-measured
+ * 2026-09-17 on revision 1699959, which is what raising the pin obliges: the
+ * archive holds 258 entries, all seven were still there to remove, and what is
+ * left is 251 files / 445 MB. On the older revision the browser still launches,
  * is found by the WMI filter, keeps ADR-0011's window geometry to the pixel,
  * spawns its renderer, GPU and `utility:audio.mojom.AudioService` children, and
  * exits `Normal`.
@@ -180,6 +183,13 @@ function unpack() {
   log('unpacking')
   // .NET rather than Expand-Archive: measured at seconds against minutes, and it
   // rejects entries that would land outside the destination.
+  // Both paths are doubled before they go inside a single-quoted PowerShell
+  // literal, the same rule browser-process-query.ts applies: a clone under a
+  // directory holding an apostrophe would otherwise close the string and hand
+  // the rest of the path to the parser as code. Named by the security review of
+  // 2026-09-17; the paths come from the repository's own location rather than
+  // from a user, which is why it is a hardening rather than a hole.
+  const quote = (path) => path.replace(/'/g, "''")
   execFileSync(
     'powershell',
     [
@@ -187,7 +197,7 @@ function unpack() {
       '-NonInteractive',
       '-Command',
       `Add-Type -AssemblyName System.IO.Compression.FileSystem; ` +
-        `[System.IO.Compression.ZipFile]::ExtractToDirectory('${ZIP}', '${VENDOR}')`,
+        `[System.IO.Compression.ZipFile]::ExtractToDirectory('${quote(ZIP)}', '${quote(VENDOR)}')`,
     ],
     { stdio: 'inherit' },
   )
