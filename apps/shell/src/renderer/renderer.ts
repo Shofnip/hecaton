@@ -439,7 +439,8 @@ function showToast(message: string): void {
  * cannot miss.
  *
  * It was to appear in three places. The installer's licence page was the one that
- * could not be skipped past, and it went with the installer; a zip carries
+ * could not be skipped past, and it went with the installer - twice now, since the
+ * installer came back and went again (ADR-0019, ADR-0020); a zip carries
  * `LICENSE.txt` and `NOTICE.txt` but no README. So this is the whole of it, which
  * is why the same text is also reachable from Configurações afterwards rather
  * than shown once and lost.

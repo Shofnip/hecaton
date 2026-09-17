@@ -1,7 +1,13 @@
 # ADR-0013 — The distribution posture: a portable, unsigned zip under Apache-2.0
 
-**Status:** Superseded in part by [ADR-0019](0019-an-assisted-installer-for-a-792-mb-app.md) ·
+**Status:** Accepted; its format was superseded in part by
+[ADR-0019](0019-an-assisted-installer-for-a-792-mb-app.md) and restored by
+[ADR-0020](0020-a-zip-the-user-extracts-not-an-installer.md) ·
 **Date:** 2026-07-29, with the packaging reversal of 2026-08-08
+
+The paragraph below was written while ADR-0019 stood and says the artifact is an installer again.
+It stopped being true on 2026-09-17 and is left as written, because an ADR records what was true
+when it was written — the Status line above is where the present lives.
 
 Only the **format** is superseded: the artifact is an assisted installer again, and the alternative
 this ADR rejected under _Alternatives rejected_ is the one that was taken. Everything else here —

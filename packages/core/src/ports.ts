@@ -10,6 +10,7 @@
  * one, that decision belongs in the core.
  */
 import type { GridCell } from './grid.js'
+import type { AppContainerReadState } from './browser-access.js'
 import type { InstanceLockState, MachineFacts } from './instance-claim.js'
 
 export interface LaunchRequest {
@@ -184,4 +185,21 @@ export interface InstanceLock {
   claim(): Promise<InstanceLockState>
   /** Releases a claim. A no-op when this process never held it. */
   release(): Promise<void>
+}
+
+/**
+ * The browser tree's ACL, as far as Chromium's own sandbox is concerned.
+ *
+ * Narrow on purpose: read a state, write the one ACE. Which state means "grant"
+ * is `browser-access.ts` in the core, so an adapter that returned
+ * `needsGrant: boolean` would be holding the rule.
+ *
+ * Both methods may throw. The core treats a failed read as `unknown` and a
+ * failed grant as a logged warning, because neither is evidence about the user.
+ */
+export interface BrowserAccess {
+  /** Whether `ALL APPLICATION PACKAGES` can read the tree at this path. */
+  readState(path: string): Promise<AppContainerReadState>
+  /** Adds that ACE, inheritable, over the whole tree. Idempotent. */
+  grantRead(path: string): Promise<void>
 }

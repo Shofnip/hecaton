@@ -1,9 +1,9 @@
 /**
  * Holds the four places that describe the artifact to each other.
  *
- * ADR-0019 made the release an assisted NSIS installer, reversing the zip of
- * ADR-0013. Four files have to agree about that without any of them being able
- * to see the others:
+ * ADR-0020 made the release a zip the user extracts, reversing the assisted NSIS
+ * installer of ADR-0019 and restoring what ADR-0013 chose. Four files have to
+ * agree about that without any of them being able to see the others:
  *
  *   - `apps/shell/electron-builder.yml` decides what is built;
  *   - `.github/workflows/release.yml` hashes, uploads and publishes it;
@@ -13,7 +13,9 @@
  * The zip lived through one release, `v0.1.0`, with all four agreeing by hand.
  * Nothing would have caught it when they disagreed, because a document describing
  * the wrong artifact still renders and a workflow globbing the wrong extension
- * fails only on the tag, after `npm run check` has already gone green.
+ * fails only on the tag, after `npm run check` has already gone green. That is
+ * what this file is for, and it is worth more now than it was then: the format has
+ * changed twice in a month.
  *
  * Deliberately string-matching against the real files rather than parsing them,
  * for the reason `bundled-browser.test.ts` gives: the yml and the workflow have
@@ -21,7 +23,7 @@
  * implementation to keep correct.
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -44,106 +46,82 @@ function section(workflow: string, stepName: string): string {
   return Number.isFinite(next) ? workflow.slice(start, next) : workflow.slice(start)
 }
 
-/**
- * The custom NSIS script with its `;` comments removed.
- *
- * The assertions about it are all of the form "this construct is/is not there",
- * and the file's comments name both constructs in order to explain them — so
- * matching the raw text would forbid the explanation, which is the mistake
- * `bundled-browser.test.ts` names when it refuses to ban the words "Program
- * Files" from a comment that says what the code used to do.
- */
-function installerScript(): string {
-  return read('apps/shell/build-resources/installer.nsh')
-    .split('\n')
-    .filter((line) => !line.trimStart().startsWith(';'))
-    .join('\n')
-}
-
 const builderConfig = read('apps/shell/electron-builder.yml')
 const releaseWorkflow = read('.github/workflows/release.yml')
 const readme = read('README.md')
 const releasing = read('docs/releasing.md')
 
-describe('the artifact is an assisted, per-user NSIS installer', () => {
-  it('builds one target, and it is nsis', () => {
-    expect(builderConfig).toMatch(/^ {2}target: nsis$/m)
+describe('the artifact is a zip the user extracts', () => {
+  it('builds one target, and it is zip', () => {
+    expect(builderConfig).toMatch(/^ {2}target: zip$/m)
   })
 
   it('builds exactly one target', () => {
-    // Not style. Probe P8 measured that the NSIS-family targets drop
-    // `resources\elevate.exe` into `win-unpacked`, which every target then
-    // packages - so a `[zip, nsis]` list would put an elevation helper inside
-    // the zip as a side effect of building both. One value, one payload.
+    // Not style. Every target packages the same `win-unpacked`, so a list is how
+    // one target's by-products end up inside another target's artifact - probe P8
+    // measured the NSIS family dropping `resources\elevate.exe` in there, which a
+    // `[zip, nsis]` list would then have zipped up. One value, one payload.
     expect(builderConfig.match(/^ {2}target: /gm)).toHaveLength(1)
     expect(builderConfig).not.toMatch(/^ {2}target:\s*$/m)
     expect(builderConfig).not.toMatch(/^ {2}target: \[/m)
   })
 
-  it('is assisted rather than one-click, which is what gives it a licence page', () => {
-    // Apache-2.0 §4 obliges the distributor to hand over the License. A
-    // one-click installer has no page to show it on - that is the whole reason
-    // this one is assisted, and ADR-0013 recorded it when the installer was
-    // first built and then dropped.
-    expect(builderConfig).toMatch(/^ {2}oneClick: false$/m)
-    expect(builderConfig).toMatch(/^ {2}license: \.\.\/\.\.\/LICENSE$/m)
+  it('carries no installer configuration at all', () => {
+    // The whole `nsis:` block went with ADR-0020, and a leftover key is not
+    // inert: electron-builder reads `nsis:` whenever an NSIS-family target is
+    // built, so a half-removed block is a decision that comes back the moment
+    // somebody adds a target to the list above.
+    expect(builderConfig).not.toMatch(/^nsis:$/m)
+    expect(builderConfig).not.toMatch(/^ {2}oneClick:/m)
+    expect(builderConfig).not.toMatch(/^ {2}include: build-resources/m)
   })
 
-  it('installs per user and asks for no elevation', () => {
-    // per-machine *and unsigned* is the worst pairing Windows offers: the
-    // yellow "Unknown publisher" dialog on every install and every update, to
-    // protect a binary a handful of people will install. ADR-0013 reversed it
-    // within the session it was proposed; the reversal survives here.
-    expect(builderConfig).toMatch(/^ {2}perMachine: false$/m)
-    expect(builderConfig).toMatch(/^ {2}allowElevation: false$/m)
+  it('ships no custom NSIS script', () => {
+    // electron-builder picks `build-resources/installer.nsh` up **by convention**,
+    // with or without an `include:` line. So the file's absence is the assertion,
+    // not the missing key above: leaving it on disk would arm a macro that only
+    // runs under a target this project no longer builds.
+    expect(existsSync(join(ROOT, 'apps/shell/build-resources/installer.nsh'))).toBe(false)
   })
 
-  it('never lets electron-builder delete the user data on uninstall', () => {
-    // The single most dangerous line that could appear in this file. Probe P1
-    // measured that an update runs the *previous* release's uninstaller in
-    // silent mode, so a delete branch is frozen into every uninstaller already
-    // handed out and can never be repaired for whoever installed. Setting this
-    // false is not the whole story and ADR-0019 says so: the generated
-    // uninstaller still honours `--delete-app-data` typed by hand. What this
-    // assertion protects is the branch that would fire without anyone typing
-    // anything.
+  it('never lets electron-builder delete the user data', () => {
+    // The single most dangerous line that could appear in this file. It belonged
+    // to the uninstaller, and with ADR-0020 there is no uninstaller - which is the
+    // reason to keep asserting rather than to stop: the way this comes back is
+    // somebody restoring an installer and carrying the convenient default with it.
+    // Probe P1 measured that an update runs the *previous* release's uninstaller
+    // in silent mode, so such a branch is frozen into every copy already handed
+    // out and can never be repaired for whoever installed.
     expect(builderConfig).not.toMatch(/deleteAppDataOnUninstall:\s*true/)
   })
 })
 
 describe('the release workflow publishes what the config builds', () => {
-  it('hashes and uploads the installer, not a zip', () => {
-    expect(releaseWorkflow).not.toContain('*-win-*.zip')
-    expect(releaseWorkflow).toContain('release/*-win-*.exe')
+  it('hashes and uploads the zip, not an installer', () => {
+    expect(releaseWorkflow).not.toContain('*-win-*.exe')
+    expect(releaseWorkflow).toContain('release/*-win-*.zip')
   })
 
   it('the glob can only match what artifactName produces', () => {
-    // The one assertion this file exists for. `release/*-win-*.exe` matches
+    // The one assertion this file exists for. `release/*-win-*.zip` matches
     // nothing unless the artifact is named the way the config names it, and
-    // electron-builder's own conventional default (`\${productName} Setup
-    // \${version}.\${ext}`) does not match it. Change one without the other and
+    // electron-builder's own conventional default (`\${productName}-\${version}
+    // -\${arch}.\${ext}`) does not match it. Change one without the other and
     // `npm run check` stays green while the tag fails at the SHA step, which is
     // exactly the failure this file was written to prevent.
     expect(builderConfig).toMatch(/^artifactName: .+-win-\$\{arch\}\.\$\{ext\}$/m)
-    // At column 0 and nowhere else: a nested `win.artifactName` or
-    // `nsis.artifactName` overrides the top-level one, and the assertion above
-    // would not see it.
+    // At column 0 and nowhere else: a nested `win.artifactName` overrides the
+    // top-level one, and the assertion above would not see it.
     expect(builderConfig).not.toMatch(/^\s+artifactName:/m)
   })
 
-  it('refuses to publish unless exactly one installer is there', () => {
-    // Not decoration. electron-builder writes the uninstaller stub beside the
-    // installer as `<name>.__uninstaller.exe`, which matches the glob. It is
-    // unlinked again on the success path, so today the count is one — by the
-    // lifetime of a temp file inside a dependency, which is not a guarantee to
-    // rest a release on.
+  it('refuses to publish unless exactly one zip is there', () => {
+    // Under the installer the second match was a real file, not a worry: the
+    // uninstaller stub electron-builder writes beside it. With the zip target
+    // nothing else writes to this glob, and the guard stays anyway - a release
+    // must not silently pick one of several files, and `release/` is only
+    // guaranteed empty on a clean checkout.
     //
-    // The count, never the order. An earlier version of this comment said the
-    // stub sorts first, from code points; measured on NTFS, `Get-ChildItem`
-    // returns the real installer first in both creation orders. So
-    // `Select-Object -First 1` was not picking the stub — it was resting on an
-    // ordering nobody had measured, which is the defect either way. The workflow
-    // comment carries the numbers.
     // Scoped to the step rather than the file: the property is that the check
     // runs where the path is resolved, and before it is handed on.
     const sha = section(releaseWorkflow, 'Compute the SHA256')
@@ -151,7 +129,7 @@ describe('the release workflow publishes what the config builds', () => {
     expect(sha.indexOf('$found.Count -ne 1')).toBeLessThan(sha.indexOf('GITHUB_ENV'))
   })
 
-  it('resolves the installer once and reuses it, rather than globbing again', () => {
+  it('resolves the zip once and reuses it, rather than globbing again', () => {
     // The guard above only protects the step it runs in. Publishing re-derived
     // the path with its own glob until 2026-08-21; now the checked path travels
     // through GITHUB_ENV, so there is one place where "which file is the
@@ -161,7 +139,7 @@ describe('the release workflow publishes what the config builds', () => {
     // leaves re-adding `Get-ChildItem … | Select-Object -First 1` to the publish
     // step green, and that is the regression itself.
     const publish = section(releaseWorkflow, 'Publish the release')
-    expect(publish).toContain('$env:HECATON_INSTALLER')
+    expect(publish).toContain('$env:HECATON_ZIP')
     expect(publish).not.toContain('Get-ChildItem')
   })
 
@@ -169,19 +147,18 @@ describe('the release workflow publishes what the config builds', () => {
     // Nothing is signed, so this is the only thing that separates an authentic
     // build from a lookalike anyone could compile from the public source. Both
     // spellings are asserted because they are different expressions of the same
-    // file: the workflow writes `$($installer.FullName).sha256` and publishes
-    // `$env:HECATON_INSTALLER.sha256`, and only the upload path spells it out in
-    // full.
-    expect(releaseWorkflow).toContain('.exe.sha256')
+    // file: the workflow writes `$($zip.FullName).sha256` and publishes
+    // `$env:HECATON_ZIP.sha256`, and only the upload path spells it out in full.
+    expect(releaseWorkflow).toContain('.zip.sha256')
     expect(releaseWorkflow).toContain('.FullName).sha256')
-    expect(releaseWorkflow).toContain('$env:HECATON_INSTALLER.sha256')
+    expect(releaseWorkflow).toContain('$env:HECATON_ZIP.sha256')
   })
 
   it('publishes the licence, the notice and the changelog loose beside the artifact', () => {
-    // They travel inside the installer as well, and land in the install
-    // directory. Loose on the release page is the copy somebody can read
-    // *before* running an unsigned executable, which is when it is worth
-    // reading.
+    // They travel inside the zip as well, and land in the extracted folder. Loose
+    // on the release page is the copy somebody can read *before* running an
+    // unsigned executable, which is when it is worth reading - and with a zip
+    // there is no licence page anywhere else.
     //
     // Collected *and* published, checked separately. Each name appears in the
     // workflow three times, so a `toContain` over the whole file stays green
@@ -211,75 +188,14 @@ describe('the release workflow publishes what the config builds', () => {
     }
   })
 
-  it('deletes the copy of itself that the installer would otherwise leave behind', () => {
-    // electron-builder copies the running installer to
-    // %LOCALAPPDATA%\<pkg>-updater\installer.exe (installer.nsh:93) for
-    // electron-updater's reinstall flow, which ADR-0014 rejected. Nothing in
-    // uninstaller.nsh removes it, so without this it is ~200 MB per install that
-    // outlives the app — and it lands on the profile's drive even when the user
-    // moved the install directory off it, which makes the README's "put it
-    // somewhere else if C: is tight" only half true.
-    expect(builderConfig).toMatch(/^ {2}include: build-resources\/installer\.nsh$/m)
-    const script = installerScript()
-    expect(script).toContain('!macro customInstall')
-    // Derived from the define, never spelled out. The directory name comes from
-    // the *workspace package* name (`@hecaton/shell` → `@hecatonshell-updater`),
-    // not from the product name — probe P1 predicted `hecaton-updater` and was
-    // wrong, which is the whole argument against writing it by hand.
-    expect(script).toContain('!ifdef APP_INSTALLER_STORE_FILE')
-    // `-updater`, not just `@hecatonshell`: the mistake this guards against is
-    // hardcoding *a* directory name, and P1 hardcoded the wrong one. Banning only
-    // the right spelling would let the wrong one through.
-    expect(script).not.toMatch(/-updater/)
-  })
-
-  it('resolves $LOCALAPPDATA in the same shell-var context that wrote the file', () => {
-    // The one way this cleanup can fail with no symptom at all. $LOCALAPPDATA is
-    // context-sensitive in NSIS — under `SetShellVarContext all` it is
-    // C:\ProgramData, not the user's directory — which is why electron-builder
-    // brackets its own copy (`include/installer.nsh:89-96`, "electron always uses
-    // per user app data"). Unbracketed, a per-all-users install writes to the
-    // user's directory and this looks in the machine's: Delete no-ops, RMDir
-    // no-ops, the 200 MB stays, and nothing anywhere says so.
-    //
-    // `perMachine: false` does not make that unreachable: `!oneClick` compiles
-    // `setInstallModePerAllUsers` in, and `/allusers` on the command line, an
-    // HKLM InstallLocation, or a silent upgrade of a per-machine install all
-    // reach it.
-    const script = installerScript()
-    expect(script).toContain('SetShellVarContext current')
-    expect(script).toContain('SetShellVarContext all')
-  })
-
-  it('leaves the stack and the error flag as it found them', () => {
-    // It runs between `installApplicationFiles` and `StartApp`, so it borrows
-    // registers and must give them back. Counting the pairs pins the part a
-    // future edit is most likely to break silently.
-    const script = installerScript()
-    const pushes = script.match(/Push \$R/g) ?? []
-    const pops = script.match(/Pop \$R/g) ?? []
-    expect(pushes.length).toBe(pops.length)
-    expect(pushes.length).toBeGreaterThan(0)
-    // Delete and RMDir both set the error flag on failure, and failing is an
-    // expected outcome here rather than a problem — see the comments in the file.
-    expect(script).toContain('ClearErrors')
-  })
-
-  it('the delete it does is not recursive', () => {
-    // `RMDir /r` inside an installer running on someone else's machine is the
-    // one construct this repository will not carry. `Delete` on the one file and
-    // a bare `RMDir` on its parent — which removes nothing unless the directory
-    // is already empty — is the whole operation.
-    const script = installerScript()
-    expect(script).not.toMatch(/RMDir\s+\/r/)
-    expect(script).toContain('Delete ')
-  })
-
   it('generates no blockmap, which would advertise an update channel', () => {
-    // ADR-0014 rejected electron-updater; `publish: null` is the same decision
-    // applied to the other file that would claim one. It is also what took the
-    // installer from 226.4 MiB to 200.1 MiB - measured, probe P8.
-    expect(builderConfig).toMatch(/^ {2}differentialPackage: false$/m)
+    // ADR-0014 rejected electron-updater; `publish: null` is the decision, and a
+    // blockmap is the other file that would claim a channel that does not exist.
+    // The zip target writes none, so this is an absence rather than a setting -
+    // asserted because `differentialPackage` is the kind of option that arrives
+    // with a target change.
+    expect(releaseWorkflow).not.toContain('.blockmap')
+    expect(builderConfig).not.toMatch(/differentialPackage:\s*true/)
   })
 
   it('still fetches and verifies the bundled Chromium before packaging', () => {
@@ -296,18 +212,25 @@ describe('the release workflow publishes what the config builds', () => {
 })
 
 describe('the documents describe the artifact that is actually built', () => {
-  it('the README does not tell the user to extract a zip', () => {
-    // The Install section is the first thing a friend reads, and it was written
-    // for a zip. `.zip` may still appear elsewhere - the point is that the
-    // instruction is gone.
+  it('the README tells the user to extract the zip and run the exe', () => {
+    // The Install section is the first thing a friend reads, and it is written
+    // for somebody who does not program: download, extract, double-click. It said
+    // "run the installer" for one month and no test caught it changing back.
     const install = readme.slice(readme.indexOf('## Install'))
     const section = install.slice(0, install.indexOf('\n## ', 1))
-    expect(section).not.toMatch(/extract it anywhere/)
-    expect(section).toContain('.exe')
+    expect(section).toMatch(/\.zip/)
+    expect(section).toMatch(/Hecaton\.exe/)
+    expect(section).toMatch(/extract/i)
+    // Link *targets* are stripped before the last two assertions: ADR-0020's
+    // filename is `…-not-an-installer.md`, so a naive search for the word finds
+    // the citation that says the installer is gone.
+    const prose = section.replace(/\]\([^)]*\)/g, ']')
+    expect(prose).not.toMatch(/installer/i)
+    expect(prose).not.toMatch(/Apps & features/i)
   })
 
-  it('docs/releasing.md says the tag produces an installer', () => {
-    expect(releasing).not.toMatch(/packages the zip/)
-    expect(releasing).toMatch(/installer/)
+  it('docs/releasing.md says the tag produces a zip', () => {
+    expect(releasing).toMatch(/packages the zip/)
+    expect(releasing).not.toMatch(/assisted installer/)
   })
 })

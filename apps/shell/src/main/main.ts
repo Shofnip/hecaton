@@ -36,6 +36,7 @@ import {
 import {
   TERMS_VERSION,
   claimInstance,
+  ensureBrowserReadable,
   interpretUpdateCheck,
   needsTermsAcknowledgement,
 } from '@hecaton/core'
@@ -47,6 +48,7 @@ import type { GlobalConfig, IpcChannel, SlotOverrides, SlotSnapshot, Theme } fro
 import {
   ChromeLauncher,
   FileProfileArchive,
+  IcaclsBrowserAccess,
   WasapiAudioController,
   bundledBrowserPath,
 } from '@hecaton/browser-engine'
@@ -105,13 +107,13 @@ app.setPath('userData', electronUserDataDir())
 // confirmation had ever lived in NSIS. ADR-0005's guarantee reads "no live profile
 // is ever deleted ... never by a flag", and a flag is exactly what it had become.
 //
-// The installer came back on 2026-08-21 (ADR-0019) and this did not, which is the
-// sentence that matters here: the premise the flag needed is what was rejected,
-// not the packaging that happened to remove it. ADR-0019 says why - probe P1
-// measured that an update runs the *previous* release's uninstaller silently, so a
-// deletion decided in NSIS is frozen into every copy already handed out and can
-// never be repaired for whoever installed it. Wiring this back up because there is
-// an uninstaller again would undo that reasoning without meeting it.
+// The installer came back on 2026-08-21 (ADR-0019) and this did not, and then the
+// installer went away again (ADR-0020). The round trip is the point: the premise
+// the flag needed is what was rejected, not the packaging that happened to remove
+// it - probe P1 measured that an update runs the *previous* release's uninstaller
+// silently, so a deletion decided in NSIS is frozen into every copy already handed
+// out. Whichever format comes back next, wiring this up because something can call
+// it would undo that reasoning without meeting it.
 //
 // `planUserDataDeletion` in the core and `deleteUserData` in storage stay: they are
 // tested, they were never installer-specific, and the caller they were waiting for
@@ -561,8 +563,9 @@ function registerIpc(): void {
 
     'data:deleteAll': async (payload) => {
       // The only path in this app that deletes a live profile, and it exists
-      // because the uninstaller deliberately does not ask the question (ADR-0019;
-      // before that there was no uninstaller at all to ask it in). Three
+      // because nothing else can ask the question: the artifact is a zip and there
+      // is no uninstaller (ADR-0020), and while there was one it deliberately did
+      // not ask (ADR-0019). Three
       // things guard it, and none of them is the confirmation dialog: the panel's
       // confirmation is UX.
       //
@@ -977,6 +980,18 @@ if (!app.requestSingleInstanceLock()) {
     // race over that file, and until now that was only true within one Windows
     // session.
     if ((await claimMachine()) !== 'allow') return
+
+    // Before any screen can be launched, and after the claim so a refused launch
+    // does not touch the disk at all. Chromium's network service runs in an
+    // AppContainer and cannot start unless the browser's own files admit
+    // `ALL APPLICATION PACKAGES`; a folder the user extracted a zip into does
+    // not, and the symptom is every screen opening grey with no page ever
+    // loading. The rule, and why it fails open, are in browser-access.ts.
+    await ensureBrowserReadable({
+      access: new IcaclsBrowserAccess(),
+      browserDir: dirname(BROWSER),
+      logger,
+    })
 
     try {
       await loadConfiguration()

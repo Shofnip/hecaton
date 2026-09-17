@@ -154,13 +154,12 @@ npm run format:check      # prettier --check
 npm run format            # prettier --write
 npm run check             # the four above that CI runs: typecheck, lint, format:check, test
 npm run test:integration  # real bundled browser/windows/disk, Windows only, manual
-npm run package --workspace @hecaton/shell   # builds the installer; Windows only, ~3.5 min
+npm run package --workspace @hecaton/shell   # builds the zip; Windows only, ~3.5 min
 ```
 
 `package` is the only way to produce the artifact locally, and it is the same command the release
 workflow runs. It needs `vendor/chromium` in place; `release/` **peaks at ~1.2 GB during the build**
-and keeps ~1.0 GB afterwards — `win-unpacked` at 809 MiB plus the 205 MiB installer. The ~200 MiB
-difference is the intermediate `*.nsis.7z`, which electron-builder deletes when the build finishes.
+and keeps ~1.1 GB afterwards — `win-unpacked` at 809 MiB plus the zip beside it.
 
 The husky `pre-commit` hook runs `lint-staged` and then `npm run check`, so a commit that
 passes locally passes CI.

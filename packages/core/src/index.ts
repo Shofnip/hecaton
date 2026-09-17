@@ -19,6 +19,12 @@ export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
 
 export {
+  ensureBrowserReadable,
+  needsAppContainerGrant,
+  type AppContainerReadState,
+  type BrowserAccessDeps,
+} from './browser-access.js'
+export {
   LOG_FILES_KEPT,
   expiredLogFiles,
   formatLogRecord,
@@ -82,6 +88,7 @@ export type { OrchestratorDeps, SlotSnapshot } from './orchestrator.js'
 
 export type {
   AudioController,
+  BrowserAccess,
   BrowserLauncher,
   InstanceLock,
   LaunchRequest,

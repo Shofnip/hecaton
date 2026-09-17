@@ -114,6 +114,20 @@ ambiguous at the one moment it matters, which is when Turnstile rejects one.
   the path that is tested is the path that ships. `tests/bundled-browser.test.ts` holds
   `browser-paths.ts`, `electron-builder.yml`, the fetch script and `docs/releasing.md` to the same
   layout and the same revision.
+- **The app grants its own browser one ACL entry at startup, or nothing loads.** Chromium runs its
+  **network service in an AppContainer**, and an AppContainer can only open files whose ACL admits
+  `ALL APPLICATION PACKAGES` (`S-1-15-2-1`). Without that ACE on the browser tree the service dies
+  at launch — `Sandbox cannot access executable … Access denied`, then `Network service crashed or
+was terminated` — the window opens, paints nothing, and **no page ever loads**. A local `file://`
+  page still renders, which is what makes the symptom lie: the browser looks alive, and every check
+  this project had was green through it. Google Chrome's installer writes that ACE; `Program Files`
+  inherits it; a folder the user extracted a zip into inherits nothing of the sort, and neither does
+  one under `%LOCALAPPDATA%\Programs` — measured, before assuming an installer would have fixed it.
+  So `ensureBrowserReadable` in the core reads the tree's state at startup and grants when it is not
+  positively there (`browser-access.ts`, with `IcaclsBrowserAccess` doing the reading and writing).
+  It reads before it writes, so only the first launch re-ACLs 251 files, and it **fails open** with
+  a logged warning: a tree this user cannot re-ACL is the app's instrument failing. Found by the
+  pre-release review of 2026-09-17, on both pinned revisions, from three directories.
 - **The source is trunk**, not a release channel: no stable-branch security backports, and the
   browser no longer updates itself at all. The app's release cadence has become the browser's patch
   cadence. `docs/releasing.md` carries that as the fourth pin, with the ritual for raising it.
@@ -590,7 +604,9 @@ global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/s
 `ui:setTheme`, `screens:layout` and `overlay:open`/`overlay:close`.
 
 **Phase 3 — distribution. Done, and released: `v0.1.0`, 2026-08-20.** `electron-builder` producing
-a **portable zip** (an assisted NSIS installer was built and then dropped) · unsigned, with a
+a **zip the user extracts** (an assisted NSIS installer was built and dropped here, built again in
+phase 4, and dropped again in [ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md)) ·
+unsigned, with a
 published SHA256 · Apache-2.0, public repository · releases built by GitHub Actions on a tag · a
 user-initiated update check, which is the app's only network request · no telemetry, no accounts,
 no monetization. The security review of the surfaces this phase created was done on 2026-08-09 and
@@ -600,12 +616,24 @@ its findings are below.
 **ships its own Chromium** and launches nothing else
 ([ADR-0016](adr/0016-ship-our-own-chromium.md)); it allows **one instance per machine**, across
 Windows accounts rather than within one session, sealed to the hardware
-([ADR-0018](adr/0018-one-instance-per-machine.md)); and the artifact is an **assisted installer**
-rather than the zip ([ADR-0019](adr/0019-an-assisted-installer-for-a-792-mb-app.md)). The first two
-are what made the third necessary: 792 MB is not something to ask a friend to extract, and a second
-launch is now an ordinary event that has to fail gracefully. Each front was gated on a probe —
-Turnstile against the bundled browser (P5), the mutex and the seal against a second Windows account
-(P6), and the artifact itself (P8), which is what ruled the `portable` exe out.
+([ADR-0018](adr/0018-one-instance-per-machine.md)); and the artifact **stays a zip the user
+extracts** ([ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md)). The third front went
+out and came back: bundling the browser took the artifact to 809 MiB, the phase answered that with
+an assisted installer ([ADR-0019](adr/0019-an-assisted-installer-for-a-792-mb-app.md)), and the
+owner reversed it on 2026-09-17 — the person this ships to downloads a zip, extracts it and
+double-clicks an exe, and an installer is a wizard they never asked for. Nothing was released in
+between, so no user ever met one. Each front was gated on a probe — Turnstile against the bundled
+browser (P5), the mutex and the seal against a second Windows account (P6), and the artifact itself
+(P8), which ruled the `portable` exe out and whose measurements are the reason `portable` is still
+out.
+
+**The phase is not closed by its three fronts, and the fourth thing is the one nobody planned.**
+Bundling a browser also means inheriting the sandbox it expects around itself: without one ACL
+entry on its own files, Chromium's network service dies at startup and every screen opens grey with
+no page ever loading. That was found by the pre-release review of 2026-09-17, not by a test, and the
+grant now runs at startup — see _The browser ships with the app_. It is the clearest statement of
+what ADR-0016 cost: the app is now responsible for the conditions a browser installer used to
+provide.
 
 **There is an installed base now, and two decisions change character because of it.** Renaming
 `APP_DIR_NAME` again is no longer free — [ADR-0012](adr/0012-hecaton-and-the-data-directory.md)
@@ -669,10 +697,11 @@ to appear in three places; the installer's licence page was the one that could n
 zip carries no README, so this is the only one left that a user cannot miss. The same text stays
 reachable from Configurações afterwards.
 
-**The installer came back in ADR-0019 and that page was not reclaimed for this**, which is a choice
-rather than an oversight: the page shows the Apache-2.0 licence, which is what Apache-2.0 §4 obliges
-it to show, and a warning stacked underneath a licence nobody reads is a warning nobody reads. The
-first-run gate stays the one place it cannot be missed.
+**The installer came back in ADR-0019 and that page was not reclaimed for this, and then the
+installer went away again in ADR-0020.** Both halves matter: declining the page was a choice rather
+than an oversight — a warning stacked underneath a licence nobody reads is a warning nobody reads —
+and because the warning never moved there, the format reversal cost this nothing. The first-run gate
+is the one place it cannot be missed, and now it is also the only one.
 
 The rule lives in `packages/core/src/terms.ts` — `TERMS_VERSION` and `needsTermsAcknowledgement` —
 and the text, being UI, lives in the renderer in Portuguese. What is persisted is
@@ -687,12 +716,13 @@ buys and costs — restored there on 2026-08-08 after going missing in the UI re
 ### Deleting everything, from the panel
 
 Choosing the zip removed the only moment the app could ever ask "and your logins?": an uninstaller
-runs, an extracted folder deleted in Explorer does not. **ADR-0019 brought the uninstaller back and
-deliberately did not give it that question**, so the arrangement below is unchanged and is now a
-decision twice over. The reason is probe P1: an update runs the _previous_ release's uninstaller in
-silent mode, so any deletion branch inside one is frozen into every copy already handed out and can
-never be repaired for whoever installed it. A question asked in the right place is worth less than a
-deletion that cannot be un-shipped. So the settings modal carries a **Seus dados** section — naming both places session data can land, `%APPDATA%/hecaton` and the OS temp
+runs, an extracted folder deleted in Explorer does not. **ADR-0019 brought an uninstaller back and
+deliberately did not give it that question; ADR-0020 removed the uninstaller again.** The
+arrangement below therefore survived a full round trip without changing, which is the strongest
+thing that can be said for it. The reason it was refused the question while it existed is probe P1:
+an update runs the _previous_ release's uninstaller in silent mode, so any deletion branch inside
+one is frozen into every copy already handed out and can never be repaired for whoever installed it.
+A question asked in the right place is worth less than a deletion that cannot be un-shipped. So the settings modal carries a **Seus dados** section — naming both places session data can land, `%APPDATA%/hecaton` and the OS temp
 directory of a clean-session screen, with a button that opens the first — and, in the risk zone,
 **Apagar todos os meus dados**. It is the only action in the app that deletes a live profile;
 [ADR-0005](adr/0005-never-delete-a-persistent-profile.md)'s 2026-08-08 Correction records why it
@@ -756,10 +786,14 @@ within a day of the decision it describes.
 
 ### The pre-release security review, 2026-09-17
 
-The surfaces **Phase 4** created — the bundled browser, the machine lock, the installer — plus a
-re-run of the 2026-08-09 checks against the artifact that ships now, which is an installer rather
-than a zip. Recorded here for the same reason that one is: a review whose result lives only in a
-session transcript is a review nobody can re-run.
+The surfaces **Phase 4** created — the bundled browser, the machine lock, the artifact — plus a
+re-run of the 2026-08-09 checks against what ships now. Recorded here for the same reason that one
+is: a review whose result lives only in a session transcript is a review nobody can re-run.
+
+**The artifact changed while this review was being written**, from the assisted installer of
+ADR-0019 back to a zip ([ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md)), so the
+packaging half was run twice and what is recorded below is the zip — the thing people will actually
+download. Three of the installer's findings retired with it and are named where they were found.
 
 **What held, in the source.** `npm audit --omit=dev` finds **nothing** in the tree that ships. The
 main process still contains exactly one `fetch`, at one call site, reached only from `update:check`,
@@ -771,24 +805,33 @@ with its own `--user-data-dir`, no remote-debugging port and `--disable-extensio
 still doubles apostrophes and refuses a path where a file name belongs. On the machine lock: the
 mutex name is a module constant rather than anything a caller supplies, the seal carries one field,
 the machine digest is **never handed to the logger at all**, and `blocked.html` carries no script and
-its own CSP. In the NSIS include, the directory removal is still a bare `RMDir`, which is what makes
-a malformed define a no-op instead of erasing `%LOCALAPPDATA%`.
+its own CSP. (The custom NSIS script was checked too, on the day it still existed: its directory
+removal was a bare `RMDir`, which is what made a malformed define a no-op instead of erasing
+`%LOCALAPPDATA%`. The file is deleted now, and `tests/artifact.test.ts` asserts its absence —
+electron-builder picks that filename up by convention, so an unused copy on disk is a macro armed
+for whoever next adds an NSIS target.)
 
-**What held, in the artifact** — built here from this tree, `electron-builder` 26.15.3, Electron
-43.7.1, 355 asar entries. No `@hecaton/*/src/`, no `*.test.ts`, no `core/src/testing/` fakes, no
-`spike/`. **And no third-party `src/` either**, which is a change worth naming rather than a
-correction: the 2026-08-09 review measured ~20 such entries from `node-addon-api` and
-`node-window-manager`, and this build has none, so the grep that review warns about — twenty
-harmless hits hiding the one that would matter — now returns nothing at all. The packaged
-`index.html` carries the identical CSP, the packaged main still uses `loadFile` and never `loadURL`,
+**What held, in the artifact** — the zip built from this tree, `electron-builder` 26.15.3, Electron
+43.7.1: 324.0 MiB compressed, 809.0 MiB in 467 files extracted, 357 asar entries. No
+`@hecaton/*/src/`, no `*.test.ts`, no `core/src/testing/` fakes, no `spike/`. **And no third-party
+`src/` either**, which is a change worth naming rather than a correction: the 2026-08-09 review
+measured ~20 such entries from `node-addon-api` and `node-window-manager`, and this build has none,
+so the grep that review warns about — twenty harmless hits hiding the one that would matter — now
+returns nothing at all. The packaged `index.html` carries the identical CSP, the packaged main still
+uses `loadFile` and never `loadURL` and still holds exactly one `fetch`,
 `LICENSE.txt`/`NOTICE.txt`/`CHANGELOG.txt` sit beside the exe with the changelog carrying this
-version's section, `resources\elevate.exe` is present as ADR-0019 says it will be, and `Hecaton.exe`
-reports `NotSigned`, which is the decision and not an accident. The bundled browser is
-`156.0.8065.0` in 251 files, with **all seven** unshipped executables absent. Launched with `APPDATA`
-redirected to a throwaway directory — asserted by looking at what was written, not assumed — it
-claimed the instance (`instance.claim` / `allow`), wrote its logs and Electron cache **only** inside
-that directory with nothing landing in the real `%APPDATA%/hecaton`, and painted the panel with the
-first-run terms warning over it.
+version's section, and `Hecaton.exe` reports `NotSigned`, which is the decision and not an accident.
+**`resources\elevate.exe` is gone**, having been an NSIS-family by-product; the installer build
+carried it and ADR-0019 had named it as a consequence. The bundled browser is `156.0.8065.0` in 251
+files, with **all seven** unshipped executables absent.
+
+The zip was then **extracted and run the way a user would**, with `APPDATA` redirected to a
+throwaway directory — asserted by looking at what was written, not assumed. It claimed the instance
+(`instance.claim` / `allow`), granted the browser ACE 0.9 s later (`browser.access` / `granted`),
+wrote its logs and Electron cache **only** inside that directory with nothing landing in the real
+`%APPDATA%/hecaton`, and painted the panel with the first-run terms warning over it. The browser
+from that same extracted tree then loaded a real page — window title `Example Domain`, and a
+`chrome_debug.log` with neither a sandbox nor a network-service error in it.
 
 **What it found.** Six things, none of them a way in, and the two that mattered were clocks rather
 than defects:
@@ -810,6 +853,18 @@ than defects:
 6. **`powershell` is resolved through `PATH`** in all seven shell-outs rather than by absolute path.
    Left as it is, deliberately: anyone who can prepend to that `PATH` already runs code as this user,
    so the change buys nothing the attacker has not already got.
+7. **And then the one that would have shipped a broken app.** Chasing the Turnstile measurement the
+   raised browser pin obliges, every page came up grey. Five controls separated the causes: a local
+   `file://` page paints, a network page does not, the **previously pinned** revision fails the same
+   way, copying the tree elsewhere changes nothing, and granting one ACL entry fixes it in both
+   revisions. Chromium's network service runs in an AppContainer that cannot read the browser's own
+   files without `ALL APPLICATION PACKAGES`, and nothing in a zip — or, measured, in
+   `%LOCALAPPDATA%\Programs` — grants it. The app now grants it for itself at startup; the
+   mechanism is under _The browser ships with the app_ above, and the reversal to a zip is what
+   moved that grant from an installer into the app. **No test caught this and none could have**: the
+   integration suite watches processes, windows and bounds, all of which stayed green — the same
+   blindness ADR-0017 was written about, and the reason the release ritual insists on a human
+   loading the real page.
 
 **Three things named rather than fixed**, because they cost bytes and not safety. The package ships
 16 source maps — six from `node-window-manager` and `extract-file-icon`, ten from the app's own
@@ -822,10 +877,12 @@ path travels in them. And `npm install` now warns that `electron-winstaller@5.4.
 targets NSIS and never runs it, and approving an install script the product does not need is the
 opposite of why that list exists.
 
-**What this review did not cover.** The three re-measurements a raised browser revision obliges —
-Turnstile against a real login, the seven stripped files exercised through a running slot, and the
-window geometry — are in `docs/releasing.md` and belong to the person cutting the release, not to a
-static inspection.
+**What this review did not cover.** Of the three re-measurements a raised browser revision obliges,
+two are done: all seven stripped files were present and removed, and a page loads from the packaged
+tree. **Turnstile against a real login is not**, and it is the gate — it needs a person with an
+account, and `docs/releasing.md` keeps it with whoever cuts the release. The window geometry has not
+been re-measured against `156.0.8065.0` either; the integration suite exercises embedding but not
+the frame maths by eye.
 
 ## Verification
 

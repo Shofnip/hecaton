@@ -1,6 +1,11 @@
 # ADR-0019 — An assisted installer for a 792 MB app
 
-**Status:** Accepted · **Date:** 2026-08-21
+**Status:** Superseded by [ADR-0020](0020-a-zip-the-user-extracts-not-an-installer.md) ·
+**Date:** 2026-08-21
+
+The format decided here shipped in no release. ADR-0020 reversed it on 2026-09-17 and restored the
+zip: the measurements below stand, and the question they answered is not the one the owner was
+asking. The body is unedited, as this directory requires.
 
 Supersedes in part [ADR-0013](0013-a-portable-unsigned-zip-under-apache-2.md), which chose a
 portable zip. Everything else in that ADR — Apache-2.0, the public repository, nothing signed,

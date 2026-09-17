@@ -9,6 +9,7 @@
 import type { GridCell } from '../grid.js'
 import type {
   AudioController,
+  BrowserAccess,
   BrowserLauncher,
   InstanceLock,
   LaunchRequest,
@@ -17,6 +18,7 @@ import type {
   Storage,
   WindowManager,
 } from '../ports.js'
+import type { AppContainerReadState } from '../browser-access.js'
 import type { InstanceLockState, MachineFacts } from '../instance-claim.js'
 import type { LogEntry, Logger } from '../log.js'
 
@@ -243,6 +245,33 @@ export class FakeInstanceLock implements InstanceLock {
 
   release(): Promise<void> {
     this.releases++
+    return Promise.resolve()
+  }
+}
+
+/**
+ * Stands in for the ACL of the bundled browser's directory.
+ *
+ * The state is what a read answers; `granted` records the paths a grant was
+ * written to, so a test can say that the usual launch writes nothing.
+ */
+export class FakeBrowserAccess implements BrowserAccess {
+  readonly granted: string[] = []
+  /** Set to make the read throw, which the core must treat as `unknown`. */
+  failRead: Error | undefined
+  /** Set to make the grant throw, which the core must log rather than rethrow. */
+  failGrant: Error | undefined
+
+  constructor(private readonly state: AppContainerReadState = 'granted') {}
+
+  readState(_path: string): Promise<AppContainerReadState> {
+    if (this.failRead) return Promise.reject(this.failRead)
+    return Promise.resolve(this.state)
+  }
+
+  grantRead(path: string): Promise<void> {
+    if (this.failGrant) return Promise.reject(this.failGrant)
+    this.granted.push(path)
     return Promise.resolve()
   }
 }

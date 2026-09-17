@@ -62,8 +62,9 @@ image ships. The two native modules (`node-window-manager` and its transitive
 anyone deciding to fix this. Measured: the release workflow runs `npm ci` without
 `--ignore-scripts` on `windows-latest`, packages the app, and the resulting artifact runs with both
 `addon.node` files present and loading. (Measured against an NSIS installer on 2026-07-30 and again
-against the zip that replaced it on 2026-08-08; since ADR-0019 the release is an installer again,
-which is the shape the first of those two measurements used.) `npm` hides install-script output unless a script fails,
+against the zip that replaced it on 2026-08-08; the release was an installer between 2026-08-21 and
+2026-09-17 and is a zip again since [ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md),
+so both shapes have been measured.) `npm` hides install-script output unless a script fails,
 which is why a successful build shows no `gyp` lines at all — absence of gyp output is not evidence
 that nothing was compiled.
 
@@ -155,27 +156,25 @@ one to know about:
   archived to `slot-N.old-<stamp>` — a persistent session, but only after removing its slot
   explicitly archived it.
 - **`data:deleteAll`** (Configurações → _Apagar todos os meus dados_) removes `%APPDATA%/hecaton`
-  whole, **live profiles included**. It exists because the uninstaller deliberately does not ask
-  the question, and it is guarded by an explicit confirmation and by every screen having to be
-  stopped first.
+  whole, **live profiles included**. It exists because nothing else in the product can ask the
+  question — there is no uninstaller ([ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md))
+  — and it is guarded by an explicit confirmation and by every screen having to be stopped first.
 
 The third arrived on 2026-08-08 and this page was not updated with it, which is worth naming: the
 sentence that used to be here read as a structural guarantee that the app _cannot_ destroy a
 logged-in session, and someone auditing "where can cookies go" from it would have counted wrong.
 See ADR-0005 (and **both** its Corrections) and ADR-0008.
 
-**A fourth path exists that is not the app's**, and an audit of "where can cookies go" has to count
-it. Since [ADR-0019](adr/0019-an-assisted-installer-for-a-792-mb-app.md) the release is an
-installer, and the uninstaller electron-builder generates accepts `--delete-app-data` on its command
-line. Given it, the uninstaller deletes `%APPDATA%\Hecaton` — every logged-in profile — with no
-confirmation anywhere. `deleteAppDataOnUninstall: false` in `electron-builder.yml` does **not**
-disable it; that setting governs a different branch, and this one has no guard at all
-(`app-builder-lib/templates/nsis/uninstaller.nsh:220-231` parses the flag, `:237` does the
-deletion; read against electron-builder 26.15.3, the pinned version).
-
-Nothing reaches it by accident. Clicking Uninstall does not pass the flag, and an update passes
-`--updated` instead — probe P1 measured both. It takes someone typing it. The ADR records why it was
-accepted rather than closed, and what closing it would have cost.
+**A fourth path existed for 27 days and is gone**, which is worth recording rather than deleting:
+an audit of "where can cookies go" that reads an older document will go looking for it. While the
+release was an NSIS installer (ADR-0019, 2026-08-21 to 2026-09-17), the uninstaller electron-builder
+generates accepted `--delete-app-data` on its command line, and given that flag it deleted
+`%APPDATA%\hecaton` — every logged-in profile — with no confirmation anywhere and no guard;
+`deleteAppDataOnUninstall: false` governed a different branch. Nothing reached it by accident: probe
+P1 measured that clicking Uninstall does not pass the flag and that an update passes `--updated`
+instead. [ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md) retired it with the
+installer, and no release ever carried one. **Three paths, all the app's own, is the whole list
+today.**
 
 ---
 
@@ -323,6 +322,53 @@ For local experiments, load it by hand. For anything shipped, this is why HUD an
 actions are deferred: distributing an extension means the Web Store or enterprise policy, each
 with its own cost — a stop-and-ask decision, not a side effect of some later change. See the
 deferred section of `architecture.md` and ADR-0003.
+
+---
+
+## Every screen is grey and no page ever loads
+
+**Symptom**
+
+Not one screen — all of them, permanently, and reloading does nothing. The window is embedded, the
+process is alive, the title bar shows the url rather than the page's title. The app itself is fine:
+the panel paints, the settings open. It looks exactly like the entry below and is a different
+thing, which is the trap.
+
+**Cause**
+
+Chromium runs its **network service in an AppContainer**, and an AppContainer can only open files
+whose ACL admits `ALL APPLICATION PACKAGES` (`S-1-15-2-1`). Without that ACE on the browser tree the
+service is killed at startup and nothing can be fetched. The browser's own log says so in two lines:
+
+```
+ERROR:sandbox\policy\win\sandbox_win.cc:804] Sandbox cannot access executable ... Access denied. (0x5)
+ERROR:content\browser\network_service_instance_impl.cc:653] Network service crashed or was terminated
+```
+
+A local `file://` page still renders, which is why the browser looks healthy. Measured 2026-09-17 on
+both pinned Chromium revisions and from three different directories: no ACE, nothing loads; ACE,
+everything loads.
+
+**What to do**
+
+Nothing, if the app is current: `ensureBrowserReadable` grants that ACE at startup, before any
+screen can be launched. Check the log for the `browser.access` line — `granted`,
+`already-readable`, `granted-unread`, or `grant-failed: …`.
+
+`grant-failed` is the case worth acting on, and it means `icacls` could not change the ACL of the
+folder the app is running from. Move the extracted folder somewhere the account owns — the user
+profile, or any directory it can re-permission — and start it again. The same line appears if the
+folder was extracted read-only.
+
+To see the ACL by hand:
+
+```powershell
+icacls "<extracted folder>
+esources\chromium\chrome-win\chrome.exe"
+```
+
+The entry to look for is the application-packages one, under whatever name Windows gives it in your
+language — which is exactly why the app checks by SID and not by that name.
 
 ---
 
