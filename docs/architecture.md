@@ -877,12 +877,17 @@ path travels in them. And `npm install` now warns that `electron-winstaller@5.4.
 targets NSIS and never runs it, and approving an install script the product does not need is the
 opposite of why that list exists.
 
-**What this review did not cover.** Of the three re-measurements a raised browser revision obliges,
-two are done: all seven stripped files were present and removed, and a page loads from the packaged
-tree. **Turnstile against a real login is not**, and it is the gate — it needs a person with an
-account, and `docs/releasing.md` keeps it with whoever cuts the release. The window geometry has not
-been re-measured against `156.0.8065.0` either; the integration suite exercises embedding but not
-the frame maths by eye.
+**The three re-measurements a raised browser revision obliges are done.** All seven stripped files
+were present and removed; a page loads from the packaged tree; and **Turnstile passed** — the owner
+logged into the target game on 2026-09-17, from the extracted `v0.2.0` zip, on Chromium
+`156.0.8065.0`. That is the gate the whole bundling decision rests on
+([ADR-0016](adr/0016-ship-our-own-chromium.md)), it cannot be automated — it needs a person with an
+account — and `docs/releasing.md` keeps it with whoever cuts the release.
+
+**What this review did not cover.** The window geometry has not been re-measured against
+`156.0.8065.0` by eye; the integration suite exercises embedding, but the frame maths in
+`win32-worker.ts` were fitted to a browser-drawn title bar and a few pixels of drift would not fail
+anything.
 
 ## Verification
 

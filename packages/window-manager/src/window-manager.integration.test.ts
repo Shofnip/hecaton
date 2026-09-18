@@ -377,6 +377,7 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
         expect(green, `centre pixel was ${pixel}`).toBeLessThan(120)
         expect(blue, `centre pixel was ${pixel}`).toBeLessThan(120)
       } finally {
+        releaseTopmost(parentHwnd)
         server.close()
         try {
           execFileSync('taskkill', ['/PID', String(paintedPid), '/F', '/T'], { stdio: 'ignore' })
@@ -388,8 +389,24 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
   })
 })
 
-/** Brings a window to the front, so a screen capture sees it rather than whatever covers it. */
+/**
+ * Brings a window to the front, so a screen capture sees it rather than whatever
+ * covers it.
+ *
+ * `SetForegroundWindow` alone is **not enough, and cannot be**: Windows refuses a
+ * foreground change asked for by a process that does not already own the
+ * foreground, which is every run of this suite from a terminal or an editor.
+ * Measured 2026-09-17 — the paint assertion read the identical pixel on every
+ * attempt, `24,56,81`, which was the terminal window over that spot rather than
+ * anything the browser had drawn. A test that fails because of what sits on top
+ * of it is one nobody will believe the day it reports a real regression.
+ *
+ * `SetWindowPos` with `HWND_TOPMOST` is not subject to that restriction, so the
+ * window is pinned above everything for the capture. `releaseTopmost` unpins it
+ * straight after: left pinned, it would cover the next test's window instead.
+ */
 function bringToFront(hwnd: number): void {
+  setZOrder(hwnd, -1)
   execFileSync('powershell', [
     '-NoProfile',
     '-NonInteractive',
@@ -398,6 +415,33 @@ function bringToFront(hwnd: number): void {
       'public class F{[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);' +
       '[DllImport("user32.dll")]public static extern bool BringWindowToTop(IntPtr h);}\'; ' +
       `[void][F]::BringWindowToTop([IntPtr]${hwnd}); [void][F]::SetForegroundWindow([IntPtr]${hwnd})`,
+  ])
+}
+
+/** Undoes the pin, so this window does not sit over everything afterwards. */
+function releaseTopmost(hwnd: number): void {
+  setZOrder(hwnd, -2)
+}
+
+/**
+ * `HWND_TOPMOST` is -1 and `HWND_NOTOPMOST` is -2; the flags are
+ * NOMOVE|NOSIZE|SHOWWINDOW.
+ *
+ * **The parentheses around the negative number are load-bearing.** PowerShell
+ * parses `[IntPtr]-1` as a subtraction — a type minus a number — and fails with a
+ * *non-terminating* error, so the process still exits 0 and `execFileSync` is
+ * happy while nothing has moved. Measured 2026-09-17: the first version of this
+ * helper wrote it that way and the capture kept reading the window on top.
+ */
+function setZOrder(hwnd: number, insertAfter: -1 | -2): void {
+  execFileSync('powershell', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;" +
+      'public class Z{[DllImport("user32.dll")]public static extern bool SetWindowPos(' +
+      "IntPtr h,IntPtr a,int x,int y,int cx,int cy,uint f);}'; " +
+      `[void][Z]::SetWindowPos([IntPtr]${hwnd}, [IntPtr](${insertAfter}), 0, 0, 0, 0, 0x0043)`,
   ])
 }
 
