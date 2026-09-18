@@ -884,10 +884,12 @@ logged into the target game on 2026-09-17, from the extracted `v0.2.0` zip, on C
 ([ADR-0016](adr/0016-ship-our-own-chromium.md)), it cannot be automated — it needs a person with an
 account — and `docs/releasing.md` keeps it with whoever cuts the release.
 
-**What this review did not cover.** The window geometry has not been re-measured against
-`156.0.8065.0` by eye; the integration suite exercises embedding, but the frame maths in
-`win32-worker.ts` were fitted to a browser-drawn title bar and a few pixels of drift would not fail
-anything.
+The two that go with it were checked in the same sitting and by the same person: an embedded screen
+**sits in its card to the pixel** — the frame maths in `win32-worker.ts` were fitted to a
+browser-drawn title bar, and a snapshot that moved it would have shown as drift no test would fail
+on — and **audio still follows focus**, which exercises the renderer, the GPU and the
+`utility:audio.mojom.AudioService` child together and is what says the seven stripped files took
+nothing load-bearing with them.
 
 ## Verification
 
