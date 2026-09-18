@@ -21,6 +21,10 @@ Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
   Trocar de conta desliga as telas desta janela e carrega as da outra; nada é
   apagado. Se a conta escolhida já estiver aberta em outra janela, o aplicativo
   avisa em vez de abrir duas vezes a mesma.
+- **Mais tela de jogo e menos moldura.** As barras de cima e de baixo de cada
+  tela ficaram com metade da altura, o espaço entre as telas caiu para 1 pixel e
+  a barra lateral ficou mais estreita. Nada mudou de lugar — tudo o que estava
+  ali continua ali, só que menor.
 - **Apagar dados agora são dois botões.** _Apagar os dados desta conta_ mexe só
   na conta em que você está; _Apagar TODOS os dados_ continua apagando tudo, de
   todas as contas — e avisa que outra janela aberta perde os dados dela junto.

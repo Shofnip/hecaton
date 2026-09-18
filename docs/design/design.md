@@ -89,16 +89,16 @@ Tons "papel" rebaixados — nenhuma superfície em branco puro, texto em cinza-e
 └──┴──────────────────────────────┘
 ```
 
-- A barra lateral fica **grudada à borda esquerda da janela**: sem margem esquerda, cantos arredondados **apenas no lado direito** (`0 12px 12px 0`), margem vertical de 4px, sem borda no lado esquerdo.
-- Área principal com padding de 4px e grade com gap de 4px.
+- A barra lateral fica **grudada à borda esquerda da janela**: sem margem esquerda, cantos arredondados **apenas no lado direito** (`0 10px 10px 0`), margem vertical de 2px, sem borda no lado esquerdo.
+- Área principal com padding de 4px e grade com **gap de 1px** — as telas ficam praticamente coladas, para que a parede leia como uma superfície só e cada pixel economizado vá para os jogos. A borda própria de cada card é o que ainda marca a divisão.
 
 ---
 
 ## 4. Barra lateral
 
-Largura **50px**, apenas botões de ícone (36×36px), sem texto. De cima para baixo:
+Largura **38px**, apenas botões de ícone (28×28px, ícones de 16px), sem texto. Estreitada de 50px em 2026-09-18 junto com as barras do card; tudo dentro dela desceu na mesma proporção, porque uma régua de 38px em volta de botões de 36px não deixa respiro nenhum. De cima para baixo:
 
-1. **Logo** — quadrado 32×32px com gradiente no `accent` e a letra "H".
+1. **Logo** — quadrado 24×24px com gradiente no `accent` e a letra "H".
 2. **Ligar/Desligar todas** — ícone de power.
    - Quando **nem todas** as telas estão ligadas: verde (`accent` + `accentSoft`), tooltip "Ligar todas as telas". Ao clicar, liga apenas as telas desligadas.
    - Quando **todas** estão ligadas: vermelho (`danger` + `dangerSoft`), tooltip "Desligar todas as telas".
@@ -114,13 +114,15 @@ Estrutura vertical: **cabeçalho → viewport → barra de controles**.
 
 ### 5.1 Cabeçalho
 
-- **LED de status** (9px, circular) com brilho (`box-shadow`) quando ativo:
+As duas barras do card — cabeçalho e controles — têm **metade da altura** que tinham até 2026-09-18: o cabeçalho passou de ~42px para ~22px e a barra de controles de 50px para ~26px. Diminuir só o padding não bastava: em cada barra quem manda na altura é o elemento mais alto, então o favicon e os botões de controle desceram junto.
+
+- **LED de status** (7px, circular) com brilho (`box-shadow`) quando ativo:
   - Verde (`accent`) = em execução
   - Âmbar (`warn`) = carregando
   - Vermelho (`danger`) = erro
   - Cinza (`border`), sem brilho = desligada
-- **Nome da tela** (14px, bold). **Clicável**: alterna o modo foco daquela tela (entra se não está em foco; sai se já está). Hover pinta o nome no `accent`.
-- **Favicon** (22×22px, cantos 5px) alinhado à direita — o mesmo ícone da aba do navegador do endereço configurado. Fallback: ícone de globo se o favicon não carregar. Tooltip com o nome/endereço.
+- **Nome da tela** (12px, bold). **Clicável**: alterna o modo foco daquela tela (entra se não está em foco; sai se já está). Hover pinta o nome no `accent`.
+- **Favicon** (14×14px, cantos 4px) alinhado à direita — o mesmo ícone da aba do navegador do endereço configurado. Fallback: ícone de globo se o favicon não carregar. Tooltip com o nome/endereço.
   - No protótipo o favicon vinha de `google.com/s2/favicons?domain=...&sz=64`. Na implementação
     real ele é **empacotado no app** (`assets/poke.ico`; globo genérico para endereço
     personalizado): sem evento de favicon e sem rede em tempo de execução (§13). Não é o
@@ -147,7 +149,7 @@ Mensagens de erro:
 
 ### 5.3 Barra de controles
 
-Botões de 34×34px sobre fundo `panelSoft`. **Ordem fixa** (esquerda → direita), com um espaçador flexível separando os dois grupos:
+Botões de 20×20px com ícones de 13px sobre fundo `panelSoft`. **Ordem fixa** (esquerda → direita), com um espaçador flexível separando os dois grupos:
 
 **Grupo de uso cotidiano (esquerda):**
 

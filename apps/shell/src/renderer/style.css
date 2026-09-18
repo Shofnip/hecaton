@@ -132,27 +132,31 @@ svg {
   overflow: hidden;
 }
 
-/* ---- sidebar (design §4): 50px, icon buttons only, glued to the left ---- */
+/* ---- sidebar (design §4): 38px, icon buttons only, glued to the left ----
+   Narrowed from 50px on 2026-09-18 at the owner's request, with the card bars.
+   Everything inside it scales with it: the buttons, their icons and the logo,
+   because a 38px rail around 36px buttons has no room left for the padding that
+   makes them read as buttons. */
 #sidebar {
-  width: 50px;
+  width: 38px;
   flex-shrink: 0;
   background: var(--sidebar);
   border: 1px solid var(--border);
   border-left: none;
-  border-radius: 0 12px 12px 0;
-  margin: 4px 0;
+  border-radius: 0 10px 10px 0;
+  margin: 2px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 0;
-  gap: 10px;
+  padding: 8px 0;
+  gap: 7px;
 }
 
 .logo {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  margin-bottom: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  margin-bottom: 4px;
   background: linear-gradient(
     135deg,
     var(--accent),
@@ -195,8 +199,9 @@ svg {
 }
 
 .sidebar-btn {
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
 .sidebar-btn.power-all:hover:not(:disabled),
@@ -235,9 +240,12 @@ svg {
   min-height: 0;
 }
 
+/* 1px between screens (owner's call, 2026-09-18): the wall reads as one surface
+   rather than as four framed pictures, and every pixel saved is pixels the games
+   get. The cards keep their own border, so the seam is still visible. */
 .grid {
   display: grid;
-  gap: 4px;
+  gap: 1px;
   height: 100%;
 }
 
@@ -307,7 +315,7 @@ svg {
 
 .thumb-row {
   display: flex;
-  gap: 4px;
+  gap: 1px;
   flex-shrink: 0;
   /* the drag height, set by the renderer; defaults to the design's 100px */
   height: var(--thumb-height, 100px);
@@ -346,17 +354,22 @@ svg {
   border-radius: 0;
 }
 
+/* The two bars of a card are half the height they were (owner's call,
+   2026-09-18): the header went from ~42px to ~22px and the control bar from
+   50px to ~26px. Halving the padding alone would not have done it - the tallest
+   thing in each bar sets its height, so the favicon and the control buttons had
+   to come down with it. */
 .card-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 7px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
 }
 
 .led {
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--border);
   flex-shrink: 0;
@@ -380,7 +393,7 @@ svg {
 
 .card-name {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
   transition: color 0.15s ease;
   border: none;
@@ -396,9 +409,9 @@ svg {
 
 .favicon {
   margin-left: auto;
-  width: 22px;
-  height: 22px;
-  border-radius: 5px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
   flex-shrink: 0;
   color: var(--muted);
 }
@@ -480,15 +493,16 @@ svg {
 .controls {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 5px;
+  padding: 3px 8px;
   border-top: 1px solid var(--border);
   background: var(--panel-soft);
 }
 
 .controls .ctrl {
-  width: 34px;
-  height: 34px;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
   background: var(--panel);
 }
 

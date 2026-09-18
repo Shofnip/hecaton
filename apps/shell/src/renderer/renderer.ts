@@ -349,6 +349,9 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node
 }
 
+/** The icon size inside a control-bar button, which is 20px since design §5.3 halved. */
+const CTRL_ICON = 13
+
 function iconButton(
   name: keyof typeof ICONS,
   className: string,
@@ -838,17 +841,25 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
   const bar = el('div', 'controls')
 
   // Power (on/off).
+  // 13px icons in the 20px buttons this bar now has (design §5.3, halved on
+  // 2026-09-18). The default 16 would leave a pixel of air on each side and read
+  // as a glyph in a box rather than as a button.
   const power = iconButton(
     'power',
     'icon-btn ctrl' + (active ? ' on' : ''),
     active ? 'Desligar' : 'Ligar',
     () => run(() => (active ? window.hecaton.stopSlot(s.id) : window.hecaton.startSlot(s.id))),
+    CTRL_ICON,
   )
   bar.append(power)
 
   // Reload (disabled while off; icon spins while loading).
-  const reload = iconButton('reload', 'icon-btn ctrl', 'Recarregar', () =>
-    run(() => window.hecaton.reloadSlot(s.id)),
+  const reload = iconButton(
+    'reload',
+    'icon-btn ctrl',
+    'Recarregar',
+    () => run(() => window.hecaton.reloadSlot(s.id)),
+    CTRL_ICON,
   )
   reload.disabled = status === 'off'
   if (status === 'loading') reload.firstElementChild?.classList.add('spin')
@@ -866,6 +877,7 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
       'icon-btn ctrl' + (s.focused ? ' on' : ''),
       s.focused ? 'Sair do foco' : 'Focar nesta tela',
       () => toggleFocus(s.id),
+      CTRL_ICON,
     ),
   )
 
@@ -880,20 +892,29 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
         render()
         scheduleLayout()
       },
+      CTRL_ICON,
     ),
   )
 
   // Edit — opens in the overlay window, above the games.
   bar.append(
-    iconButton('pencil', 'icon-btn ctrl', 'Editar tela', () =>
-      run(() => window.hecaton.openOverlay({ kind: 'edit', id: s.id })),
+    iconButton(
+      'pencil',
+      'icon-btn ctrl',
+      'Editar tela',
+      () => run(() => window.hecaton.openOverlay({ kind: 'edit', id: s.id })),
+      CTRL_ICON,
     ),
   )
 
   // Delete (always last) — its confirmation opens in the overlay too.
   bar.append(
-    iconButton('trash', 'icon-btn ctrl danger', 'Apagar tela', () =>
-      run(() => window.hecaton.openOverlay({ kind: 'confirmRemove', id: s.id })),
+    iconButton(
+      'trash',
+      'icon-btn ctrl danger',
+      'Apagar tela',
+      () => run(() => window.hecaton.openOverlay({ kind: 'confirmRemove', id: s.id })),
+      CTRL_ICON,
     ),
   )
 
@@ -927,6 +948,7 @@ function volumeControl(s: SlotSnapshot): HTMLElement {
         }),
       )
     },
+    CTRL_ICON,
   )
   return btn
 }
@@ -1963,9 +1985,12 @@ function scheduleLayout(): void {
 
 /** The panel window: the video wall. Triggers modals open in the overlay. */
 function initWall(): void {
-  powerAllBtn.append(icon('power', 19))
-  addBtn.append(icon('plus', 19))
-  settingsBtn.append(icon('settings', 19))
+  // 16px inside a 28px button, down from 19 in 36: the sidebar narrowed with the
+  // card bars on 2026-09-18 and an icon that did not follow would have touched
+  // the button's border.
+  powerAllBtn.append(icon('power', 16))
+  addBtn.append(icon('plus', 16))
+  settingsBtn.append(icon('settings', 16))
 
   powerAllBtn.addEventListener('click', powerAll)
   addBtn.addEventListener('click', addScreen)
