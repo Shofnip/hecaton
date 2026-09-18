@@ -1,6 +1,12 @@
 # ADR-0012 — The product is Hecaton, and the data directory was renamed without a migration
 
-**Status:** Accepted · **Date:** 2026-07-29
+**Status:** Its "no migration code, ever" reversed by
+[ADR-0021](0021-several-windows-one-account-each.md) · **Date:** 2026-07-29
+
+The name and the directory stand. What changed on 2026-09-18 is the sentence below saying the
+app would never move what it had already written: accounts moved `config.json` and `profiles/`
+into `accounts/1/`, once, and ADR-0021 carries why the owner took that over a layout that would
+have needed no move.
 
 ## Context
 

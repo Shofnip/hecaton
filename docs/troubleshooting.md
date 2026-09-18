@@ -184,21 +184,25 @@ today.**
 
 A small window opens instead of the panel: _"O Hecaton não pôde iniciar"_, with one reason.
 
-**Cause and what to do**, one per reason — all four come from the machine claim
-([ADR-0018](adr/0018-one-instance-per-machine.md)), which runs before the panel exists and before
-anything writes `config.json`:
+**Cause and what to do**, one per reason. They come from the claim that runs before the panel
+exists and before anything writes a config file — the hypervisor refusal and the hardware seal of
+[ADR-0018](adr/0018-one-instance-per-machine.md), plus the account reservation of
+[ADR-0021](adr/0021-several-windows-one-account-each.md). **"Another Hecaton is already open" is no
+longer one of them**: several windows are allowed, one per account, so a second launch opens the
+next free account instead of being refused.
 
-| Reason on screen                                   | What it means                                                                                                                                                                                                                                                           | What to do                                                                                                                                                                                      |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| _Já existe um Hecaton aberto nesta máquina_        | The `Global\` mutex is held by **your own** Windows account — often a second logon session, or a copy whose window you cannot see                                                                                                                                       | Close the other one. `Get-Process electron` across sessions, or sign out of the other session                                                                                                   |
-| _Outra conta do Windows está com o Hecaton aberto_ | Another Windows account holds it. You cannot see or close their process, by design                                                                                                                                                                                      | That user closes theirs, or their session is ended                                                                                                                                              |
-| _Esta parece ser uma máquina virtual_              | `Win32_ComputerSystem` Manufacturer/Model matched a known hypervisor                                                                                                                                                                                                    | Nothing, on a real VM. On physical hardware it means your vendor wrote a hypervisor-looking string into SMBIOS — check with `Get-CimInstance Win32_ComputerSystem`                              |
-| _Esta máquina não é a que está registrada_         | The seal in `C:\ProgramData\hecaton\machine.json` does not match this hardware, or could not be read at all — **any** failure to read it refuses the launch, not only a parse error, provided the machine has a readable identity to compare against in the first place | If the machine is yours — a motherboard swap does this — delete that file **as an administrator** and start again; it writes a fresh seal. A standard user cannot delete it, which is the point |
+| Reason on screen                           | What it means                                                                                                                                                                                                                                                                               | What to do                                                                                                                                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _Não foi possível reservar uma conta_      | No account's lock could be taken, existing or new — in practice the PowerShell worker that holds it would not run. **This is the one refusal that is not about the machine**, and the one place the app does not fail open: starting anyway would risk two windows over one browser profile | Close the other Hecaton windows and try again; if it persists, reboot. The log line is `instance.account-failed`, with the error                                                                |
+| _Esta parece ser uma máquina virtual_      | `Win32_ComputerSystem` Manufacturer/Model matched a known hypervisor                                                                                                                                                                                                                        | Nothing, on a real VM. On physical hardware it means your vendor wrote a hypervisor-looking string into SMBIOS — check with `Get-CimInstance Win32_ComputerSystem`                              |
+| _Esta máquina não é a que está registrada_ | The seal in `C:\ProgramData\hecaton\machine.json` does not match this hardware, or could not be read at all — **any** failure to read it refuses the launch, not only a parse error, provided the machine has a readable identity to compare against in the first place                     | If the machine is yours — a motherboard swap does this — delete that file **as an administrator** and start again; it writes a fresh seal. A standard user cannot delete it, which is the point |
 
-Two of these have a failure mode worth knowing about, because they are indistinguishable from the
-real thing: a hostile account on the machine can create the mutex first with a closed DACL, or drop
-a bogus `machine.json` in place. Both show as the rows above. There is no way to tell them apart
-without elevation, and the ADR explains why that is accepted rather than solved.
+The seal has a failure mode worth knowing about, because it is indistinguishable from the real
+thing: a hostile account on the machine can drop a bogus `machine.json` in place, and it shows as
+the row above. The same is true of an account's lock, which anybody can create first with a closed
+DACL — that surfaces as "this account is already open" in the panel rather than here. There is no
+way to tell either apart without elevation, and ADR-0018 explains why that is accepted rather than
+solved.
 
 The verdict is in the log too — `instance.claim`, with the reason as its message. A refused launch
 does write that line, so `%APPDATA%/hecaton/logs` exists and has an entry even when nothing else
@@ -216,20 +220,24 @@ again does the same. Task Manager shows `electron.exe` processes that you did no
 
 **Cause**
 
-A previous instance is still alive with its windows hidden, holding the single-instance lock. A
-second launch takes `requestSingleInstanceLock()`, loses, and quits silently — which is the
-designed behaviour and looks identical to "the app is broken".
+A previous instance is still alive with its windows hidden. Until ADR-0021 a second launch took
+`requestSingleInstanceLock()`, lost, and quit silently — which was the designed behaviour and
+looked identical to "the app is broken".
+
+**That lock is gone**: several windows are allowed now, so a second launch opens the next free
+account instead of quitting. What is left of this symptom is narrower and still real — a launch
+that is waiting on the machine claim, below.
 
 **One more shape of "nothing happens", and it is brief:** the machine claim shells out to
 PowerShell, and if that process never answers, the claim waits fifteen seconds before failing open
 and starting the app anyway. A launch that stalls that long and then works normally is this, not a
 hang.
 
-**Since ADR-0018 this covers less ground than it used to.** A second launch that gets past
-Electron's own lock now hits the machine claim, and that one is never silent: it opens a small
-window naming the reason. So "nothing at all happens" narrowed to the same-session case — same
-Windows account, same logon session, same Electron user-data directory. Anything else shows the
-refusal screen, and the section below is the one to read.
+**Since ADR-0018 this covers less ground than it used to, and since ADR-0021 less again.** A
+refused launch is never silent: it opens a small window naming the reason. And a second window is
+not refused at all — it opens on the next account. So "nothing at all happens" now means a launch
+still inside the claim, which is the fifteen seconds above, or a process that died before it could
+show anything; anything else shows the refusal screen, and the section above is the one to read.
 
 Until 2026-08-09 it could get into that state on its own. `before-quit` calls
 `event.preventDefault()` and re-issues `app.quit()` only after its PowerShell workers are disposed

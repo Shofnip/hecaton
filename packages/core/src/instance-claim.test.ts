@@ -6,12 +6,7 @@ import {
   isVirtualMachine,
   sealToWrite,
 } from './instance-claim.js'
-import type {
-  InstanceClaimFacts,
-  InstanceLockState,
-  MachineFacts,
-  MachineSeal,
-} from './instance-claim.js'
+import type { InstanceClaimFacts, MachineFacts, MachineSeal } from './instance-claim.js'
 import { FakeInstanceLock, FakeLogger, FakeMachineIdentity, FakeStorage } from './testing/fakes.js'
 
 /** The reference machine of probes P6/P6b: a physical ASUS desktop. */
@@ -25,7 +20,6 @@ const ASUS: MachineFacts = {
 const ASUS_ID = 'uuid=8f3a1c22-6b4d-11ee-9c1a-04421a1b2c3d;board=230512345600123'
 
 const facts = (overrides: Partial<InstanceClaimFacts> = {}): InstanceClaimFacts => ({
-  lock: 'free',
   virtualMachine: false,
   machineId: ASUS_ID,
   sealedMachineId: undefined,
@@ -137,20 +131,6 @@ describe('evaluateInstanceClaim', () => {
     expect(evaluateInstanceClaim(facts({ sealedMachineId: ASUS_ID }))).toBe('allow')
   })
 
-  it('reports the same Windows user holding the lock', () => {
-    // Measured in P6: the default DACL of a Global\ mutex names the creator's
-    // *user* SID as well as their logon session, so a second session of the same
-    // account opens it successfully. That is a different message from another
-    // user's — this one is the owner's own second copy.
-    expect(evaluateInstanceClaim(facts({ lock: 'held-by-this-user' }))).toBe('held-by-this-user')
-  })
-
-  it('reports another Windows user holding the lock', () => {
-    expect(evaluateInstanceClaim(facts({ lock: 'held-by-another-user' }))).toBe(
-      'held-by-another-user',
-    )
-  })
-
   it('refuses a virtual machine', () => {
     expect(evaluateInstanceClaim(facts({ virtualMachine: true }))).toBe('virtual-machine')
   })
@@ -170,25 +150,16 @@ describe('evaluateInstanceClaim', () => {
 
   it('names the virtual machine first when several reasons apply', () => {
     // Which reason is shown is a decision, not an accident of ordering. A VM is
-    // the truest answer available: telling a VM user "another user holds the
-    // lock" sends them looking for a process that does not exist.
+    // the truest answer available: telling a VM user that their hardware seal
+    // does not match sends them hunting the wrong thing entirely.
     expect(
       evaluateInstanceClaim(
         facts({
           virtualMachine: true,
-          lock: 'held-by-another-user',
           sealedMachineId: 'uuid=someone-elses-machine',
         }),
       ),
     ).toBe('virtual-machine')
-  })
-
-  it('names the seal before the lock', () => {
-    expect(
-      evaluateInstanceClaim(
-        facts({ lock: 'held-by-another-user', sealedMachineId: 'uuid=someone-elses-machine' }),
-      ),
-    ).toBe('foreign-machine')
   })
 
   it('allows when the machine could not be identified at all', () => {
@@ -215,13 +186,10 @@ describe('evaluateInstanceClaim', () => {
     )
   })
 
-  it('still refuses an unidentified machine that is virtual or locked', () => {
+  it('still refuses an unidentified machine that is virtual', () => {
     expect(evaluateInstanceClaim(facts({ machineId: undefined, virtualMachine: true }))).toBe(
       'virtual-machine',
     )
-    expect(
-      evaluateInstanceClaim(facts({ machineId: undefined, lock: 'held-by-another-user' })),
-    ).toBe('held-by-another-user')
   })
 })
 
@@ -238,13 +206,6 @@ describe('sealToWrite', () => {
     expect(sealToWrite(facts({ machineId: undefined }))).toBeUndefined()
   })
 
-  it.each(['held-by-this-user', 'held-by-another-user'] as const)(
-    'writes nothing when the claim was refused (%s)',
-    (lock) => {
-      expect(sealToWrite(facts({ lock }))).toBeUndefined()
-    },
-  )
-
   it('never repairs a seal it just refused to match', () => {
     // The refusal has to be sticky. Overwriting a foreign seal would turn the
     // hardware binding into a formality: start once, get refused, and the second
@@ -258,7 +219,8 @@ describe('claimInstance', () => {
   const deps = (
     overrides: {
       facts?: MachineFacts
-      lock?: InstanceLockState
+      accountIds?: readonly number[]
+      busyAccounts?: readonly number[]
       sealed?: MachineSeal
       failLoad?: Error
     } = {},
@@ -267,55 +229,100 @@ describe('claimInstance', () => {
     lock: FakeInstanceLock
     seal: FakeStorage<MachineSeal>
     logger: FakeLogger
+    accountIds: readonly number[]
   } => {
     const seal = new FakeStorage<MachineSeal>(overrides.sealed)
     seal.failLoad = overrides.failLoad
+    const lock = new FakeInstanceLock()
+    for (const id of overrides.busyAccounts ?? []) lock.busy.add(id)
     return {
       identity: new FakeMachineIdentity(overrides.facts ?? ASUS),
-      lock: new FakeInstanceLock(overrides.lock ?? 'free'),
+      lock,
       seal,
       logger: new FakeLogger(),
+      accountIds: overrides.accountIds ?? [],
     }
   }
 
-  it('allows a first launch and seals the machine', async () => {
+  it('creates the first account on a machine that has none, and seals it', async () => {
     const d = deps()
-    expect(await claimInstance(d)).toBe('allow')
-    expect(d.lock.claims).toBe(1)
-    expect(d.lock.releases).toBe(0)
+
+    await expect(claimInstance(d)).resolves.toEqual({
+      verdict: 'allow',
+      account: { id: 1, created: true },
+    })
+
+    expect(d.lock.claimed).toEqual([1])
     expect(d.seal.saves).toBe(1)
     // What lands on disk is the digest, never the canonical identity: the file
     // sits in a machine-wide directory every account can read.
     expect(await d.seal.load()).toEqual({ machineId: `digest(${ASUS_ID})` })
   })
 
-  it('allows a later launch on the same machine without rewriting the seal', async () => {
-    const d = deps({ sealed: { machineId: `digest(${ASUS_ID})` } })
-    expect(await claimInstance(d)).toBe('allow')
+  it('takes the existing account when nothing else is running', async () => {
+    const d = deps({ accountIds: [1], sealed: { machineId: `digest(${ASUS_ID})` } })
+
+    await expect(claimInstance(d)).resolves.toEqual({
+      verdict: 'allow',
+      account: { id: 1, created: false },
+    })
     expect(d.seal.saves).toBe(0)
   })
 
-  it('releases the lock it took when the claim is refused', async () => {
-    // Not for contention — a machine-wide refusal refuses every instance alike,
-    // so nothing is being starved. It is so the *reason* survives: the refusal
-    // window stays up while the user reads it, and a mutex still held would make
-    // the next launch report 'held-by-this-user' instead of the real cause.
+  it('opens the second window on the second account', async () => {
+    // The feature in one test: another window already holds account 1, so this
+    // one takes account 2 rather than sharing a profile directory with it.
+    const d = deps({ accountIds: [1, 2], busyAccounts: [1] })
+
+    await expect(claimInstance(d)).resolves.toEqual({
+      verdict: 'allow',
+      account: { id: 2, created: false },
+    })
+    expect(d.lock.claimed).toEqual([1, 2])
+  })
+
+  it('creates a new account when every existing one is in use', async () => {
+    const d = deps({ accountIds: [1], busyAccounts: [1] })
+
+    await expect(claimInstance(d)).resolves.toEqual({
+      verdict: 'allow',
+      account: { id: 2, created: true },
+    })
+  })
+
+  it('refuses to start when no account could be reserved', async () => {
+    // The one place this feature does **not** fail open. Everywhere else a
+    // broken instrument lets the app run anyway, because the cost is the app
+    // being annoying. Here the cost is two windows writing one browser profile,
+    // which damages a logged-in session - so a lock that will not answer stops
+    // the launch instead.
+    const d = deps({ accountIds: [1], busyAccounts: Array.from({ length: 40 }, (_, i) => i + 1) })
+
+    await expect(claimInstance(d)).resolves.toEqual({ verdict: 'no-account' })
+    expect(d.seal.saves).toBe(0)
+  })
+
+  it('takes no account at all when the machine itself is refused', async () => {
+    // The machine gate runs first, so a refused launch never touches a lock and
+    // never has one to release - which is what the old one-per-machine claim
+    // needed a release path for.
     const d = deps({ facts: { ...ASUS, manufacturer: 'VMware, Inc.' } })
-    expect(await claimInstance(d)).toBe('virtual-machine')
-    expect(d.lock.releases).toBe(1)
+
+    await expect(claimInstance(d)).resolves.toEqual({ verdict: 'virtual-machine' })
+    expect(d.lock.claimed).toEqual([])
     expect(d.seal.saves).toBe(0)
   })
 
   it('treats a seal that will not load as a foreign machine', async () => {
     const d = deps({ failLoad: new Error('EACCES') })
-    expect(await claimInstance(d)).toBe('foreign-machine')
+    await expect(claimInstance(d)).resolves.toEqual({ verdict: 'foreign-machine' })
   })
 
   it('treats a seal without a machine id as a foreign machine', async () => {
     // The file is JSON, so it parses; it just is not a seal. Anything that is
     // not the shape this app writes got there some other way.
     const d = deps({ sealed: { notAMachineId: true } as unknown as MachineSeal })
-    expect(await claimInstance(d)).toBe('foreign-machine')
+    await expect(claimInstance(d)).resolves.toEqual({ verdict: 'foreign-machine' })
   })
 
   it('starts anyway when the seal cannot be written', async () => {
@@ -323,7 +330,8 @@ describe('claimInstance', () => {
     // ProgramData would not take a file turns a disk permission into a brick.
     const d = deps()
     d.seal.save = (): Promise<void> => Promise.reject(new Error('EACCES'))
-    expect(await claimInstance(d)).toBe('allow')
+
+    await expect(claimInstance(d)).resolves.toMatchObject({ verdict: 'allow' })
     expect(d.logger.events()).toContain('instance.seal-failed')
   })
 
@@ -331,21 +339,35 @@ describe('claimInstance', () => {
     // 'log contents' is a security trigger in this project, and a hardware id is
     // exactly the kind of value that must not sit in a file a user is asked to
     // send to someone else. The verdicts are words, not identifiers.
-    const d = deps({ lock: 'held-by-another-user' })
+    const d = deps({ sealed: { machineId: 'digest(uuid=someone-elses-machine)' } })
+
     await claimInstance(d)
+
     const serialised = JSON.stringify(d.logger.entries)
-    expect(serialised).toContain('held-by-another-user')
+    expect(serialised).toContain('foreign-machine')
     expect(serialised).not.toContain(ASUS.productUuid)
     expect(serialised).not.toContain(ASUS.boardSerial)
     expect(serialised).not.toContain(ASUS_ID)
-    // Not the digest either. It is not a secret — anyone can recompute it from
-    // their own machine — but it is still an identifier of one person's computer.
+    // Not the digest either. It is not a secret - anyone can recompute it from
+    // their own machine - but it is still an identifier of one person's computer.
     expect(serialised).not.toContain('digest(')
+  })
+
+  it('logs which account it opened on, since that is not an identifier', async () => {
+    const d = deps({ accountIds: [1], busyAccounts: [1] })
+
+    await claimInstance(d)
+
+    expect(d.logger.entries).toContainEqual({
+      level: 'info',
+      event: 'instance.account',
+      message: 'created 2',
+    })
   })
 
   it('refuses a machine whose seal digest does not match', async () => {
     const d = deps({ sealed: { machineId: 'digest(uuid=someone-elses-machine)' } })
-    expect(await claimInstance(d)).toBe('foreign-machine')
+    await expect(claimInstance(d)).resolves.toEqual({ verdict: 'foreign-machine' })
     expect(d.seal.saves).toBe(0)
   })
 
@@ -353,7 +375,7 @@ describe('claimInstance', () => {
     // No identity means no digest to store, and storing a digest of "nothing"
     // would seal every unidentifiable machine to the same value.
     const d = deps({ facts: { ...ASUS, productUuid: 'Not Specified' } })
-    expect(await claimInstance(d)).toBe('allow')
+    await expect(claimInstance(d)).resolves.toMatchObject({ verdict: 'allow' })
     expect(d.seal.saves).toBe(0)
   })
 

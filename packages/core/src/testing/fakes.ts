@@ -243,14 +243,18 @@ export class FakeMachineIdentity implements MachineIdentity {
 }
 
 export class FakeInstanceLock implements InstanceLock {
-  claims = 0
+  /** Account ids this lock was asked for, in order. */
+  readonly claimed: number[] = []
   releases = 0
+  /** Accounts another window is holding. */
+  readonly busy = new Set<number>()
 
-  constructor(private readonly state: InstanceLockState = 'free') {}
+  /** How a busy account answers: the two cases the adapter can tell apart. */
+  constructor(private readonly busyState: InstanceLockState = 'held-by-this-user') {}
 
-  claim(): Promise<InstanceLockState> {
-    this.claims++
-    return Promise.resolve(this.state)
+  claim(accountId: number): Promise<InstanceLockState> {
+    this.claimed.push(accountId)
+    return Promise.resolve(this.busy.has(accountId) ? this.busyState : 'free')
   }
 
   release(): Promise<void> {

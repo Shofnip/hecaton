@@ -57,6 +57,10 @@ interface PanelState {
   configQuarantinedAs?: string
   releaseNotes?: string
   needsReleaseNotes: boolean
+  /** The account this window owns (ADR-0021). */
+  account: { id: number; name: string }
+  /** Every account on the machine, for the dropdown in Configurações. */
+  accounts: { id: number; name: string }[]
 }
 
 /** What an update check came back with (mirrors the core's UpdateCheck). */
@@ -89,6 +93,7 @@ interface HecatonApi {
   clearSlotCache(id: number): Promise<void>
   clearAllCaches(): Promise<void>
   revealUserData(): Promise<void>
+  deleteAccountData(): Promise<void>
   deleteAllUserData(): Promise<void>
   acknowledgeTerms(): Promise<void>
   acknowledgeReleaseNotes(): Promise<void>
@@ -101,6 +106,9 @@ interface HecatonApi {
   reloadSlot(id: number): Promise<boolean>
   setTheme(theme: Theme): Promise<void>
   setScreenLayout(placements: unknown): Promise<void>
+  renameAccount(name: string): Promise<void>
+  switchAccount(id: number): Promise<{ ok: boolean; reason?: string }>
+  createAccount(): Promise<{ ok: boolean; reason?: string }>
   openOverlay(request: OverlayRequest): Promise<void>
   closeOverlay(): Promise<void>
   onState(listener: (state: PanelState) => void): void
@@ -397,6 +405,10 @@ let state: PanelState = {
   needsTerms: false,
   needsReleaseNotes: false,
   version: '',
+  // Account 1 until main says which one this window actually got. The dropdown
+  // only opens from Configurações, by which point the real values have arrived.
+  account: { id: 1, name: 'Conta 1' },
+  accounts: [],
 }
 
 // UI-only state main does not own. The modal/editor flags moved to the overlay
@@ -1193,6 +1205,12 @@ function openSettings(): void {
       ),
     )
 
+    body.append(el('div', 'risk-divider'))
+    body.append(el('span', 'section-label', 'Conta'))
+    body.append(accountBox(close))
+
+    body.append(el('div', 'risk-divider'))
+
     const logs = el('button', 'neutral-btn')
     logs.type = 'button'
     logs.append(icon('logs', 18), el('span', undefined, 'Abrir logs'))
@@ -1269,6 +1287,11 @@ function openSettings(): void {
           }),
       ),
     )
+    // Narrow first, wide second: the one that touches only this account is the
+    // one somebody reaching for "apagar" usually means, and the one that reaches
+    // every account - including a window somebody else has open - reads as the
+    // deliberate extra step it is.
+    body.append(deleteAccountButton())
     body.append(deleteEverythingButton())
 
     dialog.append(body)
@@ -1399,6 +1422,127 @@ function openTerms(): void {
  * open, and the throwaway profile inside it is normally gone by the time anyone
  * looks.
  */
+/**
+ * The account section of Configurações (ADR-0021).
+ *
+ * Three things, in the order somebody uses them: which account this window is
+ * on, what it is called, and how to get another one. Switching stops every
+ * screen — the browsers hold this account's profiles open — so it goes through
+ * the confirmation pattern of design §9, in its non-destructive form: nothing is
+ * deleted, so the button says "Confirmar" in `accent` rather than "Sim, apagar"
+ * in `danger`.
+ *
+ * There is no "in use" mark beside the other accounts, and that is measured
+ * rather than forgotten: finding out whether another window holds an account
+ * means taking its lock, and a probe that takes one for a moment can push a
+ * window that is starting onto a different account. A switch to an account
+ * somebody else has open fails and says so.
+ */
+function accountBox(closeSettings: () => void): HTMLElement {
+  const box = el('div', 'field-box')
+
+  box.append(
+    el(
+      'span',
+      'data-note',
+      'Cada conta tem as próprias telas, os próprios logins e o próprio cache — até 4 telas por ' +
+        'conta. Abrir um segundo Hecaton abre a próxima conta livre, e cria uma se não houver.',
+    ),
+  )
+
+  const row = el('div', 'account-row')
+  row.append(el('span', 'toggle-label', 'Conta desta janela'))
+  const select = document.createElement('select')
+  select.className = 'field-select account-control'
+  const accounts = state.accounts.length > 0 ? state.accounts : [state.account]
+  for (const account of accounts) {
+    const option = document.createElement('option')
+    option.value = String(account.id)
+    option.textContent = account.name
+    option.selected = account.id === state.account.id
+    select.append(option)
+  }
+  select.addEventListener('change', () => {
+    const target = Number(select.value)
+    if (target === state.account.id) return
+    // Put the dropdown back first: the switch is not done until the user
+    // confirms, and a select showing an account this window is not on would be
+    // the UI lying about where it is.
+    select.value = String(state.account.id)
+    const name = accounts.find((account) => account.id === target)?.name ?? `Conta ${target}`
+    openConfirm({
+      title: `Trocar para ${name}?`,
+      message:
+        'Todas as telas desta janela serão desligadas e as telas da outra conta assumem o ' +
+        'painel. Nenhum dado é apagado.',
+      danger: false,
+      confirmLabel: 'Confirmar',
+      onYes: () =>
+        run(async () => {
+          const result = await window.hecaton.switchAccount(target)
+          showToast(result.ok ? `Agora em ${name}` : accountBusyMessage(result.reason))
+          if (result.ok) closeSettings()
+        }),
+    })
+  })
+  row.append(select)
+  box.append(row)
+
+  const nameRow = el('div', 'account-row')
+  nameRow.append(el('span', 'toggle-label', 'Nome desta conta'))
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'field-input account-control'
+  input.maxLength = 24
+  input.value = state.account.name
+  const commit = (): void => {
+    const value = input.value.trim()
+    if (value === '' || value === state.account.name) {
+      input.value = state.account.name
+      return
+    }
+    run(async () => {
+      await window.hecaton.renameAccount(value)
+      showToast('Conta renomeada')
+    })
+  }
+  input.addEventListener('blur', commit)
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') input.blur()
+  })
+  nameRow.append(input)
+  box.append(nameRow)
+
+  const create = el('button', 'neutral-btn')
+  create.type = 'button'
+  create.append(icon('plus', 18), el('span', undefined, 'Criar outra conta e ir para ela'))
+  create.addEventListener('click', () => {
+    openConfirm({
+      title: 'Criar outra conta?',
+      message:
+        'Uma conta nova começa vazia, com as próprias telas e os próprios logins. As telas desta ' +
+        'janela serão desligadas. Nenhum dado é apagado.',
+      danger: false,
+      confirmLabel: 'Confirmar',
+      onYes: () =>
+        run(async () => {
+          const result = await window.hecaton.createAccount()
+          showToast(result.ok ? 'Conta criada' : accountBusyMessage(result.reason))
+          if (result.ok) closeSettings()
+        }),
+    })
+  })
+  box.append(create)
+  return box
+}
+
+/** Why a switch did not happen, in the words the lock answered with. */
+function accountBusyMessage(reason: string | undefined): string {
+  if (reason === 'held-by-another-user') return 'Essa conta está aberta em outra conta do Windows'
+  if (reason === 'held-by-this-user') return 'Essa conta já está aberta em outra janela'
+  return 'Não foi possível reservar essa conta agora'
+}
+
 function userDataBox(): HTMLElement {
   const box = el('div', 'field-box')
   box.append(
@@ -1453,20 +1597,52 @@ function userDataBox(): HTMLElement {
  * safeguard: main refuses the same thing, because Chrome holds its profile open
  * and a deletion underneath a running browser only half-succeeds.
  */
-function deleteEverythingButton(): HTMLElement {
+function deleteAccountButton(): HTMLElement {
   const open = state.slots.filter((s) => s.state !== 'stopped').length
   const button = dangerButton(
-    'Apagar todos os meus dados',
+    'Apagar os dados desta conta',
     open > 0
       ? `Pare todas as telas primeiro (${open} ainda aberta${open > 1 ? 's' : ''}).`
-      : 'Perfis, configuração e logs. Você sai de todas as contas e o aplicativo fecha.',
+      : `Perfis, telas e cache da ${state.account.name}. As outras contas ficam intactas.`,
     () =>
       openConfirm({
-        title: 'Apagar todos os meus dados?',
+        title: `Apagar os dados da ${state.account.name}?`,
         message:
-          'Isto apaga %APPDATA%\\hecaton: os perfis — você sai de todas as contas do jogo —, a ' +
-          'configuração e os logs. É permanente e não pode ser desfeito. O aplicativo fecha em ' +
-          'seguida, e uma pasta com o cache dele continua lá, sem nenhum login dentro.',
+          'Isto apaga os perfis desta conta — você sai das contas do jogo que estão nela —, as ' +
+          'telas configuradas e o cache dela. As outras contas do Hecaton não são tocadas. É ' +
+          'permanente e não pode ser desfeito, e o aplicativo fecha em seguida.',
+        danger: true,
+        confirmLabel: 'Sim, apagar',
+        onYes: () =>
+          run(async () => {
+            await window.hecaton.deleteAccountData()
+            showToast('Dados da conta apagados. Fechando o aplicativo…')
+          }),
+      }),
+  )
+  button.disabled = open > 0
+  return button
+}
+
+function deleteEverythingButton(): HTMLElement {
+  const open = state.slots.filter((s) => s.state !== 'stopped').length
+  const others = Math.max(0, state.accounts.length - 1)
+  const button = dangerButton(
+    'Apagar TODOS os dados',
+    open > 0
+      ? `Pare todas as telas primeiro (${open} ainda aberta${open > 1 ? 's' : ''}).`
+      : others > 0
+        ? `Todas as contas (${state.accounts.length}), inclusive as abertas em outras janelas.`
+        : 'Perfis, configuração e logs. Você sai de todas as contas e o aplicativo fecha.',
+    () =>
+      openConfirm({
+        title: 'Apagar TODOS os dados?',
+        message:
+          'Isto apaga %APPDATA%\\hecaton inteiro: **todas as contas**, os perfis — você sai de ' +
+          'todas as contas do jogo —, a configuração e os logs. Se houver outra janela do Hecaton ' +
+          'aberta, ela perde os dados dela no meio do uso. É permanente e não pode ser desfeito. O ' +
+          'aplicativo fecha em seguida, e uma pasta com o cache dele continua lá, sem nenhum login ' +
+          'dentro.',
         danger: true,
         confirmLabel: 'Sim, apagar tudo',
         onYes: () =>

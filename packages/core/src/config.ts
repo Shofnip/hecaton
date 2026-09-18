@@ -47,6 +47,19 @@ export interface GlobalConfig {
    */
   termsAcknowledged: number
   /**
+   * What this account is called, when somebody has named it.
+   *
+   * It lives in the account's **own** config on purpose (ADR-0021): several
+   * windows run at once now, each owning one account, so the one file that
+   * carries a name is the one file only its owner writes. A shared list of
+   * accounts would have been the obvious design and would have put a
+   * read-modify-write race where losing it costs a user their names.
+   *
+   * Absent means nobody renamed it, and the UI shows `Conta {N}` — a stored
+   * placeholder would make a default look like a decision.
+   */
+  accountName?: string
+  /**
    * The version whose release notes have already been shown, if any.
    *
    * A version string rather than a flag, so each new one is shown once and only

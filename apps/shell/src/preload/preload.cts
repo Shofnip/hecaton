@@ -40,6 +40,7 @@ const api = {
   clearSlotCache: (id: number) => ipcRenderer.invoke('profiles:clearSlotCache', id),
   clearAllCaches: () => ipcRenderer.invoke('profiles:clearAllCaches'),
   revealUserData: () => ipcRenderer.invoke('data:reveal'),
+  deleteAccountData: () => ipcRenderer.invoke('data:deleteAccount'),
   deleteAllUserData: () => ipcRenderer.invoke('data:deleteAll'),
   acknowledgeTerms: () => ipcRenderer.invoke('terms:acknowledge'),
   acknowledgeReleaseNotes: () => ipcRenderer.invoke('notes:acknowledge'),
@@ -54,6 +55,12 @@ const api = {
   reloadSlot: (id: number) => ipcRenderer.invoke('slots:reload', id),
   setTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme),
   setScreenLayout: (placements: unknown) => ipcRenderer.invoke('screens:layout', placements),
+
+  // Accounts (ADR-0021). `rename` carries no id on purpose: a window may write
+  // its own account's config and nobody else's.
+  renameAccount: (name: string) => ipcRenderer.invoke('accounts:rename', { name }),
+  switchAccount: (id: number) => ipcRenderer.invoke('accounts:switch', { id }),
+  createAccount: () => ipcRenderer.invoke('accounts:create'),
 
   // The overlay window (modals + volume popover, above the games). The wall asks
   // to open one; the overlay renders it and asks to close when done.

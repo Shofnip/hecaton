@@ -13,11 +13,13 @@
  */
 import { BrowserWindow, Menu, app, ipcMain, screen, session, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   IPC_CHANNELS,
   Orchestrator,
+  parseAccountRename,
+  parseAccountSwitch,
   parseAudioFollowsFocus,
   parseConfig,
   parseNoPayload,
@@ -35,10 +37,13 @@ import {
 } from '@hecaton/core'
 import {
   TERMS_VERSION,
+  accountDirName,
   claimInstance,
+  defaultAccountName,
   ensureBrowserReadable,
   interpretUpdateCheck,
   needsTermsAcknowledgement,
+  nextAccountId,
 } from '@hecaton/core'
 import type { InstanceClaimVerdict, MachineSeal } from '@hecaton/core'
 import { changelogSection, displayNotes, needsReleaseNotes } from '@hecaton/core'
@@ -55,18 +60,24 @@ import {
 import { NativeWindowManager } from '@hecaton/window-manager'
 import { MutexInstanceLock, WmiMachineIdentity } from '@hecaton/machine-lock'
 import {
+  ACCOUNTS_DIR_NAME,
   APP_DIR_NAME,
   ELECTRON_DIR_NAME,
   FileLogger,
   CorruptJsonError,
   JsonFileStorage,
+  accountConfigFilePath,
+  accountDir,
+  accountElectronUserDataDir,
+  accountProfilesDir,
+  accountsDir,
   appDataDir,
-  configFilePath,
   deleteUserData,
   electronUserDataDir,
+  listAccountIds,
   logsDir,
   machineSealPath,
-  profilesDir,
+  migrateLegacyLayout,
 } from '@hecaton/storage'
 import { buildGameRegistry } from '@hecaton/games'
 import { allowsNavigation, cspHeaders, panelWebPreferences } from './security.js'
@@ -181,12 +192,36 @@ interface PersistedConfig extends GlobalConfig {
   slots: SlotOverrides[]
 }
 
-const storage = new JsonFileStorage<unknown>(configFilePath())
+/**
+ * The account this window owns, and the two adapters bound to its directory.
+ *
+ * Rebuilt rather than reconfigured when the user switches accounts: every path
+ * either of them holds belongs to one account, and a half-switched pair - new
+ * config, old profiles - is how one account's screens would open another
+ * account's sessions. Assigned before the panel exists, by `openAccount`.
+ */
+let accountId = 0
+let storage: JsonFileStorage<unknown>
+let profiles: FileProfileArchive
 const logger = new FileLogger(logsDir())
-const profiles = new FileProfileArchive(profilesDir())
 // Built once from static registry data. The panel needs id and name (name is
 // the Portuguese label, UI text) to offer a game picker; it never needs the url.
 const GAMES = [...buildGameRegistry().values()].map((game) => ({ id: game.id, name: game.name }))
+
+/**
+ * The account list the panel last saw.
+ *
+ * Cached rather than read on every push: state goes out several times a second
+ * and reading every account's config that often would be a disk read per
+ * account per tick, for a list that changes only when somebody renames, creates
+ * or switches. Refreshed at those three moments and when the settings modal
+ * opens, which is the only place it is shown.
+ */
+let knownAccounts: { id: number; name: string }[] = []
+
+function refreshAccounts(): void {
+  knownAccounts = readAccounts()
+}
 
 let orchestrator: Orchestrator
 // Starts at the shipped defaults so maxSlots is available even if a config that
@@ -230,6 +265,48 @@ function panelHwnd(): number | undefined {
   return handle.length >= 8 ? Number(handle.readBigUInt64LE(0)) : handle.readUInt32LE(0)
 }
 
+/**
+ * Points this window at an account: its directory, its config, its profiles.
+ *
+ * Creating the directory here rather than in the claim is deliberate. The claim
+ * decides **which** account, holding its lock while it does; only then is there
+ * a reason for the directory to exist, and only the window holding that lock
+ * ever writes inside it (ADR-0021).
+ */
+function openAccount(id: number): void {
+  accountId = id
+  mkdirSync(accountDir(id), { recursive: true })
+  storage = new JsonFileStorage<unknown>(accountConfigFilePath(id))
+  profiles = new FileProfileArchive(accountProfilesDir(id))
+}
+
+/**
+ * What is still inside a directory, for the deletion to judge.
+ *
+ * An absent directory reads as empty rather than throwing: after a successful
+ * delete that is exactly what it is, and the whole point of this call is to find
+ * out what survived.
+ */
+function listRemaining(path: string): string[] {
+  return existsSync(path) ? readdirSync(path) : []
+}
+
+/** What the panel shows in the account dropdown: every account, named. */
+function readAccounts(): { id: number; name: string }[] {
+  return listAccountIds().map((id) => {
+    if (id === accountId) return { id, name: globals.accountName ?? defaultAccountName(id) }
+    // Another account's config is **read** and never written: its owner may be
+    // running right now. A file that will not parse costs a name, not a launch.
+    try {
+      const raw = readFileSync(accountConfigFilePath(id), 'utf8')
+      const name = (JSON.parse(raw) as { accountName?: unknown }).accountName
+      return { id, name: typeof name === 'string' && name ? name : defaultAccountName(id) }
+    } catch {
+      return { id, name: defaultAccountName(id) }
+    }
+  })
+}
+
 async function loadConfiguration(): Promise<void> {
   const registry = buildGameRegistry()
   const raw = await readConfigOrRecover()
@@ -251,7 +328,7 @@ async function loadConfiguration(): Promise<void> {
   windowManager = new NativeWindowManager(panelHwnd)
 
   orchestrator = new Orchestrator({
-    launcher: new ChromeLauncher(profilesDir(), BROWSER),
+    launcher: new ChromeLauncher(accountProfilesDir(accountId), BROWSER),
     windows: windowManager,
     screen: screen.getPrimaryDisplay().workArea,
     globals,
@@ -368,6 +445,17 @@ interface PanelState {
    * again from Configurações afterwards, and "available" is not "due".
    */
   needsReleaseNotes: boolean
+  /** The account this window owns: what the dropdown shows as selected. */
+  account: { id: number; name: string }
+  /**
+   * Every account on the machine, for the dropdown.
+   *
+   * No "in use" flag, and that absence is a decision: finding out whether
+   * another window holds an account means taking its lock, and a probe that
+   * takes a lock for a moment can push a window that is starting up onto a
+   * different account. A switch to a busy account fails and says so instead.
+   */
+  accounts: { id: number; name: string }[]
 }
 
 /** Everything the renderer is allowed to know. */
@@ -381,6 +469,8 @@ function currentState(): PanelState {
     needsTerms: needsTermsAcknowledgement(globals.termsAcknowledged),
     needsReleaseNotes: needsReleaseNotes(globals.releaseNotesShownFor, version()),
     version: version(),
+    account: { id: accountId, name: globals.accountName ?? defaultAccountName(accountId) },
+    accounts: knownAccounts,
   }
   if (configError !== undefined) state.configError = configError
   if (configQuarantinedAs !== undefined) state.configQuarantinedAs = configQuarantinedAs
@@ -561,6 +651,27 @@ function registerIpc(): void {
       await shell.openPath(appDataDir())
     },
 
+    'data:deleteAccount': async (payload) => {
+      // The narrower of the two deletions, and the one the panel offers first:
+      // this account's profiles, config and cache, and nothing belonging to any
+      // other account - which another window may be running right now
+      // (ADR-0021). Guarded exactly like the wider one below.
+      parseNoPayload(payload)
+      requireEveryScreenStopped((orchestrator ? orchestrator.snapshot() : []).map((s) => s.state))
+
+      // The leaf is the account id, which is also the directory name: the core's
+      // allowlist is checking main against the same number it used to build the
+      // path.
+      const remaining = deleteUserData([
+        { path: accountDir(accountId), leaf: accountDirName(accountId) },
+      ])
+      // Electron holds this account's own cache open until the process exits,
+      // so that one entry is tolerated and anything else is the failure it is.
+      verifyUserDataDeletion(remaining, [ELECTRON_DIR_NAME])
+
+      quitAfterDeletion()
+    },
+
     'data:deleteAll': async (payload) => {
       // The only path in this app that deletes a live profile, and it exists
       // because nothing else can ask the question: the artifact is a zip and there
@@ -575,14 +686,31 @@ function registerIpc(): void {
       //    carries no payload at all, so nothing the renderer sends can steer it.
       //    The leaf is the same constant the path is built from, so the core's
       //    allowlist is checking main against itself.
-      // 3. What survived is judged by the core. The app cannot remove its own
-      //    Electron directory while it runs, so that one is tolerated and
-      //    anything else is reported as the failure it is.
+      // 3. What survived is judged by the core, three times over - see below.
+      //
+      // **It reaches every account, including ones another window is running.**
+      // That is the difference from `data:deleteAccount` above and the reason the
+      // panel words them differently: this one is the honest "all of it", and a
+      // second window losing its profiles mid-session is a consequence the user
+      // is told about before confirming.
       parseNoPayload(payload)
       requireEveryScreenStopped((orchestrator ? orchestrator.snapshot() : []).map((s) => s.state))
 
       const remaining = deleteUserData([{ path: appDataDir(), leaf: APP_DIR_NAME }])
-      verifyUserDataDeletion(remaining, [ELECTRON_DIR_NAME])
+      // Three checks rather than one tolerated name, because the survivor is now
+      // nested: this window's Electron cache lives at accounts/<id>/shell, so
+      // `accounts` survives, and tolerating that alone would also excuse another
+      // account's profiles surviving whole. Each level is checked against what may
+      // actually be left there.
+      // Two names at the top level, not one. `accounts` is where this window's
+      // own cache lives; `shell` is the directory Electron created from the
+      // pre-ready default before the claim could say which account this window
+      // owns - measured 2026-09-18: it holds a `Local State` file and outlives
+      // the re-point, so tolerating it is the difference between a clean result
+      // and a deletion that reports failure over a file with nothing in it.
+      verifyUserDataDeletion(remaining, [ACCOUNTS_DIR_NAME, ELECTRON_DIR_NAME])
+      verifyUserDataDeletion(listRemaining(accountsDir()), [accountDirName(accountId)])
+      verifyUserDataDeletion(listRemaining(accountDir(accountId)), [ELECTRON_DIR_NAME])
 
       quitAfterDeletion()
     },
@@ -675,6 +803,13 @@ function registerIpc(): void {
       // then show the overlay (above the games), make it interactive, and hand it
       // the request. The overlay renders it and calls overlay:close when done.
       const request = parseOverlayRequest(payload)
+      // The settings modal is the only place the account list is shown, so this
+      // is where it is worth a handful of small reads - rather than on every
+      // state push, several times a second, for a list nobody is looking at.
+      if (request.kind === 'settings') {
+        refreshAccounts()
+        pushState()
+      }
       if (!overlay) return
       overlay.setBounds(panel?.getContentBounds() ?? overlay.getBounds())
       overlay.setIgnoreMouseEvents(false)
@@ -689,6 +824,25 @@ function registerIpc(): void {
       parseNoPayload(payload)
       overlay?.hide()
       overlay?.setIgnoreMouseEvents(true, { forward: true })
+    },
+
+    'accounts:rename': async (payload) => {
+      // Writes this window's own config and no other. The channel carries no id
+      // for that reason — see ipc.ts.
+      globals = { ...globals, accountName: parseAccountRename(payload) }
+      await saveConfiguration()
+      refreshAccounts()
+      pushState()
+    },
+
+    'accounts:switch': async (payload) => switchAccount(parseAccountSwitch(payload)),
+
+    'accounts:create': async (payload) => {
+      // The next id is worked out here, from what is on disk. A channel that
+      // accepted one would let the panel point a "new" account at an existing
+      // account's profile directory.
+      parseNoPayload(payload)
+      return switchAccount(nextAccountId(listAccountIds()))
     },
   }
 
@@ -798,10 +952,79 @@ function quitAfterDeletion(): void {
 }
 
 /**
- * Held for the life of the process; the mutex it owns is what makes "one Hecaton
- * per machine" true across Windows logon sessions (ADR-0018).
+ * Held for the life of the process, and swapped when the user switches accounts.
+ *
+ * The mutex it owns is what makes "one window per account" true across Windows
+ * logon sessions (ADR-0021, replacing ADR-0018's one-per-machine).
  */
-const instanceLock = new MutexInstanceLock()
+let instanceLock = new MutexInstanceLock()
+
+/** What a switch did, for the panel to turn into a toast. */
+interface AccountSwitch {
+  ok: boolean
+  /** Why not, when it failed: the lock's own word for it. */
+  reason?: 'held-by-this-user' | 'held-by-another-user' | 'unavailable'
+}
+
+/**
+ * Moves this window to another account, or reports why it cannot.
+ *
+ * **The new lock is taken before the old one is released**, and that order is
+ * the whole design. Released first, the window would spend a moment owning
+ * nothing: another instance could take the account it just left, and a failed
+ * claim on the target would leave it with no account at all and no way back.
+ * Taking the target first costs a second lock worker for the length of the
+ * switch and cannot strand anybody.
+ *
+ * Everything else follows from "one account per window": the screens stop
+ * (their profiles belong to the account being left), the adapters that own a
+ * PowerShell worker are disposed rather than reused, and the orchestrator is
+ * rebuilt by `loadConfiguration` against the new account's config.
+ */
+async function switchAccount(targetId: number): Promise<AccountSwitch> {
+  if (targetId === accountId) return { ok: true }
+
+  const candidate = new MutexInstanceLock()
+  const state = await candidate.claim(targetId)
+  if (state !== 'free') {
+    await candidate.release()
+    logger.log({ level: 'info', event: 'accounts.switch-refused', message: state })
+    return { ok: false, reason: state }
+  }
+
+  // Only now is the current account being given up. Stopping the screens first
+  // is not politeness: their browsers hold this account's profiles open, and a
+  // profile still being written while another window claims the account is the
+  // collision the lock exists to prevent.
+  for (const slot of orchestrator.snapshot()) {
+    if (slot.state === 'stopped' || slot.state === 'crashed') continue
+    try {
+      await orchestrator.stop(slot.id)
+    } catch {
+      // A screen that will not stop is not a reason to abandon the switch: its
+      // process is the launcher's to reap, and the account it belonged to is
+      // about to be released either way.
+    }
+  }
+  await saveConfiguration()
+  await Promise.allSettled([audioController?.dispose(), windowManager?.dispose()])
+  await instanceLock.release()
+  instanceLock = candidate
+
+  openAccount(targetId)
+  configError = undefined
+  configQuarantinedAs = undefined
+  try {
+    await loadConfiguration()
+  } catch (error) {
+    configError = error instanceof Error ? error.message : String(error)
+    logger.log({ level: 'error', event: 'config.error', message: configError })
+  }
+  logger.log({ level: 'info', event: 'accounts.switched', message: String(targetId) })
+  refreshAccounts()
+  pushState()
+  return { ok: true }
+}
 
 /**
  * The refusal screen, for the launches that never get a panel.
@@ -831,31 +1054,41 @@ function showBlocked(verdict: InstanceClaimVerdict): void {
 }
 
 /**
- * Takes the machine claim and, when it is refused, puts the reason on screen.
+ * Takes the machine claim, reserves an account, and puts a refusal on screen.
  *
  * The decision itself is `claimInstance` in the core; this hands it the three
- * adapters and turns a refusal into a window. The catch-all is the deliberate
- * fail-open: the only thing here that can throw is resolving the seal path, and
- * refusing to start because `%ProgramData%` could not be located would charge
- * the user for the app's own instrument failing. Same posture the core takes for
- * a machine identity it cannot read.
+ * adapters plus the accounts it found on disk, and turns a refusal into a
+ * window. On success it opens the account the core picked — creating its
+ * directory, which is the first moment anything is written for it.
+ *
+ * The catch-all keeps the deliberate fail-open of the machine gate: resolving
+ * the seal path can throw, and refusing to start because `%ProgramData%` could
+ * not be located would charge the user for the app's own instrument failing. It
+ * falls back to account 1, because a window with no account at all cannot show
+ * anything — and the lock, not this path, is what keeps two windows apart.
  */
 async function claimMachine(): Promise<InstanceClaimVerdict> {
   try {
-    const verdict = await claimInstance({
+    const claim = await claimInstance({
       identity: new WmiMachineIdentity(),
       lock: instanceLock,
+      accountIds: listAccountIds(),
       seal: new JsonFileStorage<MachineSeal>(machineSealPath()),
       logger,
     })
-    if (verdict !== 'allow') showBlocked(verdict)
-    return verdict
+    if (claim.verdict !== 'allow' || !claim.account) {
+      showBlocked(claim.verdict)
+      return claim.verdict
+    }
+    openAccount(claim.account.id)
+    return 'allow'
   } catch (error) {
     logger.log({
       level: 'warn',
       event: 'instance.claim-failed',
       message: error instanceof Error ? error.message : String(error),
     })
+    openAccount(1)
     return 'allow'
   }
 }
@@ -952,34 +1185,65 @@ function hookChildFocus(window: BrowserWindow): void {
 }
 
 /**
- * One instance only. A second one would orchestrate the same slots, spawn a
- * second Chrome per slot, and race the first over config.json and the profile
- * directories - and share the cache, which is what "unable to move the cache"
- * was. A second launch quits at once and surfaces the existing panel instead.
+ * Several windows are allowed now, one per account (ADR-0021).
+ *
+ * `app.requestSingleInstanceLock` used to stand here and quit the second launch,
+ * on the reasoning that two instances would race over one config file and one
+ * set of profiles. That reasoning was right and is answered differently: each
+ * window owns an account, and nothing inside `%APPDATA%/hecaton` is written by
+ * two of them - not the config, not the profiles, not even Electron's own cache.
+ * Electron's lock cannot express that, because it fires before there is any way
+ * to know which account this window will get.
  */
-if (!app.requestSingleInstanceLock()) {
-  app.quit()
-} else {
-  app.on('second-instance', () => {
-    if (!panel) return
-    if (panel.isMinimized()) panel.restore()
-    panel.focus()
-  })
-
+{
   app.whenReady().then(async () => {
-    lockDownSession()
-
     // Retention, at the one moment it is safe: today's file is not open yet, and
     // nothing is racing the writer. A day per file forever is a directory that
     // only grows on someone else's disk, and the rule for which files may go is
     // the core's, not this adapter's.
     logger.prune()
 
-    // Before the panel, and before anything can write config.json - which is the
-    // point. json-file-storage.ts leans on there being one process to rule out a
-    // race over that file, and until now that was only true within one Windows
-    // session.
+    // First of all, and synchronously: a data directory written before accounts
+    // existed is moved into account 1. Everything below resolves paths under an
+    // account, so a launch that skipped this would create an empty account 1
+    // beside the user's real profiles and look like it had lost them. ADR-0021.
+    try {
+      const outcome = migrateLegacyLayout()
+      if (outcome !== 'nothing-to-do') {
+        logger.log({ level: 'info', event: 'accounts.migrated', message: outcome })
+      }
+    } catch (error) {
+      // Nothing was deleted - the move is renames into a staging directory, and
+      // a failed one leaves the old layout where it was. Starting anyway would
+      // create an empty account over a directory that still holds the user's
+      // sessions, so this is one of the few things that stops the launch.
+      logger.log({
+        level: 'error',
+        event: 'accounts.migration-failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
+      showBlocked('no-account')
+      return
+    }
+
+    // Before the panel, and before anything can write a config file - which is
+    // the point. json-file-storage.ts leans on one process per config, and what
+    // makes that true with several windows running is the per-account lock this
+    // claim takes.
     if ((await claimMachine()) !== 'allow') return
+    refreshAccounts()
+
+    // Electron's own cache moves under the account, before anything touches a
+    // session. Two windows on one `userData` is the "unable to move the cache"
+    // failure ADR-0004 took this app out of `%APPDATA%/Electron` to escape, and
+    // several windows would recreate it against ourselves.
+    //
+    // After `ready` rather than beside the other `setPath` at the top of this
+    // file, because which account this window owns is not known until the claim
+    // above - and before `lockDownSession`, because reaching for
+    // `session.defaultSession` is what makes Chromium resolve the path.
+    app.setPath('userData', accountElectronUserDataDir(accountId))
+    lockDownSession()
 
     // Before any screen can be launched, and after the claim so a refused launch
     // does not touch the disk at all. Chromium's network service runs in an

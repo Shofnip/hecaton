@@ -18,6 +18,19 @@ export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides, Theme } from './c
 export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
 
+export {
+  ACCOUNT_CLAIM_ATTEMPTS,
+  MAX_ACCOUNT_NAME_LENGTH,
+  accountDirName,
+  claimFreeAccount,
+  defaultAccountName,
+  needsLegacyMigration,
+  nextAccountId,
+  parseAccountId,
+  parseAccountName,
+  type Account,
+  type LegacyLayout,
+} from './accounts.js'
 export { centredOver, isOffScreen } from './detached-window.js'
 export {
   ensureBrowserReadable,
@@ -38,6 +51,8 @@ export type { LogEntry, LogLevel, LogRecord, Logger } from './log.js'
 
 export {
   IPC_CHANNELS,
+  parseAccountRename,
+  parseAccountSwitch,
   parseAudioFollowsFocus,
   parseNoPayload,
   parseOverlayRequest,

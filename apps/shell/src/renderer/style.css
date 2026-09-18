@@ -1117,6 +1117,21 @@ svg {
   cursor: pointer;
 }
 
+/* The account section (design §10, added with ADR-0021). A row inside a
+   field-box, so it carries the label and its control without a second boxed
+   background - the setting-row pattern is for rows that stand on their own. */
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-row .account-control {
+  width: 58%;
+  flex-shrink: 0;
+}
+
 .url-row {
   display: flex;
   align-items: center;

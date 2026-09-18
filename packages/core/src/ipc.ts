@@ -17,6 +17,7 @@
  * generic invoke(method, args) would be less code today and an
  * arbitrary-call surface the first time someone forwards a method name.
  */
+import { parseAccountId, parseAccountName } from './accounts.js'
 import { MAX_SLOT_NAME_LENGTH } from './config.js'
 import type { GlobalConfig, SlotOverrides, Theme } from './config.js'
 import type { GridCell } from './grid.js'
@@ -82,6 +83,12 @@ export const IPC_CHANNELS = [
   // was removed, and about why neither the installer's return nor its second
   // departure brought it back.
   'data:reveal',
+  // Two deletions since ADR-0021, because "all my data" stopped being one thing
+  // the moment a machine could hold several accounts. `deleteAccount` removes
+  // the account this window owns; `deleteAll` removes every account, including
+  // ones another window may be running. Neither takes a payload: both paths are
+  // computed in main from storage's own functions.
+  'data:deleteAccount',
   'data:deleteAll',
   // The terms warning (D3b), acknowledged once. No payload: what version was
   // read is the main process's to know, not the renderer's to assert — a channel
@@ -119,6 +126,21 @@ export const IPC_CHANNELS = [
   // embedded, on the first launch after an update.
   'overlay:open',
   'overlay:close',
+  // Accounts (ADR-0021), added when the owner replaced one-Hecaton-per-machine
+  // with one-window-per-account. Three channels and no more, and the shape of
+  // each is the security decision:
+  //
+  // - `rename` carries a name and **no id**: a window may write its own
+  //   account's config and nothing else, which is what keeps two running
+  //   windows off one file.
+  // - `switch` carries the id of an account to move this window to. Refused
+  //   when another window holds it; the lock decides, not a read of the disk.
+  // - `create` takes nothing at all. Which id is next is the main process's to
+  //   work out from what is on disk - a channel that accepted one would let the
+  //   panel point a fresh account at an existing account's profiles.
+  'accounts:rename',
+  'accounts:switch',
+  'accounts:create',
 ] as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number]
@@ -200,6 +222,30 @@ export function parseSlotRename(input: unknown): { id: number; name: string } {
     throw new Error(`slot name must be at most ${MAX_SLOT_NAME_LENGTH} characters`)
   }
   return { id, name }
+}
+
+/**
+ * The new name for the account this window owns.
+ *
+ * Returns the name alone because there is no id to return: the channel renames
+ * the current account, and `parseAccountName` in `accounts.ts` is the one rule
+ * for what a name may be, shared with the config parser.
+ */
+export function parseAccountRename(input: unknown): string {
+  return parseAccountName(asObject(input, 'account rename')['name'])
+}
+
+/** The account to move this window to. An id and nothing else. */
+export function parseAccountSwitch(input: unknown): number {
+  return parseAccountId(asObject(input, 'account switch')['id'])
+}
+
+/** The object check `requireIdObject` does, for the payloads that carry no slot id. */
+function asObject(input: unknown, where: string): Record<string, unknown> {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new Error(`${where} must be an object, got ${JSON.stringify(input)}`)
+  }
+  return input as Record<string, unknown>
 }
 
 /** A volume change from the popover: a slot id and a 0-100 integer. */

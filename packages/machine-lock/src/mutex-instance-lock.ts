@@ -1,6 +1,12 @@
 /**
- * The live "one Hecaton on this machine" lock: a named `Global\` mutex, held by
- * a child process for as long as the app runs.
+ * The live "one window per account" lock: a named `Global\` mutex, held by a
+ * child process for as long as the app runs.
+ *
+ * It was "one Hecaton per machine" until 2026-09-18 (ADR-0018). The owner
+ * allowed several windows (ADR-0021) and the mutex kept its mechanism and
+ * changed its job: one name per account, so two windows can run side by side and
+ * still never share a browser profile. Everything below about *why a mutex* is
+ * unchanged, because none of it depended on there being only one name.
  *
  * Why a mutex and not a lock file, measured in probe P6: a kernel object dies
  * with the last handle to it, so an app killed from Task Manager — which is how
@@ -36,13 +42,14 @@ import { createInterface } from 'node:readline'
 import type { InstanceLock, InstanceLockState } from '@hecaton/core'
 
 /**
- * The one name, shared by every Hecaton on the machine.
+ * The prefix every account's lock name is built from.
  *
- * Not derived from anything — not the user, not the install path, not the
- * machine id. Derive it from any of those and the lock quietly becomes per-user
- * or per-installation, which is the exact failure this replaces.
+ * Derived from the account id and **nothing else** — not the user, not the
+ * install path, not the machine id. Derive it from any of those and the lock
+ * quietly becomes per-user or per-installation, and two windows under different
+ * Windows accounts would happily open the same profiles.
  */
-export const INSTANCE_MUTEX_NAME = 'Hecaton.Instance'
+export const ACCOUNT_MUTEX_PREFIX = 'Hecaton.Account'
 
 /**
  * Take the mutex, say what happened, then hold it until stdin closes.
@@ -91,22 +98,32 @@ const CLAIM_TIMEOUT_MS = 15_000
 export class MutexInstanceLock implements InstanceLock {
   private worker: ChildProcessWithoutNullStreams | undefined
 
-  /** The name is a parameter so the integration test does not fight the real app. */
-  constructor(private readonly name: string = INSTANCE_MUTEX_NAME) {}
+  /** The prefix is a parameter so the integration test does not fight the real app. */
+  constructor(private readonly prefix: string = ACCOUNT_MUTEX_PREFIX) {}
 
   /** The holding process, for diagnostics and for the orphan test. */
   get workerPid(): number | undefined {
     return this.worker?.pid
   }
 
-  async claim(): Promise<InstanceLockState> {
+  /**
+   * Takes one account's lock.
+   *
+   * A second call on the same instance would strand the first worker, so the
+   * caller is expected to `release` before claiming another account - which is
+   * exactly what switching accounts in the panel does. Claiming ids in turn
+   * until one is free, the way a launch does, releases each refusal on the spot:
+   * a refused claim leaves no worker behind, because the script exits as soon as
+   * it has answered anything but `free`.
+   */
+  async claim(accountId: number): Promise<InstanceLockState> {
     const worker = spawn(
       'powershell',
       [
         '-NoProfile',
         '-NonInteractive',
         '-EncodedCommand',
-        Buffer.from(WORKER_SCRIPT(this.name), 'utf16le').toString('base64'),
+        Buffer.from(WORKER_SCRIPT(`${this.prefix}.${accountId}`), 'utf16le').toString('base64'),
       ],
       { windowsHide: true },
     )
@@ -130,11 +147,14 @@ export class MutexInstanceLock implements InstanceLock {
     // instead of naming the hypervisor or the seal that actually refused it.
     await this.release()
 
-    // A worker that failed to run at all is not evidence that the machine is
-    // busy. Reporting it as free is the same fail-open the core applies to an
-    // unreadable machine identity, for the same reason: the instrument broke,
-    // not the user.
-    return state === 'error' ? 'free' : state
+    // A worker that failed to run at all used to be reported as `free`, on the
+    // fail-open principle the rest of this app follows. That reversed with the
+    // lock's purpose (ADR-0021): it no longer limits how much somebody may run,
+    // it keeps two windows off one browser profile, and a false `free` there
+    // corrupts a logged-in session rather than merely being strict. So a broken
+    // worker says `unavailable`, the launch tries the next account, and a
+    // machine where every claim fails refuses to start.
+    return state === 'error' ? 'unavailable' : state
   }
 
   async release(): Promise<void> {

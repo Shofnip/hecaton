@@ -8,6 +8,29 @@ lido sem abrir o aplicativo e antes de instalar qualquer coisa.
 Escrito para quem usa, não para quem programa. O histórico técnico completo está
 nos commits.
 
+## 0.3.0
+
+Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
+
+- **Várias janelas, uma conta em cada.** Abrir um segundo Hecaton não é mais
+  recusado: ele abre na segunda conta, e cria uma se ainda não existir. Cada
+  conta tem as próprias telas, os próprios logins e o próprio cache — até 4
+  telas por conta —, então duas janelas nunca mexem nos mesmos perfis.
+- **Contas em Configurações.** Uma lista com todas as contas da máquina, o nome
+  desta conta (dá para renomear) e um botão para criar outra e ir para ela.
+  Trocar de conta desliga as telas desta janela e carrega as da outra; nada é
+  apagado. Se a conta escolhida já estiver aberta em outra janela, o aplicativo
+  avisa em vez de abrir duas vezes a mesma.
+- **Apagar dados agora são dois botões.** _Apagar os dados desta conta_ mexe só
+  na conta em que você está; _Apagar TODOS os dados_ continua apagando tudo, de
+  todas as contas — e avisa que outra janela aberta perde os dados dela junto.
+
+**Na primeira vez que você abrir esta versão**, suas telas e seus logins passam
+a morar dentro de `%APPDATA%/hecaton/accounts/1`. O aplicativo faz isso
+sozinho, movendo as pastas (nada é copiado nem apagado), e você continua logado
+como estava. Se algo der errado no meio, ele não abre e nada é perdido — as
+pastas ficam onde estavam.
+
 ## 0.2.1
 
 Correção de um problema que aparecia na hora de entrar na conta.

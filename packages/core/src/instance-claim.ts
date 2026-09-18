@@ -1,26 +1,21 @@
 /**
- * One running Hecaton per Windows machine: the whole rule, pure and testable.
+ * What a launch is allowed to do on this machine, and which account it opens.
  *
- * The reason this exists is not data protection — it is a limit on how much one
- * person can run, decided by the owner and recorded in ADR-0018. That matters
- * for reading the code: the checks below are aimed at a user who is not trying
- * to defeat them, because a determined one always wins. The source is public
- * under Apache-2.0 (ADR-0013), so any gate here can be deleted and rebuilt.
- * What the layers buy is that circumventing has to be deliberate.
+ * This file used to enforce **one Hecaton per machine** (ADR-0018): a live
+ * `Global\` mutex, a refusal to run inside a recognised hypervisor, and a
+ * hardware seal on disk. The owner reversed the first of those three on
+ * 2026-09-18 ([ADR-0021](../../../docs/adr/0021-several-windows-one-account-each.md)):
+ * a person may run as many windows as they like, and the mutex changed job
+ * rather than disappearing. It is now **one window per account**, which is the
+ * narrowest form that still stops two browsers from sharing one
+ * `--user-data-dir` and damaging a logged-in session.
  *
- * Three cumulative layers, none of which is sufficient alone:
+ * The other two layers stand, unchanged and for their original reasons.
  *
- *   1. a live `Global\` mutex — one process at a time across every logon session;
- *   2. a refusal to run inside a recognised hypervisor;
- *   3. a hardware seal on disk, so moving the app's state to another machine is
- *      detectable.
- *
- * The ceiling, measured and written down once so a later session does not read
- * it as a bug: two VMs on one host share nothing a guest can see, and two
- * Windows installations dual-booting share no `ProgramData`. What is actually
- * delivered is one instance per *Windows installation*, plus the two layers
- * above. Layer 3 adds little enforcement on top of 1 and 2; what it adds is
- * evidence.
+ * The order is the decision, and it is the same as before: the machine is judged
+ * first, and only a machine that may run reserves anything. A refused launch
+ * therefore takes no lock and has none to release - the release path the
+ * one-per-machine claim needed is gone with the reason for it.
  *
  * Every fact below is gathered by an adapter and handed here already read. The
  * hashing of the identity is the adapter's too, so the core never reaches for
@@ -28,6 +23,7 @@
  */
 
 import type { Logger } from './log.js'
+import { claimFreeAccount } from './accounts.js'
 import type { InstanceLock, MachineIdentity, Storage } from './ports.js'
 
 /** What WMI answered about this machine, verbatim — no trimming, no casing. */
@@ -43,11 +39,25 @@ export interface MachineFacts {
 }
 
 /** What the live lock said when the adapter tried to take it. */
-export type InstanceLockState = 'free' | 'held-by-this-user' | 'held-by-another-user'
+export type InstanceLockState =
+  | 'free'
+  | 'held-by-this-user'
+  | 'held-by-another-user'
+  /**
+   * The lock could not be taken **or** ruled out: the worker failed to start, or
+   * did not answer in time.
+   *
+   * It exists because this is the one lock in the app that must not fail open.
+   * While the mutex enforced a usage limit (ADR-0018) a broken worker reported
+   * `free`, on the principle that the app's own instrument failing must not
+   * charge the user. Now it guards a browser profile from a second window, and
+   * answering `free` on a broken worker would hand two Chromes one
+   * `--user-data-dir` - so it says so instead, and the launch stops.
+   */
+  | 'unavailable'
 
 /** Everything the decision needs, all of it already read from the machine. */
 export interface InstanceClaimFacts {
-  lock: InstanceLockState
   virtualMachine: boolean
   /** This machine's canonical identity, or undefined when it could not be read. */
   machineId: string | undefined
@@ -62,8 +72,7 @@ export interface InstanceClaimFacts {
  * the reason on the blocked window — the strings are verdicts, never
  * identifiers, which is what lets them go into the log (ADR-0018).
  */
-export type InstanceClaimVerdict =
-  'allow' | 'held-by-this-user' | 'held-by-another-user' | 'virtual-machine' | 'foreign-machine'
+export type InstanceClaimVerdict = 'allow' | 'virtual-machine' | 'foreign-machine' | 'no-account'
 
 /**
  * Manufacturer/model markers of the hypervisors worth recognising.
@@ -175,11 +184,11 @@ export function canonicalMachineId(facts: MachineFacts): string | undefined {
  * Whether this instance may run, and if not, which layer said no.
  *
  * The order the reasons are tested in is itself the decision. A hypervisor comes
- * first because it is the truest answer available — telling a VM user that
- * another user holds the lock sends them hunting a process that does not exist.
- * The seal comes before the lock for the same reason: a machine that fails the
- * hardware check fails it on every launch, so reporting a transient "occupied"
- * would send them to reboot instead of to the one thing that fixes it.
+ * first because it is the truest answer available — telling a VM user that their
+ * hardware seal does not match sends them hunting the wrong thing entirely.
+ *
+ * Both answers are about the **machine**. Which account a launch opens on is a
+ * separate question, asked after this one and only of a machine that may run.
  *
  * The single fail-open is an unreadable identity. That is this app's own
  * instrument failing, and refusing to start over it charges the user for a fault
@@ -193,7 +202,6 @@ export function evaluateInstanceClaim(facts: InstanceClaimFacts): InstanceClaimV
       return 'foreign-machine'
     }
   }
-  if (facts.lock !== 'free') return facts.lock
   return 'allow'
 }
 
@@ -205,8 +213,9 @@ export function evaluateInstanceClaim(facts: InstanceClaimFacts): InstanceClaimV
  * would make the hardware binding a formality — refused once, allowed on the
  * next launch because the refusal fixed the evidence it was refusing over.
  *
- * A verdict other than `allow` writes nothing at all, including the lock cases,
- * so a second instance racing the first cannot touch the file.
+ * A machine that is refused writes nothing at all, and neither does a launch
+ * that could not reserve an account — the caller writes the seal only once the
+ * whole claim has succeeded, so a refused launch leaves no trace.
  */
 export function sealToWrite(facts: InstanceClaimFacts): string | undefined {
   if (evaluateInstanceClaim(facts) !== 'allow') return undefined
@@ -226,10 +235,27 @@ export interface MachineSeal {
   machineId: string
 }
 
+/** What a successful claim hands back: the account this window now owns. */
+export interface ClaimedAccount {
+  id: number
+  /** True when this launch is what brought the account into existence. */
+  created: boolean
+}
+
+/** The answer: whether to run, and on which account. */
+export interface InstanceClaim {
+  verdict: InstanceClaimVerdict
+  /** Present only when the verdict is `allow`. */
+  account?: ClaimedAccount
+}
+
 /** Everything the claim needs from the outside world. */
 export interface InstanceGuardDeps {
   identity: MachineIdentity
+  /** The per-account lock. One window per account, which is all that is left of ADR-0018's first layer. */
   lock: InstanceLock
+  /** The accounts already on disk, as the storage adapter found them. */
+  accountIds: readonly number[]
   /** Backed by `C:\ProgramData\hecaton\machine.json`, machine-wide by design. */
   seal: Storage<MachineSeal>
   logger: Logger
@@ -253,8 +279,7 @@ export interface InstanceGuardDeps {
  * thing this project asks users to send to a friend when something breaks
  * (ADR-0015), which is exactly why it may not be in one.
  */
-export async function claimInstance(deps: InstanceGuardDeps): Promise<InstanceClaimVerdict> {
-  const lock = await deps.lock.claim()
+export async function claimInstance(deps: InstanceGuardDeps): Promise<InstanceClaim> {
   const machine = await deps.identity.read()
 
   let sealedMachineId: string | undefined
@@ -280,26 +305,48 @@ export async function claimInstance(deps: InstanceGuardDeps): Promise<InstanceCl
   // hashed.
   const canonical = canonicalMachineId(machine)
   const facts: InstanceClaimFacts = {
-    lock,
     virtualMachine: isVirtualMachine(machine),
     machineId: canonical === undefined ? undefined : deps.identity.digest(canonical),
     sealedMachineId,
     sealUnreadable,
   }
   const verdict = evaluateInstanceClaim(facts)
-  deps.logger.log({
-    level: verdict === 'allow' ? 'info' : 'warn',
-    event: 'instance.claim',
-    message: verdict,
-  })
-
   if (verdict !== 'allow') {
-    // Released rather than held to process exit, so the reason survives a second
-    // attempt: still holding it would make the next launch report the lock
-    // instead of the hypervisor or the seal that actually refused this one.
-    await deps.lock.release()
-    return verdict
+    deps.logger.log({ level: 'warn', event: 'instance.claim', message: verdict })
+    return { verdict }
   }
+
+  // Only now, and only for a machine that may run: which account is free.
+  let account: ClaimedAccount
+  try {
+    account = await claimFreeAccount(deps.accountIds, async (id) => {
+      const state = await deps.lock.claim(id)
+      return state === 'free'
+    })
+  } catch (error) {
+    // **The one place this app does not fail open**, and the exception is
+    // deliberate. Everywhere else a broken instrument lets the launch through,
+    // because the cost is the app being less careful than it meant to be. The
+    // cost here is two windows writing one browser profile, which damages a
+    // logged-in session - so a lock that will not answer stops the launch.
+    deps.logger.log({
+      level: 'error',
+      event: 'instance.account-failed',
+      message: error instanceof Error ? error.message : String(error),
+    })
+    deps.logger.log({ level: 'warn', event: 'instance.claim', message: 'no-account' })
+    return { verdict: 'no-account' }
+  }
+
+  deps.logger.log({ level: 'info', event: 'instance.claim', message: 'allow' })
+  // An account number is not an identifier of anybody: it says which of this
+  // machine's workspaces a window opened on, which is the first thing a
+  // diagnosis of "my screens are gone" needs.
+  deps.logger.log({
+    level: 'info',
+    event: 'instance.account',
+    message: `${account.created ? 'created' : 'opened'} ${account.id}`,
+  })
 
   const machineId = sealToWrite(facts)
   if (machineId !== undefined) {
@@ -316,5 +363,5 @@ export async function claimInstance(deps: InstanceGuardDeps): Promise<InstanceCl
       })
     }
   }
-  return verdict
+  return { verdict, account }
 }

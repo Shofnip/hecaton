@@ -362,13 +362,26 @@ is **declarative actions** (`{ selector, op: 'click' }`) interpreted by the core
 
 Everything the app **persists** goes to `%APPDATA%/hecaton`, **always, including development**:
 
-|                         |                                                                                         |
-| ----------------------- | --------------------------------------------------------------------------------------- |
-| `config.json`           | global config and slot overrides, with `schemaVersion`                                  |
-| `logs/`                 | rotated structured logs (one JSONL file per day)                                        |
-| `profiles/slot-N`       | per-slot browser profile — the isolation mechanism                                      |
-| `profiles/slot-N.old-*` | an archived profile from a removed slot (see ADR-0008)                                  |
-| `shell/`                | Electron's own userData/cache, kept here rather than in the shared `%APPDATA%/Electron` |
+|                                       |                                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| `accounts/<id>/config.json`           | that account's global config and slot overrides, with `schemaVersion`    |
+| `accounts/<id>/profiles/slot-N`       | per-slot browser profile — the isolation mechanism                       |
+| `accounts/<id>/profiles/slot-N.old-*` | an archived profile from a removed slot (see ADR-0008)                   |
+| `accounts/<id>/shell/`                | Electron's own userData/cache for the window that owns that account      |
+| `logs/`                               | rotated structured logs (one JSONL file per day), shared by every window |
+
+**Everything but the logs is per account** ([ADR-0021](adr/0021-several-windows-one-account-each.md)).
+Several windows run at once, one per account, and the reason nothing inside an account directory is
+shared is not tidiness: two browsers on one `--user-data-dir` damage each other's session, and
+`JsonFileStorage` writes through a `<file>.tmp` beside its target, so two windows on one config
+would be writing one temporary file as well. The logs are the deliberate exception — one file a day,
+appended by whichever window is running, because a diagnosis reads better in one place than in four.
+
+Before 2026-09-18 `config.json`, `profiles/` and `shell/` sat directly in `%APPDATA%/hecaton`. The
+first launch of a version with accounts **moves them into `accounts/1/`**, once, by renames into a
+staging directory followed by a single rename that makes the new layout real; nothing is copied and
+nothing is deleted. ADR-0021 carries why that was chosen over a layout needing no move, and
+`account-layout.ts` carries how a half-finished move is finished on the next launch.
 
 Writing any of it into the repo directory would make `.gitignore` the only line of defense
 against committing real state. Logs can carry page URLs with session tokens in query strings,
@@ -495,22 +508,21 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
 - **All navigation and all permissions denied**: `will-navigate`/`will-redirect` prevented,
   `window.open` denied, and all three permission handlers deny. A game url opens in the Chromium
   the app ships ([ADR-0016](adr/0016-ship-our-own-chromium.md)), never inside Electron.
-- **One instance per machine** ([ADR-0018](adr/0018-one-instance-per-machine.md)), claimed before
-  the panel exists and before anything writes `config.json`. Three layers, decided by a pure
-  function in the core: a `Global\` mutex that spans Windows logon sessions, a refusal to run
-  inside a recognised hypervisor, and a hardware seal in `C:\ProgramData`. A refusal opens a
-  small `blocked.html` window naming which layer said no - script-free, using CSS `:target` on the
-  verdict in the URL fragment, so it needs no IPC channel. Electron's own
-  `requestSingleInstanceLock` stays for the same-session case, where it can focus the running
-  panel instead of merely refusing. **All three layers can fail open, and that is deliberate** — a
-  lock worker that will not start reports the machine free, an unreadable machine identity is not
-  refused, and a `%ProgramData%` that cannot be resolved skips the claim entirely. Each is the
-  app's own instrument failing rather than evidence about the user. The cost is that the layer can
-  be absent without the user or the owner noticing: only the third case writes a log line.
-  The two-account case — the one thing about the lock that was ever taken on inference — was
-  **observed on 2026-08-21**: a throwaway standard Windows account, in its own interactive
-  session, met the running app and got `held-by-another-user` from both the adapter and the app
-  itself. Nothing about the layer rests on reasoning now.
+- **One window per account** ([ADR-0021](adr/0021-several-windows-one-account-each.md), which
+  replaced ADR-0018's one-per-machine). A launch takes the first account nobody is running and
+  creates one when they are all busy, so a second window opens on account 2. The claim happens
+  before the panel exists and before anything writes a config file — which is what makes
+  `json-file-storage.ts`'s "one process per file" true again now that several windows run.
+  **Two layers of ADR-0018 stand**: a refusal to run inside a recognised hypervisor, and a hardware
+  seal in `C:\ProgramData`, both decided by a pure function in the core. A refusal opens a small
+  `blocked.html` window naming which one said no - script-free, using CSS `:target` on the verdict
+  in the URL fragment, so it needs no IPC channel. **Those two still fail open** — an unreadable
+  machine identity is not refused, and a `%ProgramData%` that cannot be resolved skips the claim —
+  while the account lock deliberately does not: a lock that cannot answer stops the launch, because
+  the alternative is two windows writing one browser profile. Electron's own
+  `requestSingleInstanceLock` is gone; it fires before there is any way to know which account a
+  window will get.
+
 - **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
   `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.
 
@@ -754,6 +766,22 @@ raises `EPERM`. Measured (probe P4), twice, including after the window was destr
 therefore reports what survived instead of throwing, the core tolerates exactly that one entry and
 names any other as a failure, and the app **quits** once the deletion is done — staying open would
 mean writing config.json straight back into the directory the user just emptied.
+
+**Since accounts, it is two actions rather than one**
+([ADR-0021](adr/0021-several-windows-one-account-each.md)). _Apagar os dados desta conta_ removes
+`accounts/<id>` — this window's profiles, its config and its cache — and leaves every other account
+alone, which matters because another window may be running one of them right now. _Apagar TODOS os
+dados_ still removes `%APPDATA%/hecaton` whole, and its confirmation says in so many words that a
+second window loses its data mid-session. Splitting them was the owner's call: with one button, the
+wider meaning would have been the silent default. The narrower one is offered first, and the wider
+one reads as the deliberate extra step it is.
+
+What survived is checked at **three levels** for the wider action, because the survivor is nested
+now: `accounts` at the top (this window's cache is inside it), then only this account's id inside
+that, then only `shell` inside the account. Tolerating `accounts` alone would have excused another
+account's profiles surviving whole — the exact failure `verifyUserDataDeletion` exists to catch.
+A second name is tolerated at the top level: Electron creates a `shell/` from the pre-ready default
+before the claim can say which account this window owns, and it outlives the re-point.
 
 ### The pre-release security review, 2026-08-09
 

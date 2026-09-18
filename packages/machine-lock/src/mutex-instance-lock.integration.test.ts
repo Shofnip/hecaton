@@ -10,13 +10,13 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { MutexInstanceLock } from './mutex-instance-lock.js'
 
 /** A name per test file run, so a leftover from an earlier run cannot confuse it. */
-const NAME = `Hecaton.Test.${process.pid}`
+const PREFIX = `Hecaton.Test.${process.pid}`
 
 const locks: MutexInstanceLock[] = []
 const holders: ChildProcessWithoutNullStreams[] = []
 
-const lock = (name = NAME): MutexInstanceLock => {
-  const created = new MutexInstanceLock(name)
+const lock = (prefix = PREFIX): MutexInstanceLock => {
+  const created = new MutexInstanceLock(prefix)
   locks.push(created)
   return created
 }
@@ -71,27 +71,44 @@ while ($null -ne [Console]::In.ReadLine()) { }
 
 describe('MutexInstanceLock', () => {
   it('takes a free name', async () => {
-    expect(await lock().claim()).toBe('free')
+    expect(await lock().claim(1)).toBe('free')
   })
 
   it('reports the same Windows user when this account already holds it', async () => {
     // P6 measured why this is not "denied": the default DACL names the creator's
     // own SID, so a second process of the same account opens the object fine.
-    await lock().claim()
-    expect(await lock().claim()).toBe('held-by-this-user')
+    await lock().claim(1)
+    expect(await lock().claim(1)).toBe('held-by-this-user')
   })
 
   it('frees the name again on release', async () => {
     const first = lock()
-    expect(await first.claim()).toBe('free')
+    expect(await first.claim(1)).toBe('free')
     await first.release()
-    expect(await lock().claim()).toBe('free')
+    expect(await lock().claim(1)).toBe('free')
   })
 
   it('reports another Windows user when the DACL does not name us', async () => {
-    const name = `${NAME}.Foreign`
-    await holdWithForeignDacl(name)
-    expect(await lock(name).claim()).toBe('held-by-another-user')
+    const prefix = `${PREFIX}.Foreign`
+    // The held name is the one the adapter builds: prefix, dot, account id.
+    await holdWithForeignDacl(`${prefix}.1`)
+    expect(await lock(prefix).claim(1)).toBe('held-by-another-user')
+  })
+
+  it('gives each account its own name, which is the whole point', async () => {
+    // Two windows, two accounts, no contention - and the same prefix, so this
+    // fails the moment the id stops being part of the name.
+    const first = lock()
+    expect(await first.claim(1)).toBe('free')
+    expect(await lock().claim(2)).toBe('free')
+  })
+
+  it('still refuses a second window on the same account', async () => {
+    // The guarantee that replaced one-per-machine: never two Hecatons over one
+    // set of profiles.
+    const holder = lock()
+    expect(await holder.claim(3)).toBe('free')
+    expect(await lock().claim(3)).toBe('held-by-this-user')
   })
 
   it('leaves no orphan when the holding process is killed outright', async () => {
@@ -100,24 +117,24 @@ describe('MutexInstanceLock', () => {
     // when a browser hangs — a lock file would strand the machine, and teaching
     // the app to ignore a stale one would defeat the lock.
     const held = lock()
-    expect(await held.claim()).toBe('free')
+    expect(await held.claim(1)).toBe('free')
     const pid = held.workerPid
     expect(pid).toBeDefined()
 
     process.kill(pid!)
     await new Promise((resolve) => setTimeout(resolve, 1500))
 
-    expect(await lock().claim()).toBe('free')
+    expect(await lock().claim(1)).toBe('free')
   })
 
   it('reports free again after a claim that was refused', async () => {
     // A refused claim must not leave a handle behind. If it did, the refusal
     // would look like contention on the next attempt instead of naming its real
     // cause.
-    const name = `${NAME}.Refused`
-    await holdWithForeignDacl(name)
-    const refused = lock(name)
-    expect(await refused.claim()).toBe('held-by-another-user')
+    const prefix = `${PREFIX}.Refused`
+    await holdWithForeignDacl(`${prefix}.1`)
+    const refused = lock(prefix)
+    expect(await refused.claim(1)).toBe('held-by-another-user')
     await refused.release()
     expect(refused.workerPid).toBeUndefined()
   })

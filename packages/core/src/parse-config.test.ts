@@ -237,3 +237,29 @@ describe('parseConfig and schema versions', () => {
     )
   })
 })
+
+describe('the account name in a config file', () => {
+  it('reads the name an account was given', () => {
+    // Each account keeps its own name in its own config, which is what lets two
+    // windows run without a shared file to race over (ADR-0021).
+    expect(parseConfig({ ...valid, accountName: 'Principal' }).globals.accountName).toBe(
+      'Principal',
+    )
+  })
+
+  it('leaves it absent when the file does not carry one', () => {
+    // Absent is meaningful: the UI shows the default "Conta {N}" rather than a
+    // name somebody chose, and writing a placeholder would make a default look
+    // like a decision.
+    expect(parseConfig(valid).globals.accountName).toBeUndefined()
+  })
+
+  it('refuses a name that is not a usable string', () => {
+    expect(() => parseConfig({ ...valid, accountName: 42 })).toThrow(/accountName/)
+    expect(() => parseConfig({ ...valid, accountName: '   ' })).toThrow(/accountName/)
+  })
+
+  it('refuses a name past the cap, like a screen name', () => {
+    expect(() => parseConfig({ ...valid, accountName: 'x'.repeat(25) })).toThrow(/accountName/)
+  })
+})

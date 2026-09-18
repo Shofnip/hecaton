@@ -228,19 +228,33 @@ Observação de comportamento: apagar uma tela **arquiva** o perfil do slot (nã
 Itens, de cima para baixo — a lista descreve o que **está no app hoje**, não o protótipo:
 
 1. **Áudio apenas na tela em foco** — toggle com estado claramente visível (fundo `accentSoft` + borda `accent` + interruptor deslizante quando ativo). Descrição: "Silencia automaticamente as telas fora de foco". Integra-se naturalmente ao modo foco (seção 7).
-2. **Abrir logs** — botão neutro com ícone de pergaminho.
-3. **Aviso sobre os termos do jogo** — reabre o texto mostrado na primeira execução.
-4. **Novidades da versão {N}** — só aparece quando o `CHANGELOG.md` tem seção para a versão em execução.
-5. **Versão + Procurar atualizações** — a única ação do app que toca a rede (ADR-0014).
-6. **Tema** — controle segmentado Claro/Escuro com ícones de sol/lua; a opção ativa fica em `accent`.
-7. **Seus dados** (divisor + rótulo) — onde os dados ficam, a divulgação sobre senhas salvas pelo navegador, e **Abrir pasta dos dados**.
-8. **Zona de risco** (divisor + rótulo vermelho em caps) — **três** botões, não dois:
+2. **Conta** (divisor + rótulo) — a seção de contas (ADR-0021), com três controles dentro de um
+   `field-box`: um **dropdown** com todas as contas da máquina (a desta janela vem selecionada), o
+   **nome desta conta** em campo de texto de até 24 caracteres, e **Criar outra conta e ir para
+   ela** como botão neutro. Trocar de conta e criar conta passam pelo modal de confirmação da
+   seção 9 na forma **não destrutiva** — "Confirmar" em `accent`, porque nada é apagado, só as
+   telas desta janela são desligadas. Uma conta aberta em outra janela **não** aparece marcada: só
+   dá para saber isso tomando a trava dela, e uma sondagem que toma a trava por um instante pode
+   empurrar uma janela que está abrindo para outra conta. A troca simplesmente falha com um toast.
+3. **Abrir logs** — botão neutro com ícone de pergaminho.
+4. **Aviso sobre os termos do jogo** — reabre o texto mostrado na primeira execução.
+5. **Novidades da versão {N}** — só aparece quando o `CHANGELOG.md` tem seção para a versão em execução.
+6. **Versão + Procurar atualizações** — a única ação do app que toca a rede (ADR-0014).
+7. **Tema** — controle segmentado Claro/Escuro com ícones de sol/lua; a opção ativa fica em `accent`.
+8. **Seus dados** (divisor + rótulo) — onde os dados ficam, a divulgação sobre senhas salvas pelo navegador, e **Abrir pasta dos dados**.
+9. **Zona de risco** (divisor + rótulo vermelho em caps) — **quatro** botões:
    - **Limpar cache das telas**
    - **Limpar dados arquivados**
-   - **Apagar todos os meus dados** — apaga `%APPDATA%/hecaton` inteiro, sessões logadas
-     incluídas, e fecha o app; desabilitado enquanto houver tela aberta. É a **única** ação do
-     produto que apaga um perfil vivo, e este documento a omitia — o mesmo inventário curto de
-     ações destrutivas que a Correção de 2026-08-08 da ADR-0008 já teve de consertar uma vez.
+   - **Apagar os dados desta conta** — apaga `accounts/<id>`: perfis, telas e cache desta conta,
+     deixando as outras intactas. Vem antes do botão abaixo de propósito: é o que quase sempre se
+     quer dizer com "apagar".
+   - **Apagar TODOS os dados** — apaga `%APPDATA%/hecaton` inteiro, **todas as contas**, sessões
+     logadas incluídas, e fecha o app. A confirmação avisa, com essas palavras, que outra janela
+     aberta perde os dados no meio do uso.
+
+   Os dois últimos ficam desabilitados enquanto houver tela aberta nesta janela, e são as **únicas**
+   ações do produto que apagam um perfil vivo — este documento já omitiu esse inventário uma vez, o
+   mesmo erro que a Correção de 2026-08-08 da ADR-0008 teve de consertar.
 
 ---
 

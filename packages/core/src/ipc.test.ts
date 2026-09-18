@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
 import {
   IPC_CHANNELS,
+  parseAccountRename,
+  parseAccountSwitch,
   parseAudioFollowsFocus,
   parseNoPayload,
   parseOverlayRequest,
@@ -42,6 +44,7 @@ describe('the channel list', () => {
       'profiles:clearSlotCache',
       'profiles:clearAllCaches',
       'data:reveal',
+      'data:deleteAccount',
       'data:deleteAll',
       'terms:acknowledge',
       'update:check',
@@ -55,6 +58,9 @@ describe('the channel list', () => {
       'screens:layout',
       'overlay:open',
       'overlay:close',
+      'accounts:rename',
+      'accounts:switch',
+      'accounts:create',
     ])
   })
 })
@@ -359,5 +365,34 @@ describe('parseSlotAddition', () => {
     // Same rules as an update, minus the id: the https boundary in particular
     // is not something an add channel gets to skip.
     expect(() => parseSlotAddition(input, globals)).toThrow()
+  })
+})
+
+describe('the account channels', () => {
+  it('renames the account this window owns, and nobody else', () => {
+    // No id in the payload, deliberately. A window may only write its own
+    // account's config; renaming another one would mean writing a file whose
+    // owner may be running right now (ADR-0021).
+    expect(parseAccountRename({ name: '  Trabalho ' })).toBe('Trabalho')
+  })
+
+  it('refuses a rename with no usable name', () => {
+    expect(() => parseAccountRename({})).toThrow()
+    expect(() => parseAccountRename({ name: '' })).toThrow()
+    expect(() => parseAccountRename({ name: 42 })).toThrow()
+    expect(() => parseAccountRename('Trabalho')).toThrow()
+  })
+
+  it('switches to an account by id', () => {
+    expect(parseAccountSwitch({ id: 2 })).toBe(2)
+  })
+
+  it('refuses a switch to anything that is not an account id', () => {
+    // The id picks a directory and a lock name. Nothing that is not a positive
+    // integer gets that far.
+    expect(() => parseAccountSwitch({ id: 0 })).toThrow()
+    expect(() => parseAccountSwitch({ id: '2' })).toThrow()
+    expect(() => parseAccountSwitch({ id: 2.5 })).toThrow()
+    expect(() => parseAccountSwitch(2)).toThrow()
   })
 })

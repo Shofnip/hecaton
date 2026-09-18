@@ -73,13 +73,13 @@ undated marker no longer says which.
 | [0009](0009-login-is-bound-to-the-tab.md)                  | The game's login is bound to the tab          | Accepted · w/ Corrections                                                                                  |
 | [0010](0010-audio-follows-focus-without-a-dependency.md)   | Audio follows focus via WASAPI shell-out      | Accepted (with Correction)                                                                                 |
 | [0011](0011-embed-spawned-chrome-into-the-shell.md)        | Embed spawned Chrome into the shell           | Accepted (with Correction)                                                                                 |
-| [0012](0012-hecaton-and-the-data-directory.md)             | The product is Hecaton; no migration          | Accepted (with Correction)                                                                                 |
+| [0012](0012-hecaton-and-the-data-directory.md)             | The product is Hecaton; no migration          | Its "no migration" half reversed by [0021](0021-several-windows-one-account-each.md) · w/ Correction       |
 | [0013](0013-a-portable-unsigned-zip-under-apache-2.md)     | A portable, unsigned zip under Apache-2.0     | Accepted, its format restored by [0020](0020-a-zip-the-user-extracts-not-an-installer.md) · w/ Corrections |
 | [0014](0014-the-apps-first-network-request.md)             | The app's first network request               | Accepted (with Correction)                                                                                 |
 | [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization      | Superseded in part by ADR-0018                                                                             |
 | [0016](0016-ship-our-own-chromium.md)                      | The app ships its own Chromium                | Accepted                                                                                                   |
 | [0017](0017-repaint-an-embedded-screen.md)                 | Reload an embedded screen before showing it   | Accepted                                                                                                   |
-| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Accepted (with Correction)                                                                                 |
+| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Superseded in part by [0021](0021-several-windows-one-account-each.md) · w/ Correction                     |
 | [0019](0019-an-assisted-installer-for-a-792-mb-app.md)     | An assisted installer for a 792 MB app        | Superseded by [0020](0020-a-zip-the-user-extracts-not-an-installer.md)                                     |
 | [0020](0020-a-zip-the-user-extracts-not-an-installer.md)   | A zip the user extracts, not an installer     | Accepted                                                                                                   |
 

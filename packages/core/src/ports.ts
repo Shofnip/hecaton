@@ -186,19 +186,27 @@ export interface MachineIdentity {
 }
 
 /**
- * The live "one Hecaton on this machine" lock.
+ * The live "one window per account" lock.
  *
  * Held for the whole life of the process and dropped when it exits, however it
  * exits - which is why the adapter is a named `Global\` mutex rather than a
  * file: a killed process leaves no orphan to clean up, and there is no stale
  * lock to teach the app to ignore. Measured in probes P6 and P6b.
  *
- * `claim` distinguishes the two ways it can already be taken because they need
- * different words on the blocked window: the same Windows account is the user's
- * own second copy, another account is somebody else's session they cannot see.
+ * It used to be one lock for the whole machine (ADR-0018) and became one per
+ * account when the owner allowed several windows (ADR-0021). The mechanism did
+ * not change; what it protects did. It is now the thing that keeps two browsers
+ * off one `--user-data-dir`, which is a data-integrity guarantee rather than a
+ * usage limit.
+ *
+ * `claim` distinguishes the two ways an account can already be taken because
+ * they need different words on screen: the same Windows account is the user's
+ * own other window, another Windows account is somebody else's session they
+ * cannot see.
  */
 export interface InstanceLock {
-  claim(): Promise<InstanceLockState>
+  /** Takes the lock for one account. `free` means this window now owns it. */
+  claim(accountId: number): Promise<InstanceLockState>
   /** Releases a claim. A no-op when this process never held it. */
   release(): Promise<void>
 }

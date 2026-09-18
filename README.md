@@ -34,12 +34,13 @@ target game: **Poke IdleWorld**; any `https://` URL works too.
 ## Requirements
 
 - **Windows** (the window embedding and audio are Win32-specific)
-- **A machine you are not sharing with a second running copy.** Hecaton runs one instance per
-  machine - across Windows accounts, not just your own session - and it does not run inside a
-  virtual machine. It writes one file outside its own folder to enforce that:
+- **A machine that is not a virtual machine.** Hecaton refuses to run inside one, and it writes a
+  single file outside its own folder to bind itself to the hardware it first ran on:
   `C:\ProgramData\hecaton\machine.json`, holding a hash of your hardware and nothing else. See
-  [ADR-0018](docs/adr/0018-one-instance-per-machine.md), which is explicit about what the limit
-  does and does not achieve.
+  [ADR-0018](docs/adr/0018-one-instance-per-machine.md), which is explicit about what those checks
+  do and do not achieve. **You may open as many windows as you like** — each one takes its own
+  account, with its own screens, logins and cache, and two windows never share a browser profile
+  ([ADR-0021](docs/adr/0021-several-windows-one-account-each.md)).
 - Nothing else. The app **ships its own Chromium** and launches only that one, so there is no
   browser to install and no version of yours it can disagree with. It also means the games' browser
   updates when Hecaton does and at no other time — see

@@ -16,6 +16,7 @@
  * here. `resolveSlotConfig` owns them, and calling it is what keeps one
  * implementation of the rules and one place to audit them.
  */
+import { parseAccountName } from './accounts.js'
 import {
   DEFAULT_GLOBAL_CONFIG,
   MAX_SLOT_NAME_LENGTH,
@@ -40,6 +41,7 @@ const GLOBAL_KEYS = [
   'theme',
   'termsAcknowledged',
   'releaseNotesShownFor',
+  'accountName',
   'slots',
 ] as const
 const SLOT_KEYS = [
@@ -319,6 +321,23 @@ export function parseConfig(input: unknown): ParsedConfig {
       input['termsAcknowledged'] === undefined
         ? DEFAULT_GLOBAL_CONFIG.termsAcknowledged
         : requireNonNegativeInteger(input['termsAcknowledged'], 'termsAcknowledged', 'config: '),
+  }
+
+  // Optional with no default, like the release notes below: absent means nobody
+  // named this account, and the UI shows `Conta {N}`. Parsed through the core's
+  // own rule rather than a local check, so the file and the rename channel
+  // cannot disagree about what a name may be.
+  if (input['accountName'] !== undefined) {
+    try {
+      globals.accountName = parseAccountName(input['accountName'])
+    } catch (error) {
+      // Re-thrown with the file's own prefix so the panel's error names the
+      // setting, and with the original attached: the rule that refused it lives
+      // in accounts.ts and its message is the useful half.
+      throw new Error(`config: accountName ${error instanceof Error ? error.message : ''}`.trim(), {
+        cause: error,
+      })
+    }
   }
 
   // Optional with no default: absent is a meaningful value here — nobody has

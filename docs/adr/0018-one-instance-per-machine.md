@@ -1,6 +1,13 @@
 # ADR-0018 — One instance per machine, bound to the hardware
 
-**Status:** Accepted · **Date:** 2026-08-20
+**Status:** Superseded in part by
+[ADR-0021](0021-several-windows-one-account-each.md) · **Date:** 2026-08-20
+
+Only the **first layer** is gone: the machine no longer runs one Hecaton, and the mutex that
+enforced that now enforces one window per _account_ instead - same mechanism, different job,
+and for data integrity rather than as a usage limit. The hypervisor refusal and the hardware
+seal stand exactly as written here. The reasoning below about _why a mutex_, what its DACL
+buys, and what the layers cannot do is unchanged and is why ADR-0021 could reuse it.
 
 Supersedes, in part, two earlier decisions, one sentence each.
 [ADR-0015](0015-what-the-app-deliberately-does-not-collect.md)'s "**No pseudonymous id exists**, so
