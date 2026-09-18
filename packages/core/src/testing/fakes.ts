@@ -145,6 +145,16 @@ export class FakeWindowManager implements WindowManager {
     this.closed.push(pid)
     return true
   }
+
+  /** Pids the core asked about, in order. */
+  readonly revealed: number[] = []
+  /** How many windows a given pid has out of view; absent means none. */
+  readonly detachedToReveal = new Map<number, number>()
+
+  revealDetachedWindows(pid: number): number {
+    this.revealed.push(pid)
+    return this.detachedToReveal.get(pid) ?? 0
+  }
 }
 
 export class FakeAudioController implements AudioController {

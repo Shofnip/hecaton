@@ -325,6 +325,37 @@ deferred section of `architecture.md` and ADR-0003.
 
 ---
 
+## The login window does not appear
+
+**Symptom**
+
+Clicking "sign in with <provider>" in a game does nothing visible. The window **exists** — it is in
+the taskbar and in Alt+Tab — but nothing shows on screen, and clicking the taskbar entry brings up
+nothing either.
+
+**Cause**
+
+It opened at (-32000,-32000). A screen is launched off-screen so it never flashes on the desktop
+before being embedded, and it is then moved into the panel with Win32 — underneath the browser,
+which is never told. When the page opens a second window, the browser places it against where it
+still believes the opener to be. Measured 2026-09-18: visible, 700x480, at the launch corner.
+
+**What to do**
+
+Nothing, if the app is current: `revealDetachedWindows` runs on the liveness tick, moves any window
+of a screen's process that no monitor can show, centres it over the panel and raises it. Worst case
+it appears on the next tick, so up to two seconds after the click.
+
+If one still hides, the log line to look for is `slot.detached-window` — it is written once per
+rescue. No line at all means the app never saw a window out of view: check that the screen is
+actually embedded (the rescue is deliberately inert before that, so the screen itself is not dragged
+onto the desktop during launch).
+
+A window that is only _behind_ the panel is a different thing and is not rescued: it has pixels on a
+monitor, so the rule leaves it where it is. Alt+Tab reaches it.
+
+---
+
 ## Every screen is grey and no page ever loads
 
 **Symptom**

@@ -18,6 +18,7 @@ export type { GlobalConfig, ResolvedSlotConfig, SlotOverrides, Theme } from './c
 export { parseConfig, parseSlotOverrides } from './parse-config.js'
 export type { ParsedConfig } from './parse-config.js'
 
+export { centredOver, isOffScreen } from './detached-window.js'
 export {
   ensureBrowserReadable,
   needsAppContainerGrant,

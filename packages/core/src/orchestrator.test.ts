@@ -389,6 +389,61 @@ describe('the core no longer tiles running windows', () => {
   })
 })
 
+describe('the windows a screen opens for itself', () => {
+  it('asks the adapter to rescue them for every live screen', async () => {
+    // "Entrar com Google" opens a second browser window, and it lands at the
+    // corner a screen is born in - see detached-window.ts. Every live screen is
+    // asked, because any of them could be the one signing in.
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+
+    app.revealDetachedWindows()
+
+    expect(windows.revealed.sort()).toEqual([launcher.pidForSlot(1), launcher.pidForSlot(2)].sort())
+  })
+
+  it('leaves stopped screens out of it', async () => {
+    // A stopped screen has no process, so there is nothing to enumerate and the
+    // adapter would be shelling out for nothing on every tick.
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    await app.stop(2)
+
+    app.revealDetachedWindows()
+
+    expect(windows.revealed).toEqual([launcher.pidForSlot(1)])
+  })
+
+  it('logs a screen whose window had to be rescued, and says nothing otherwise', async () => {
+    // One line when it happens, none on the ticks where it does not - this runs
+    // on the liveness timer, so a line per tick would bury the log.
+    const logger = new FakeLogger()
+    const app = new Orchestrator({
+      launcher,
+      windows,
+      screen: SCREEN,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: [{ id: 1, gameId: 'poke-idleworld' }],
+      autoRestart: false,
+      logger,
+    })
+    await app.start(1)
+    windows.detachedToReveal.set(launcher.pidForSlot(1)!, 1)
+
+    app.revealDetachedWindows()
+    expect(logger.entries.filter((entry) => entry.event === 'slot.detached-window')).toEqual([
+      { level: 'info', event: 'slot.detached-window', slotId: 1, gameId: 'poke-idleworld' },
+    ])
+
+    windows.detachedToReveal.clear()
+    app.revealDetachedWindows()
+    expect(logger.entries.filter((entry) => entry.event === 'slot.detached-window')).toHaveLength(1)
+  })
+})
+
 describe('unknown slots', () => {
   it.each<[string, (app: Orchestrator) => unknown]>([
     ['stateOf', (app) => app.stateOf(99)],

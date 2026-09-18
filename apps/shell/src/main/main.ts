@@ -1009,6 +1009,13 @@ if (!app.requestSingleInstanceLock()) {
 
     if (orchestrator) {
       livenessTimer = setInterval(() => {
+        // Two jobs on one timer, and deliberately so: both are sweeps over the
+        // live screens that exist because there is no CDP to tell the app
+        // anything. One notices a browser that died; the other notices a window
+        // a page opened - a provider login - which the browser places off the
+        // edge of the world (see detached-window.ts). Synchronous and silent
+        // when there is nothing to move, so it costs the tick nothing.
+        orchestrator.revealDetachedWindows()
         void orchestrator.checkLiveness().then(pushState)
       }, LIVENESS_INTERVAL_MS)
 

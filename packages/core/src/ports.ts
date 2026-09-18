@@ -77,6 +77,22 @@ export interface WindowManager {
    * times out and the browser lingers seconds before the force-kill.
    */
   close(pid: number): boolean
+  /**
+   * Brings any window this process owns that is **not** the embedded screen onto
+   * the visible desktop, and returns how many had to be moved.
+   *
+   * The case that forced it: a game's "sign in with <provider>" opens a second
+   * browser window, and it is born at the corner a screen is launched in, since
+   * the browser positions it against where it still believes the opener to be —
+   * it was never told that Win32 moved the screen into the panel. Measured
+   * 2026-09-18: visible, in the taskbar, at (-32000,-32000).
+   *
+   * Which windows are unreachable, and where a rescued one belongs, is
+   * `detached-window.ts` in the core; the adapter enumerates, asks, and moves.
+   * A window with any part of it on a monitor is left exactly where it is, so a
+   * login window the user dragged is never yanked back.
+   */
+  revealDetachedWindows(pid: number): number
 }
 
 /**

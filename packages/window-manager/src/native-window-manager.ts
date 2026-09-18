@@ -29,6 +29,7 @@
  * and the SetParent timing are Windows details it keeps to itself.
  */
 import { createRequire } from 'node:module'
+import { centredOver, isOffScreen } from '@hecaton/core'
 import type { GridCell, WindowManager } from '@hecaton/core'
 import { measureInsets } from './dwm-insets.js'
 import type { Insets } from './dwm-insets.js'
@@ -51,10 +52,14 @@ interface NativeWindow {
   getTitle(): string
   getBounds(): { x?: number; y?: number; width?: number; height?: number }
   setBounds(bounds: { x: number; y: number; width: number; height: number }): void
+  /** Raises a window above its siblings, without taking keyboard focus from it. */
+  bringToTop(): void
 }
 
 interface NativeApi {
   getWindows(): NativeWindow[]
+  /** Every monitor, for deciding whether a window is reachable at all. */
+  getMonitors(): NativeMonitor[]
 }
 
 const { windowManager } = require('node-window-manager') as { windowManager: NativeApi }
@@ -376,6 +381,57 @@ export class NativeWindowManager implements WindowManager {
     }
   }
 
+  /**
+   * Brings the windows a screen opened for itself back onto the desktop.
+   *
+   * The port says what this is for; here is how. Every visible, titled top-level
+   * window of the process is a candidate — the embedded screen is a `WS_CHILD`
+   * and `getWindows` does not list it, so it needs no excluding — and each one
+   * that no monitor can show is centred over the panel and raised.
+   *
+   * **Nothing happens until the screen is embedded**, and that guard is the
+   * whole reason this is not dangerous: before the embed, the screen itself is
+   * deliberately parked at `OFFSCREEN_LAUNCH`, and rescuing it there would drag
+   * it across the desktop exactly once per launch — the flash the offscreen
+   * birth exists to prevent.
+   *
+   * Centred over the panel rather than over the primary monitor: a login window
+   * belongs in front of the app that caused it, on the monitor the user is
+   * looking at. When the panel's own rectangle cannot be read, the primary
+   * monitor's work area stands in.
+   */
+  revealDetachedWindows(pid: number): number {
+    if (!this.embedded.has(pid)) return 0
+
+    const monitors = windowManager.getMonitors().map((monitor) => asCell(monitor.getWorkArea()))
+    if (monitors.length === 0) return 0
+    const target = this.panelArea() ?? monitors[0]!
+
+    let moved = 0
+    for (const window of windowManager.getWindows()) {
+      if (window.processId !== pid) continue
+      if (!window.isVisible() || !window.getTitle().trim()) continue
+      const bounds = asCell(window.getBounds())
+      if (!isOffScreen(bounds, monitors)) continue
+
+      const { x, y } = centredOver(bounds, target)
+      window.setBounds({ x, y, width: bounds.width, height: bounds.height })
+      // Raised as well as moved: the panel is the window the user just clicked
+      // in, so a login window merely moved would land behind it.
+      window.bringToTop()
+      moved++
+    }
+    return moved
+  }
+
+  /** The panel's own rectangle, when the shell gave this adapter a way to find it. */
+  private panelArea(): GridCell | undefined {
+    const parent = this.parentHwnd?.()
+    if (parent === undefined) return undefined
+    const panel = windowManager.getWindows().find((window) => window.id === parent)
+    return panel ? asCell(panel.getBounds()) : undefined
+  }
+
   /** The native window handle. Diagnostics and tests only. */
   windowIdOf(pid: number): number | undefined {
     return this.hwndFor(pid)
@@ -400,4 +456,16 @@ export class NativeWindowManager implements WindowManager {
     for (const pid of [...this.deferredShows.keys()]) this.cancelDeferredShow(pid)
     await this.worker.dispose()
   }
+}
+
+/**
+ * node-window-manager's rectangle with every field present.
+ *
+ * Its `IRectangle` types x, y, width and height as optional, and a window that
+ * answers with a missing field is one no geometry can be done about — treating
+ * the gap as 0 keeps the arithmetic total, and such a window is off-screen by
+ * every test that matters anyway.
+ */
+function asCell(rect: { x?: number; y?: number; width?: number; height?: number }): GridCell {
+  return { x: rect.x ?? 0, y: rect.y ?? 0, width: rect.width ?? 0, height: rect.height ?? 0 }
 }

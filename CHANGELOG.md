@@ -8,6 +8,17 @@ lido sem abrir o aplicativo e antes de instalar qualquer coisa.
 Escrito para quem usa, não para quem programa. O histórico técnico completo está
 nos commits.
 
+## 0.2.1
+
+Correção de um problema que aparecia na hora de entrar na conta.
+
+- **A janela de login agora aparece.** Quando o jogo abria uma janela para você
+  entrar com uma conta de outro serviço (Google, por exemplo), ela nascia fora
+  da área visível da tela: existia na barra de tarefas, mas não dava para ver
+  nem usar. Agora o aplicativo traz essa janela para o meio do painel, na
+  frente, assim que ela aparece. Uma janela que você mesmo arrastou para outro
+  canto fica onde você deixou.
+
 ## 0.2.0
 
 O aplicativo passou a se bastar: ele traz o próprio navegador, e continua sendo

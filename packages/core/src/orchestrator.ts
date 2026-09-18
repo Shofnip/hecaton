@@ -568,6 +568,30 @@ export class Orchestrator {
   }
 
   /**
+   * Rescues the windows a screen's browser opens for itself — a provider login,
+   * above all — which arrive out of view.
+   *
+   * Driven from the same timer as `checkLiveness` rather than from an event,
+   * because there is no event to have: without CDP the app learns nothing about
+   * what a page does, and a window that appears between two ticks is a window the
+   * user is already waiting on. Why it lands off-screen at all, and the rule for
+   * which ones may be moved, are in `detached-window.ts`.
+   *
+   * Synchronous and silent when there is nothing to do: this runs several times a
+   * second across every live screen, so the log line is for the rescue, never for
+   * the sweep.
+   */
+  revealDetachedWindows(): void {
+    for (const slot of this.slots.values()) {
+      if (!isLive(slot.state) || slot.pid === undefined) continue
+      const moved = this.windows.revealDetachedWindows(slot.pid)
+      if (moved > 0) {
+        this.emit({ level: 'info', event: 'slot.detached-window', ...this.slotFields(slot) })
+      }
+    }
+  }
+
+  /**
    * Called on a timer by the shell. Every slot is handled independently — one
    * slot crashing, or failing to come back, never touches its neighbours.
    */

@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { windowManager } from 'node-window-manager'
 import { NativeWindowManager } from './native-window-manager.js'
 
 const onWindows = process.platform === 'win32'
@@ -388,6 +389,157 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
     }, 120_000)
   })
 })
+
+describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', () => {
+  /**
+   * The bug this covers, measured on 2026-09-18: a game's "sign in with
+   * <provider>" opens a second browser window, and it arrives at
+   * (-32000,-32000) - the corner a screen is launched in - because the browser
+   * positions a new window against where it still believes the opener is, never
+   * having been told that Win32 moved the screen into the panel. Visible, in the
+   * taskbar, reachable by nothing.
+   *
+   * A second window in the **same** process is produced the way the game does it
+   * in spirit and the way the shell can do it in a test: launching the browser
+   * again against the same profile, which Chrome routes into the running process
+   * rather than starting a second one.
+   */
+  let root: string
+  let parent: number | undefined
+  let screenPid: number | undefined
+  let embedManager: NativeWindowManager
+
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), 'hecaton-detached-'))
+
+    const parentProfile = join(root, 'panel')
+    spawn(
+      CHROME,
+      [
+        `--user-data-dir=${parentProfile}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--window-position=200,200',
+        '--window-size=1000,800',
+        '--new-window',
+        'about:blank',
+      ],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
+
+    const screenProfile = join(root, 'screen')
+    spawn(
+      CHROME,
+      [
+        `--user-data-dir=${screenProfile}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--window-position=-32000,-32000',
+        '--window-size=700,480',
+        '--app=about:blank',
+      ],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
+
+    let parentPid: number | undefined
+    for (let attempt = 0; attempt < 60 && !(parentPid && screenPid); attempt++) {
+      parentPid ??= browserPidFor(parentProfile)
+      screenPid ??= browserPidFor(screenProfile)
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    expect(screenPid).toBeGreaterThan(0)
+    await new Promise((r) => setTimeout(r, 2000))
+
+    parent = new NativeWindowManager().windowIdOf(parentPid!)
+    embedManager = new NativeWindowManager(() => parent)
+    for (let attempt = 0; attempt < 60 && !embedManager.reparent(screenPid!); attempt++) {
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    embedManager.setBounds(screenPid!, { x: 30, y: 30, width: 660, height: 420 })
+    embedManager.show(screenPid!)
+
+    // The second window of that same process, born where the login window is.
+    spawn(
+      CHROME,
+      [
+        `--user-data-dir=${screenProfile}`,
+        '--window-position=-32000,-32000',
+        '--window-size=520,640',
+        '--app=about:blank',
+      ],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
+    await new Promise((r) => setTimeout(r, 4000))
+  }, 120_000)
+
+  afterAll(async () => {
+    if (screenPid !== undefined) {
+      try {
+        execFileSync('taskkill', ['/PID', String(screenPid), '/F', '/T'], { stdio: 'ignore' })
+      } catch {
+        // already gone
+      }
+    }
+    // Retried, like the suite's other teardown: a browser that has just been
+    // killed is still letting go of its profile, and `rmSync` answers EPERM for
+    // a second or two afterwards - probe P4's finding, and not worth failing a
+    // green run over.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        rmSync(root, { recursive: true, force: true })
+        return
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    }
+  })
+
+  it('moves the out-of-view window onto the desktop', () => {
+    expect(embedManager.revealDetachedWindows(screenPid!)).toBe(1)
+
+    const rescued = detachedBoundsOf(screenPid!)
+    expect(rescued, 'no top-level window left to inspect').toBeDefined()
+    expect(rescued!.x).toBeGreaterThan(-32000)
+    expect(rescued!.y).toBeGreaterThan(-32000)
+  })
+
+  it('leaves it alone once it is on the desktop', () => {
+    // Idempotence is the property that makes this safe on a timer: it runs
+    // several times a second, and a window the user then dragged must stay where
+    // they put it.
+    const before = detachedBoundsOf(screenPid!)
+
+    expect(embedManager.revealDetachedWindows(screenPid!)).toBe(0)
+
+    expect(detachedBoundsOf(screenPid!)).toEqual(before)
+  })
+
+  it('does nothing for a process with no embedded screen', () => {
+    // Before the embed, a screen is *supposed* to be off-screen - that is what
+    // keeps it from flashing on the desktop. Rescuing then would undo the
+    // architecture rather than help the user.
+    const virgin = new NativeWindowManager()
+    expect(virgin.revealDetachedWindows(screenPid!)).toBe(0)
+  })
+})
+
+/**
+ * The bounds of the one visible, titled top-level window a process still has.
+ *
+ * Measured through the same library the adapter uses, but independently of it:
+ * the point is to read what Windows says about the window, not to ask the thing
+ * under test where it thinks it put it. An embedded screen is a child window and
+ * never appears here, so for a slot with a login window open, that window is the
+ * only match.
+ */
+function detachedBoundsOf(pid: number): { x: number; y: number } | undefined {
+  const found = windowManager
+    .getWindows()
+    .find((window) => window.processId === pid && window.isVisible() && window.getTitle().trim())
+  if (!found) return undefined
+  const bounds = found.getBounds()
+  return { x: bounds.x ?? 0, y: bounds.y ?? 0 }
+}
 
 /**
  * Brings a window to the front, so a screen capture sees it rather than whatever

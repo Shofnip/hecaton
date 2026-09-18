@@ -131,6 +131,18 @@ was terminated` — the window opens, paints nothing, and **no page ever loads**
 - **The source is trunk**, not a release channel: no stable-branch security backports, and the
   browser no longer updates itself at all. The app's release cadence has become the browser's patch
   cadence. `docs/releasing.md` carries that as the fourth pin, with the ritual for raising it.
+- **A window a screen opens for itself is rescued onto the desktop.** A game that signs the user in
+  through a provider opens a second browser window, and it arrives where nobody can see it: the
+  browser positions a new window against where it still believes the opener is, and the opener was
+  born at `OFFSCREEN_LAUNCH` and moved into the panel by Win32 afterwards, which it was never told
+  about. Measured 2026-09-18, reproducing the production sequence: the window came up **visible**,
+  700x480, at (-32000,-32000) — in the taskbar, reachable by nothing, which is exactly how it was
+  reported. `revealDetachedWindows` on the liveness tick moves any window of a screen's process that
+  no monitor can show, centring it over the panel and raising it. The rule is in
+  `detached-window.ts`: **only** a window with no pixel on any monitor is moved, so one the user
+  dragged somewhere is left alone, and **nothing happens before the screen is embedded**, because
+  until then the screen itself is deliberately off-screen and rescuing it would undo the very flash
+  the offscreen birth prevents.
 - **An embedded screen is reloaded and held hidden for a second before it is revealed.** On this
   browser, `SetParent` on an `--app` window throws away its rendered surface and it never comes
   back — the screen sits grey until somebody reloads it by hand. Chrome 150 does not do it, a
