@@ -26,8 +26,11 @@ target game: **Poke IdleWorld**; any `https://` URL works too.
   at its own volume; focus one and the rest go quiet.
 - **Light/dark themes**, and small tools: clear a screen's cache without logging it out, open the
   logs, and remove/re-add screens (a removed screen's profile is archived, never deleted).
-- **Delete everything**, from the settings modal: where your data lives, and one confirmed action
-  that removes it and closes the app.
+- **Several windows, one account each**: open Hecaton again and it takes the next account, with its
+  own screens, logins and cache — never the same browser profiles as another window. Accounts are
+  named and switched from the settings modal.
+- **Delete your data**, from the settings modal: where it lives, and two confirmed actions — one for
+  the account you are in, one for every account — each of which closes the app afterwards.
 - **Check for updates** when you feel like it — never on its own. It reads the release list, shows
   the changelog, and opens the page in your browser if you want it.
 
@@ -78,7 +81,7 @@ Three things to expect, all of them consequences of a decision rather than accid
   every session where it was — and so nothing you delete by hand can take them with it
   ([ADR-0020](docs/adr/0020-a-zip-the-user-extracts-not-an-installer.md)).
 
-To remove the logins and settings as well, use **Configurações → Apagar todos os meus dados**, which
+To remove the logins and settings as well, use **Configurações → Zona de risco → Apagar TODOS os dados**, which
 deletes that directory and closes the app — stop every screen first, since the browser holds its
 profile open. A folder with the app's own cache stays behind; it holds no login. A clean-session
 screen also leaves a throwaway profile in your temp directory if the app was killed before it could
@@ -163,7 +166,7 @@ moves a window or touches disk goes in `*.integration.test.ts`. Strict TDD throu
 ## Data and privacy
 
 Everything the app persists lives under `%APPDATA%/hecaton`, **including in development**: config,
-rotated logs, and the per-slot browser profiles under `profiles/`. Nothing the app produces is ever
+rotated logs, and — per account — the config and the browser profiles under `accounts/<id>/`. Nothing the app produces is ever
 written into the repository — a profile _is_ a logged-in session (cookies, saved passwords), and
 keeping it out of the working tree removes that risk at the source.
 
@@ -171,7 +174,7 @@ Two things live outside that directory. A screen set to a **clean session** keep
 throwaway directory under the OS temp folder, removed when the screen stops; if the app is killed
 before that, the directory survives until Windows reclaims it — worth knowing on a shared machine.
 And the machine seal at `C:\ProgramData\hecaton\machine.json` (see Requirements above) holds a
-hash of your hardware and nothing of yours, which is why _Apagar todos os meus dados_ leaves it
+hash of your hardware and nothing of yours, which is why _Apagar TODOS os dados_ leaves it
 alone.
 
 The app **never stores passwords** — logins live only inside the bundled browser's own profile. No
@@ -186,10 +189,12 @@ page in your browser and the rest is yours.
 **Configurações → Seus dados** names `%APPDATA%/hecaton` and the temp folder, and opens the first.
 It does not mention the machine seal — that is named on the refusal screen, which is the only place
 it matters. Beside it,
-**Apagar todos os meus dados** deletes `%APPDATA%/hecaton` — profiles, config and logs — after an
-explicit confirmation, and closes the app. It is the only way the app deletes a profile that is
-still in use, there is no command-line equivalent, and every screen has to be stopped before it
-will run.
+**Apagar os dados desta conta** deletes `accounts/<id>` — that account's profiles, screens and
+cache — and **Apagar TODOS os dados** deletes `%APPDATA%/hecaton` whole, every account included, so
+another window loses its data mid-session (its confirmation says so). Both take an explicit
+confirmation, both close the app afterwards, and both need every screen in this window stopped
+first. They are the only ways the app deletes a profile that is still in use, and there is no
+command-line equivalent.
 
 ## Documentation
 

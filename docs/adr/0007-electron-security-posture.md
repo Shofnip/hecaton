@@ -84,7 +84,7 @@ Turnstile would reject it anyway.
 - `connect-src 'none'` means auto-update in phase 3 is a deliberate future decision, not a
   default already in place.
 - The exact Electron pin only stays defensible while the update cadence above is honoured.
-- A single-instance lock and the placement of Electron's own `userData` under
+- A single-instance lock [see Correction (2026-09-18)] and the placement of Electron's own `userData` under
   `%APPDATA%/helloweb/shell` are related hardening, recorded in `architecture.md` and consistent
   with ADR-0004 rather than decided here. [see Correction (2026-07-30)]
 
@@ -152,3 +152,12 @@ revision. ADR-0016 states both costs and the owner accepted them.
 Electron; navigation and all three permission handlers still deny everything. The browser-choice
 decision that ADR-0016 reversed belongs to [ADR-0003](0003-spawn-over-cdp.md), which carries the
 supersession header. Nothing in this ADR's five decisions was reversed.
+
+## Correction (2026-09-18)
+
+The single-instance lock named here is gone, replaced by a per-account one
+([ADR-0021](0021-several-windows-one-account-each.md)): several windows may run, and what is
+guarded is now a browser profile rather than the app itself. Electron's own `userData` is still
+placed under the app's data directory and is now **one per launch**, `shell/<pid>`, because two
+windows on one cache bring back the error that placement exists to avoid. Nothing else in this
+ADR's posture changed.

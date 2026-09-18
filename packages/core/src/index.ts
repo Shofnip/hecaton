@@ -28,6 +28,7 @@ export {
   nextAccountId,
   parseAccountId,
   parseAccountName,
+  stalePanelCaches,
   type Account,
   type LegacyLayout,
 } from './accounts.js'

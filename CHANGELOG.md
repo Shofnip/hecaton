@@ -25,9 +25,19 @@ Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
   tela ficaram com metade da altura, o espaço entre as telas caiu para 1 pixel e
   a barra lateral ficou mais estreita. Nada mudou de lugar — tudo o que estava
   ali continua ali, só que menor.
+- **Os ícones das telas voltaram a ser legíveis.** Eles estavam sendo espremidos
+  para uns 6 pixels de largura por um detalhe de layout, e por isso pareciam
+  manchas parecidas. Agora cada um ocupa o botão inteiro.
 - **Apagar dados agora são dois botões.** _Apagar os dados desta conta_ mexe só
   na conta em que você está; _Apagar TODOS os dados_ continua apagando tudo, de
   todas as contas — e avisa que outra janela aberta perde os dados dela junto.
+
+**Sobre as telas em segundo plano**: foi medido, e elas não desaceleram. Com o
+aplicativo fora de foco, coberto por outra janela, minimizado, e até com o
+monitor desligado pela economia de energia do Windows, o relógio das páginas
+continuou em 1 tique por segundo, sem perder nenhum. O que para com o monitor
+desligado é só o desenho na tela — que é o que "monitor desligado" quer dizer.
+Suspender o computador é outra coisa: aí o Windows congela tudo.
 
 **Na primeira vez que você abrir esta versão**, suas telas e seus logins passam
 a morar dentro de `%APPDATA%/hecaton/accounts/1`. O aplicativo faz isso

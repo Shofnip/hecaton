@@ -165,3 +165,56 @@ describe('listAccountIds', () => {
     expect(listAccountIds(env, 'win32')).toEqual([1])
   })
 })
+
+describe('two launches at the same time', () => {
+  it('never strands the legacy data when a second call interleaves with the first', () => {
+    // The race a code review found, and it is not theoretical: the feature
+    // itself encourages opening a second window, and nothing serialises the
+    // first launch of a version that migrates. Interleaved, the old sequence
+    // could leave `accounts/` existing and empty while config.json and
+    // profiles/ stayed at the legacy paths - unreachable for ever, because
+    // `accounts/` existing is what says the migration is done.
+    writeLegacyLayout()
+    const staging = stagingAccountsDir(env, 'win32')
+    mkdirSync(join(staging, '1'), { recursive: true })
+
+    // B adopts the staging directory A was about to fill - and finishes the job
+    // rather than promoting an empty directory.
+    expect(migrateLegacyLayout(env, 'win32')).toBe('resumed')
+    // A then finds the new layout already in place and nothing left to move.
+    expect(migrateLegacyLayout(env, 'win32')).toBe('nothing-to-do')
+
+    expect(existsSync(join(accountProfilesDir(1, env, 'win32'), 'slot-1'))).toBe(true)
+    expect(existsSync(join(data, 'profiles'))).toBe(false)
+  })
+
+  it('reports an unfinished migration rather than calling it done', () => {
+    // `accounts/` exists and the legacy paths are still full: the state a
+    // crashed or interrupted adopter leaves behind. Answering "nothing to do"
+    // here is what would stand between the user and their sessions for ever.
+    writeLegacyLayout()
+    mkdirSync(join(accountsDir(env, 'win32'), '1'), { recursive: true })
+
+    expect(migrateLegacyLayout(env, 'win32')).toBe('unfinished')
+
+    expect(existsSync(join(accountProfilesDir(1, env, 'win32'), 'slot-1'))).toBe(true)
+    expect(existsSync(join(accountsDir(env, 'win32'), '1', 'config.json'))).toBe(true)
+  })
+
+  it('finishes the legacy move after adopting a staging directory', () => {
+    // Adoption promotes whatever staging holds, and the file's own header used
+    // to claim a crash could never leave a half layout. It can - the crash
+    // between the two renames leaves config.json behind - so adoption has to
+    // finish the job rather than declare it done.
+    writeLegacyLayout()
+    const staging = stagingAccountsDir(env, 'win32')
+    mkdirSync(join(staging, '1'), { recursive: true })
+
+    migrateLegacyLayout(env, 'win32')
+
+    expect(existsSync(join(accountProfilesDir(1, env, 'win32'), 'slot-1'))).toBe(true)
+    expect(existsSync(join(accountsDir(env, 'win32'), '1', 'config.json'))).toBe(true)
+    expect(existsSync(join(data, 'profiles'))).toBe(false)
+    expect(existsSync(join(data, 'config.json'))).toBe(false)
+  })
+})

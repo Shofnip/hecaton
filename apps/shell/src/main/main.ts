@@ -13,7 +13,7 @@
  */
 import { BrowserWindow, Menu, app, ipcMain, screen, session, shell } from 'electron'
 import { fileURLToPath } from 'node:url'
-import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   IPC_CHANNELS,
@@ -44,6 +44,7 @@ import {
   interpretUpdateCheck,
   needsTermsAcknowledgement,
   nextAccountId,
+  stalePanelCaches,
 } from '@hecaton/core'
 import type { InstanceClaimVerdict, MachineSeal } from '@hecaton/core'
 import { changelogSection, displayNotes, needsReleaseNotes } from '@hecaton/core'
@@ -60,7 +61,6 @@ import {
 import { NativeWindowManager } from '@hecaton/window-manager'
 import { MutexInstanceLock, WmiMachineIdentity } from '@hecaton/machine-lock'
 import {
-  ACCOUNTS_DIR_NAME,
   APP_DIR_NAME,
   ELECTRON_DIR_NAME,
   FileLogger,
@@ -68,14 +68,13 @@ import {
   JsonFileStorage,
   accountConfigFilePath,
   accountDir,
-  accountElectronUserDataDir,
   accountProfilesDir,
-  accountsDir,
   appDataDir,
   deleteUserData,
-  electronUserDataDir,
   listAccountIds,
   logsDir,
+  panelCacheDir,
+  panelCachesDir,
   machineSealPath,
   migrateLegacyLayout,
 } from '@hecaton/storage'
@@ -106,7 +105,15 @@ const BROWSER = bundledBrowserPath(process.resourcesPath)
 // move the cache: access denied" comes from - any other Electron app, or a
 // still-closing instance of ours, holds it. Must run before the app is ready,
 // while the paths can still be set.
-app.setPath('userData', electronUserDataDir())
+//
+// **One directory per launch, named by pid** (ADR-0021). Several windows run at
+// once, so one shared directory brings that same error back against ourselves -
+// and per *account* does not work either, because `setPath` cannot be moved
+// after Electron resolves its session, so a window that switches accounts would
+// keep holding the directory of the account it left. A pid is known here, before
+// `ready`, and is never shared. `pruneStaleCaches` clears the ones whose process
+// is gone.
+app.setPath('userData', panelCacheDir(process.pid))
 
 // There is deliberately no "--delete-user-data" branch here.
 //
@@ -281,14 +288,41 @@ function openAccount(id: number): void {
 }
 
 /**
- * What is still inside a directory, for the deletion to judge.
+ * Removes the cache directories of launches that are gone.
  *
- * An absent directory reads as empty rather than throwing: after a successful
- * delete that is exactly what it is, and the whole point of this call is to find
- * out what survived.
+ * Which ones may go is `stalePanelCaches` in the core; this only asks Windows
+ * whether a pid is alive and does the removing. `process.kill(pid, 0)` is the
+ * same liveness check the launcher uses for browsers - it signals nothing and
+ * throws when the process is not there.
+ *
+ * Failure is ignored on purpose: a directory that will not go is a few megabytes,
+ * and a launch that refused to start over it would be trading the user's app for
+ * tidiness.
  */
-function listRemaining(path: string): string[] {
-  return existsSync(path) ? readdirSync(path) : []
+function pruneStaleCaches(): void {
+  try {
+    const root = panelCachesDir()
+    if (!existsSync(root)) return
+    for (const name of stalePanelCaches(readdirSync(root), process.pid, isProcessAlive)) {
+      try {
+        rmSync(join(root, name), { recursive: true, force: true })
+      } catch {
+        // Another window may have just started using it, or Windows may still be
+        // letting go. Either way, not worth a word.
+      }
+    }
+  } catch {
+    // The whole sweep is optional.
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** What the panel shows in the account dropdown: every account, named. */
@@ -321,6 +355,24 @@ async function loadConfiguration(): Promise<void> {
     if (firstGame !== undefined) slots = firstRunSlots(firstGame, 1)
   }
 
+  buildOrchestrator(registry, slots)
+}
+
+/**
+ * Builds the orchestrator and the two adapters that own a worker, bound to the
+ * account this window currently holds.
+ *
+ * Separate from `loadConfiguration` so a switch can still produce a usable
+ * orchestrator when the new account's config will not parse. Leaving the
+ * previous account's orchestrator in place there would be the worst outcome
+ * available: this window holds the new account's lock, so its screens would
+ * launch into profiles it no longer owns, and another window may already be
+ * running them.
+ */
+function buildOrchestrator(
+  registry: ReturnType<typeof buildGameRegistry>,
+  list: SlotOverrides[],
+): void {
   // Built before the orchestrator and kept, so shutdown can dispose their
   // workers. The window adapter embeds into the panel, which does not exist yet;
   // panelHwnd is read lazily, at reparent time, by which point it does.
@@ -333,7 +385,7 @@ async function loadConfiguration(): Promise<void> {
     screen: screen.getPrimaryDisplay().workArea,
     globals,
     registry,
-    slots,
+    slots: list,
     autoRestart: true,
     logger,
     profiles,
@@ -665,9 +717,11 @@ function registerIpc(): void {
       const remaining = deleteUserData([
         { path: accountDir(accountId), leaf: accountDirName(accountId) },
       ])
-      // Electron holds this account's own cache open until the process exits,
-      // so that one entry is tolerated and anything else is the failure it is.
-      verifyUserDataDeletion(remaining, [ELECTRON_DIR_NAME])
+      // Nothing of this window's is held open inside the account: its Electron
+      // cache lives in `shell/<pid>`, outside. So **nothing** may survive, and
+      // anything that does is a browser that was still running - the failure
+      // this check exists to name.
+      verifyUserDataDeletion(remaining, [])
 
       quitAfterDeletion()
     },
@@ -697,20 +751,13 @@ function registerIpc(): void {
       requireEveryScreenStopped((orchestrator ? orchestrator.snapshot() : []).map((s) => s.state))
 
       const remaining = deleteUserData([{ path: appDataDir(), leaf: APP_DIR_NAME }])
-      // Three checks rather than one tolerated name, because the survivor is now
-      // nested: this window's Electron cache lives at accounts/<id>/shell, so
-      // `accounts` survives, and tolerating that alone would also excuse another
-      // account's profiles surviving whole. Each level is checked against what may
-      // actually be left there.
-      // Two names at the top level, not one. `accounts` is where this window's
-      // own cache lives; `shell` is the directory Electron created from the
-      // pre-ready default before the claim could say which account this window
-      // owns - measured 2026-09-18: it holds a `Local State` file and outlives
-      // the re-point, so tolerating it is the difference between a clean result
-      // and a deletion that reports failure over a file with nothing in it.
-      verifyUserDataDeletion(remaining, [ACCOUNTS_DIR_NAME, ELECTRON_DIR_NAME])
-      verifyUserDataDeletion(listRemaining(accountsDir()), [accountDirName(accountId)])
-      verifyUserDataDeletion(listRemaining(accountDir(accountId)), [ELECTRON_DIR_NAME])
+      // One tolerated name, again. This window's Electron cache lives in
+      // `shell/<pid>` (per launch, not per account), so what survives is the
+      // `shell` directory holding it - and nothing inside `accounts/`, whatever
+      // another window may be running. That is deliberate: the wide delete is
+      // the honest "all of it", and a second window losing its profiles
+      // mid-session is what the confirmation warns about.
+      verifyUserDataDeletion(remaining, [ELECTRON_DIR_NAME])
 
       quitAfterDeletion()
     },
@@ -835,7 +882,17 @@ function registerIpc(): void {
       pushState()
     },
 
-    'accounts:switch': async (payload) => switchAccount(parseAccountSwitch(payload)),
+    'accounts:switch': async (payload) => {
+      // An existing account only. Creating one is `accounts:create`, which works
+      // the next id out from the disk - a switch that created its target would
+      // let the panel name a directory, which is the thing that channel's
+      // comment says it must not be able to do.
+      const target = parseAccountSwitch(payload)
+      if (!listAccountIds().includes(target)) {
+        throw new Error(`no account ${target}`)
+      }
+      return switchAccount(target)
+    },
 
     'accounts:create': async (payload) => {
       // The next id is worked out here, from what is on disk. A channel that
@@ -945,6 +1002,10 @@ const QUIT_AFTER_DELETION_MS = 1200
  */
 function quitAfterDeletion(): void {
   userDataDeleted = true
+  // Nothing may write under the data directory from here on, and a log line is a
+  // write: `FileLogger.log` creates the directory it writes into, so one line
+  // after the deletion puts `logs/` back.
+  logger.silence()
   if (saveTimer) clearTimeout(saveTimer)
   if (livenessTimer) clearInterval(livenessTimer)
   if (audioTimer) clearInterval(audioTimer)
@@ -964,6 +1025,48 @@ interface AccountSwitch {
   ok: boolean
   /** Why not, when it failed: the lock's own word for it. */
   reason?: 'held-by-this-user' | 'held-by-another-user' | 'unavailable'
+}
+
+/**
+ * Starts the two sweeps the app runs on a clock, and restarts them after a
+ * switch.
+ *
+ * Idempotent, because a switch rebuilds the orchestrator and the old timers
+ * would go on calling the one that was thrown away: the previous handles are
+ * cleared first. Guarded on there being an orchestrator at all - a config that
+ * will not parse leaves the panel up with no screens to sweep.
+ */
+function startTimers(): void {
+  if (livenessTimer) clearInterval(livenessTimer)
+  if (audioTimer) clearInterval(audioTimer)
+  livenessTimer = undefined
+  audioTimer = undefined
+  if (!orchestrator) return
+
+  livenessTimer = setInterval(() => {
+    // Two jobs on one timer, and deliberately so: both are sweeps over the live
+    // screens that exist because there is no CDP to tell the app anything. One
+    // notices a browser that died; the other notices a window a page opened - a
+    // provider login - which the browser places off the edge of the world (see
+    // detached-window.ts). Synchronous and silent when there is nothing to move,
+    // so it costs the tick nothing.
+    orchestrator.revealDetachedWindows()
+    void orchestrator.checkLiveness().then(pushState)
+  }, LIVENESS_INTERVAL_MS)
+
+  // Make audio follow focus on its own faster timer. A tick still crosses a
+  // process boundary to mute a slot - ~12 ms through the persistent WASAPI
+  // worker, down from the ~270 ms a fresh shell-out cost - so a busy flag keeps
+  // ticks from overlapping rather than stacking work when the interval is
+  // shorter than the tick.
+  let audioBusy = false
+  audioTimer = setInterval(() => {
+    if (audioBusy) return
+    audioBusy = true
+    void orchestrator.applyAudio().finally(() => {
+      audioBusy = false
+    })
+  }, AUDIO_FOCUS_INTERVAL_MS)
 }
 
 /**
@@ -992,38 +1095,58 @@ async function switchAccount(targetId: number): Promise<AccountSwitch> {
     return { ok: false, reason: state }
   }
 
-  // Only now is the current account being given up. Stopping the screens first
-  // is not politeness: their browsers hold this account's profiles open, and a
-  // profile still being written while another window claims the account is the
-  // collision the lock exists to prevent.
-  for (const slot of orchestrator.snapshot()) {
-    if (slot.state === 'stopped' || slot.state === 'crashed') continue
-    try {
-      await orchestrator.stop(slot.id)
-    } catch {
-      // A screen that will not stop is not a reason to abandon the switch: its
-      // process is the launcher's to reap, and the account it belonged to is
-      // about to be released either way.
-    }
-  }
-  await saveConfiguration()
-  await Promise.allSettled([audioController?.dispose(), windowManager?.dispose()])
-  await instanceLock.release()
-  instanceLock = candidate
-
-  openAccount(targetId)
-  configError = undefined
-  configQuarantinedAs = undefined
   try {
-    await loadConfiguration()
+    // Only now is the current account being given up. Stopping the screens first
+    // is not politeness: their browsers hold this account's profiles open, and a
+    // profile still being written while another window claims the account is the
+    // collision the lock exists to prevent.
+    for (const slot of orchestrator?.snapshot() ?? []) {
+      if (slot.state === 'stopped' || slot.state === 'crashed') continue
+      try {
+        await orchestrator.stop(slot.id)
+      } catch {
+        // A screen that will not stop is not a reason to abandon the switch: its
+        // process is the launcher's to reap, and the account it belonged to is
+        // about to be released either way.
+      }
+    }
+    if (orchestrator) await saveConfiguration()
+    await Promise.allSettled([audioController?.dispose(), windowManager?.dispose()])
+    await instanceLock.release()
+    instanceLock = candidate
+
+    openAccount(targetId)
+    configError = undefined
+    configQuarantinedAs = undefined
+    try {
+      await loadConfiguration()
+    } catch (error) {
+      // The window is **already** on the new account here - the lock is held and
+      // the paths are switched - so it must not be left with the previous
+      // account's orchestrator, which would launch screens into profiles this
+      // window no longer owns. An empty configuration for this account is the
+      // honest state, and the panel shows why.
+      configError = error instanceof Error ? error.message : String(error)
+      logger.log({ level: 'error', event: 'config.error', message: configError })
+      buildOrchestrator(buildGameRegistry(), [])
+    }
+    startTimers()
+    logger.log({ level: 'info', event: 'accounts.switched', message: String(targetId) })
+    refreshAccounts()
+    pushState()
+    return { ok: true }
   } catch (error) {
-    configError = error instanceof Error ? error.message : String(error)
-    logger.log({ level: 'error', event: 'config.error', message: configError })
+    // Anything unexpected between taking the new lock and finishing the switch.
+    // The lock must not be stranded: a worker nobody references keeps the account
+    // unopenable by any window, including this one, for the rest of the session.
+    logger.log({
+      level: 'error',
+      event: 'accounts.switch-failed',
+      message: error instanceof Error ? error.message : String(error),
+    })
+    if (instanceLock !== candidate) await candidate.release()
+    return { ok: false, reason: 'unavailable' }
   }
-  logger.log({ level: 'info', event: 'accounts.switched', message: String(targetId) })
-  refreshAccounts()
-  pushState()
-  return { ok: true }
 }
 
 /**
@@ -1083,13 +1206,21 @@ async function claimMachine(): Promise<InstanceClaimVerdict> {
     openAccount(claim.account.id)
     return 'allow'
   } catch (error) {
+    // **Refused, not opened.** This used to fall back to account 1, reasoning
+    // that the machine gate fails open everywhere else and the lock is what
+    // keeps windows apart - which is exactly backwards, because this path is the
+    // one that skips the lock. Anything that throws here (a `%ProgramData%` that
+    // will not resolve, a directory listing racing another window's delete)
+    // would open an unlocked account 1, and a second window doing the same puts
+    // two browsers on one profile. That is the one cost this feature does not
+    // pay; the rest of the machine gate still fails open inside the core.
     logger.log({
-      level: 'warn',
+      level: 'error',
       event: 'instance.claim-failed',
       message: error instanceof Error ? error.message : String(error),
     })
-    openAccount(1)
-    return 'allow'
+    showBlocked('no-account')
+    return 'no-account'
   }
 }
 
@@ -1233,16 +1364,10 @@ function hookChildFocus(window: BrowserWindow): void {
     if ((await claimMachine()) !== 'allow') return
     refreshAccounts()
 
-    // Electron's own cache moves under the account, before anything touches a
-    // session. Two windows on one `userData` is the "unable to move the cache"
-    // failure ADR-0004 took this app out of `%APPDATA%/Electron` to escape, and
-    // several windows would recreate it against ourselves.
-    //
-    // After `ready` rather than beside the other `setPath` at the top of this
-    // file, because which account this window owns is not known until the claim
-    // above - and before `lockDownSession`, because reaching for
-    // `session.defaultSession` is what makes Chromium resolve the path.
-    app.setPath('userData', accountElectronUserDataDir(accountId))
+    // The caches of launches that are gone. After the claim rather than before,
+    // so a window that is refused does not touch the disk at all.
+    pruneStaleCaches()
+
     lockDownSession()
 
     // Before any screen can be launched, and after the claim so a refused launch
@@ -1271,32 +1396,7 @@ function hookChildFocus(window: BrowserWindow): void {
     registerIpc()
     createPanel()
 
-    if (orchestrator) {
-      livenessTimer = setInterval(() => {
-        // Two jobs on one timer, and deliberately so: both are sweeps over the
-        // live screens that exist because there is no CDP to tell the app
-        // anything. One notices a browser that died; the other notices a window
-        // a page opened - a provider login - which the browser places off the
-        // edge of the world (see detached-window.ts). Synchronous and silent
-        // when there is nothing to move, so it costs the tick nothing.
-        orchestrator.revealDetachedWindows()
-        void orchestrator.checkLiveness().then(pushState)
-      }, LIVENESS_INTERVAL_MS)
-
-      // Make audio follow focus on its own faster timer. A tick still crosses a
-      // process boundary to mute a slot — ~12 ms through the persistent WASAPI
-      // worker, down from the ~270 ms a fresh shell-out cost — so a busy flag
-      // keeps ticks from overlapping rather than stacking work when the interval
-      // is shorter than the tick.
-      let audioBusy = false
-      audioTimer = setInterval(() => {
-        if (audioBusy) return
-        audioBusy = true
-        void orchestrator.applyAudio().finally(() => {
-          audioBusy = false
-        })
-      }, AUDIO_FOCUS_INTERVAL_MS)
-    }
+    startTimers()
   })
 
   // The panel is the app. Closing it should not leave a tray-less process behind.

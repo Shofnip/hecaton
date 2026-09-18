@@ -12,11 +12,12 @@ export {
   ACCOUNTS_DIR_NAME,
   accountConfigFilePath,
   accountDir,
-  accountElectronUserDataDir,
   accountProfilesDir,
   accountsDir,
   legacyConfigFilePath,
   legacyProfilesDir,
+  panelCacheDir,
+  panelCachesDir,
 } from './account-paths.js'
 export { listAccountIds, migrateLegacyLayout, stagingAccountsDir } from './account-layout.js'
 export type { MigrationOutcome } from './account-layout.js'

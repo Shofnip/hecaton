@@ -3,11 +3,12 @@ import { join } from 'node:path'
 import {
   accountConfigFilePath,
   accountDir,
-  accountElectronUserDataDir,
   accountProfilesDir,
   accountsDir,
   legacyConfigFilePath,
   legacyProfilesDir,
+  panelCacheDir,
+  panelCachesDir,
 } from './account-paths.js'
 
 const env = { APPDATA: 'C:\\Users\\Alguem\\AppData\\Roaming' } as NodeJS.ProcessEnv
@@ -33,12 +34,19 @@ describe('where an account keeps its things', () => {
     expect(accountProfilesDir(3, env, 'win32')).toBe(join(root, 'accounts', '3', 'profiles'))
   })
 
-  it('gives each account its own Electron cache, so two windows do not fight over one', () => {
-    // The panel's own cache, not a game profile. Shared, it is where "unable to
-    // move the cache: access denied" comes from - the error ADR-0004 moved the
-    // app out of %APPDATA%/Electron to avoid, which several windows would
-    // otherwise reintroduce against itself.
-    expect(accountElectronUserDataDir(2, env, 'win32')).toBe(join(root, 'accounts', '2', 'shell'))
+  it('gives each launch its own Electron cache, so two windows do not fight over one', () => {
+    // Per process rather than per account, and that distinction was earned: a
+    // window that switches accounts keeps the cache it started with, because
+    // setPath('userData', ...) cannot be moved once Electron resolved its session.
+    // Keyed by pid, nothing collides and no window is left holding a directory
+    // another one will want.
+    expect(panelCacheDir(4242, env, 'win32')).toBe(join(root, 'shell', '4242'))
+    expect(panelCachesDir(env, 'win32')).toBe(join(root, 'shell'))
+  })
+
+  it('refuses a pid that is not a positive integer', () => {
+    expect(() => panelCacheDir(0, env, 'win32')).toThrow()
+    expect(() => panelCacheDir(-3, env, 'win32')).toThrow()
   })
 
   it('refuses an id that is not a positive integer', () => {

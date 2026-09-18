@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   ACCOUNT_CLAIM_ATTEMPTS,
+  stalePanelCaches,
   MAX_ACCOUNT_NAME_LENGTH,
   accountDirName,
   claimFreeAccount,
@@ -194,5 +195,34 @@ describe('needsLegacyMigration', () => {
         hasLegacyProfiles: true,
       }),
     ).toBe(false)
+  })
+})
+
+describe('stalePanelCaches', () => {
+  const dead = (pid: number): boolean => pid === 1000
+
+  it('removes a directory whose process is gone', () => {
+    expect(stalePanelCaches(['2000'], 1000, dead)).toEqual(['2000'])
+  })
+
+  it('never removes this process own cache', () => {
+    // The obvious catastrophe: deleting the directory Electron is using right
+    // now, from inside the process using it.
+    expect(stalePanelCaches(['1000'], 1000, dead)).toEqual([])
+  })
+
+  it('leaves a live sibling alone', () => {
+    // Another window is running. Its cache is not rubbish, it is in use.
+    expect(stalePanelCaches(['1000', '2000'], 3000, (pid) => pid === 1000)).toEqual(['2000'])
+  })
+
+  it('ignores anything that is not a plain pid', () => {
+    // This list is a directory listing, so it meets whatever is in there - and
+    // what it decides gets deleted.
+    expect(stalePanelCaches(['abc', '0', '-1', '01', '2000'], 1, () => false)).toEqual(['2000'])
+  })
+
+  it('keeps everything when the caller cannot tell who is alive', () => {
+    expect(stalePanelCaches(['2000', '3000'], 1, () => true)).toEqual([])
   })
 })

@@ -29,7 +29,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { needsLegacyMigration } from '@hecaton/core'
+import { needsLegacyMigration, type LegacyLayout } from '@hecaton/core'
 import { appDataDir } from './app-paths.js'
 import { accountsDir, legacyConfigFilePath, legacyProfilesDir } from './account-paths.js'
 
@@ -47,8 +47,15 @@ export function stagingAccountsDir(
   return join(appDataDir(env, platform), 'accounts.incoming')
 }
 
-/** What a migration attempt did, for the caller to log. */
-export type MigrationOutcome = 'migrated' | 'resumed' | 'nothing-to-do'
+/**
+ * What a migration attempt did, for the caller to log.
+ *
+ * `unfinished` is the one that matters: another launch adopted the staging
+ * directory while this one was filling it, so `accounts/` exists but the legacy
+ * paths were never emptied. Reporting it as done would strand the user's
+ * sessions for ever - `accounts/` existing is what says the migration happened.
+ */
+export type MigrationOutcome = 'migrated' | 'resumed' | 'nothing-to-do' | 'unfinished'
 
 /**
  * Moves a pre-accounts data directory into account 1, or finishes a move that
@@ -64,36 +71,73 @@ export function migrateLegacyLayout(
 ): MigrationOutcome {
   const accounts = accountsDir(env, platform)
   const staging = stagingAccountsDir(env, platform)
+  const legacyConfig = legacyConfigFilePath(env, platform)
+  const legacyProfiles = legacyProfilesDir(env, platform)
+  const legacy = (): LegacyLayout => ({
+    hasAccountsDir: existsSync(accounts),
+    hasLegacyConfig: existsSync(legacyConfig),
+    hasLegacyProfiles: existsSync(legacyProfiles),
+  })
 
-  if (existsSync(accounts)) return 'nothing-to-do'
+  if (existsSync(accounts)) {
+    // The layout is already the new one - unless a launch that raced this one
+    // adopted the staging directory before it could move anything. Then the
+    // legacy paths are still full, and saying "nothing to do" is what would
+    // strand them.
+    return moveLegacyInto(join(accounts, '1'), legacyConfig, legacyProfiles)
+      ? 'unfinished'
+      : 'nothing-to-do'
+  }
 
   // Adopted rather than rebuilt: at this point the staging directory holds the
-  // only copy of whatever was moved into it.
+  // only copy of whatever was moved into it. Adoption then **finishes the job**,
+  // because a crash between the two renames leaves one of them undone and the
+  // promoted directory would otherwise look complete.
   if (existsSync(staging)) {
     renameSync(staging, accounts)
+    moveLegacyInto(join(accounts, '1'), legacyConfig, legacyProfiles)
     return 'resumed'
   }
 
-  const legacyConfig = legacyConfigFilePath(env, platform)
-  const legacyProfiles = legacyProfilesDir(env, platform)
-  const layout = {
-    hasAccountsDir: false,
-    hasLegacyConfig: existsSync(legacyConfig),
-    hasLegacyProfiles: existsSync(legacyProfiles),
-  }
-  if (!needsLegacyMigration(layout)) return 'nothing-to-do'
+  if (!needsLegacyMigration(legacy())) return 'nothing-to-do'
 
   const destination = join(staging, '1')
   mkdirSync(destination, { recursive: true })
-  // Profiles first, config second. Neither order is safe against every crash,
-  // and this one is safe against the crash that matters: the config is small
-  // and rewritten from defaults if it is lost, while the profiles are the
-  // logged-in sessions, so they spend the least possible time being the only
-  // thing in a directory nobody has adopted yet.
-  if (layout.hasLegacyProfiles) renameSync(legacyProfiles, join(destination, 'profiles'))
-  if (layout.hasLegacyConfig) renameSync(legacyConfig, join(destination, 'config.json'))
+  moveLegacyInto(destination, legacyConfig, legacyProfiles)
+  // Racing launches both reach here; the loser finds `accounts/` already there
+  // and its own staging gone, which `renameSync` reports rather than hides.
   renameSync(staging, accounts)
   return 'migrated'
+}
+
+/**
+ * Moves whichever legacy paths are still there into an account directory.
+ *
+ * Profiles first, config second. Neither order is safe against every crash, and
+ * this one is safe against the crash that matters: the config is small and
+ * rewritten from defaults if it is lost, while the profiles are the logged-in
+ * sessions.
+ *
+ * Returns whether anything moved, which is how the caller tells "already done"
+ * from "another launch adopted my staging directory and I still have work".
+ */
+function moveLegacyInto(
+  destination: string,
+  legacyConfig: string,
+  legacyProfiles: string,
+): boolean {
+  let moved = false
+  if (existsSync(legacyProfiles) && !existsSync(join(destination, 'profiles'))) {
+    mkdirSync(destination, { recursive: true })
+    renameSync(legacyProfiles, join(destination, 'profiles'))
+    moved = true
+  }
+  if (existsSync(legacyConfig) && !existsSync(join(destination, 'config.json'))) {
+    mkdirSync(destination, { recursive: true })
+    renameSync(legacyConfig, join(destination, 'config.json'))
+    moved = true
+  }
+  return moved
 }
 
 /**

@@ -131,6 +131,30 @@ was terminated` — the window opens, paints nothing, and **no page ever loads**
 - **The source is trunk**, not a release channel: no stable-branch security backports, and the
   browser no longer updates itself at all. The app's release cadence has become the browser's patch
   cadence. `docs/releasing.md` carries that as the fourth pin, with the ritual for raising it.
+- **A screen keeps running at full rate when nobody is looking, and that is measured.** The three
+  throttling switches (`--disable-background-timer-throttling`,
+  `--disable-backgrounding-occluded-windows`, `--disable-renderer-backgrounding`) were taken on
+  trust until 2026-09-18, when the owner asked whether they hold. A probe page counting its own
+  `setInterval` ticks and `requestAnimationFrame` frames, published in its window title and read
+  from outside, was driven through the production sequence — born offscreen, embedded, placed — and
+  sampled in four states:
+
+  | state                              | timer      | frames    |
+  | ---------------------------------- | ---------- | --------- |
+  | panel focused                      | 1.0 tick/s | 118 fps   |
+  | panel covered by another window    | 1.0 tick/s | 117.5 fps |
+  | panel minimized                    | 1.0 tick/s | 119.5 fps |
+  | display off (Windows power saving) | 1.0 tick/s | —         |
+
+  So nothing throttles: not focus, not occlusion, not minimizing, not the monitor powering down —
+  the last measured over 665 s of which 30 were with the display off, and the tick count equalled
+  the elapsed seconds exactly. Frames are the one thing that does stop with the display off, which
+  is what "the display is off" means and not a setting anything can change; the game's own clock,
+  which is what an idle game runs on, never misses. Sleep and hibernation are out of scope by
+  definition — they suspend every process on the machine. The probe lives in `spike/throttling/`
+  (gitignored) and is worth re-running whenever the bundled Chromium revision moves, since a flag
+  Chromium stops recognising becomes a silent no-op (the `--load-extension` precedent).
+
 - **A window a screen opens for itself is rescued onto the desktop.** A game that signs the user in
   through a provider opens a second browser window, and it arrives where nobody can see it: the
   browser positions a new window against where it still believes the opener is, and the opener was
@@ -256,8 +280,8 @@ hecaton/
                         #   liveness, profile archiving, per-process audio mute + volume (WASAPI)
     window-manager/     # embeds the spawned browser into the shell (Win32 SetParent) and drives
                         #   it — move/hide/show/reload/close — applying the layout the renderer sends
-    machine-lock/       # machine adapter: the Global\ mutex that makes one instance per machine,
-                        #   and the WMI read behind the hardware seal (ADR-0018)
+    machine-lock/       # machine adapter: the Global\ mutex that keeps one window per account
+                        #   (ADR-0021), and the WMI read behind the hardware seal (ADR-0018)
     storage/            # disk adapter: JSON files and rotated logs under %APPDATA%/hecaton
     games/              # registry - one file per integrated game
   scripts/              # fetch-chromium.mjs: the pinned browser, verified and unpacked
@@ -302,9 +326,9 @@ makes strict TDD practical rather than theatre.
 
 Adapters are covered against the real thing, never against fakes, and each sits behind a narrow
 interface (`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `AudioController`,
-`Storage`, `ProfileArchive`, `MachineIdentity`, `InstanceLock`, and `Logger` — which is declared in
-`log.ts` rather than `ports.ts`, beside the redaction rule it enforces) with a fake for core
-tests. There
+`Storage`, `ProfileArchive`, `MachineIdentity`, `InstanceLock`, `BrowserAccess` — the ACL port whose
+rule lives in `browser-access.ts` — and `Logger`, which is declared in `log.ts` rather than
+`ports.ts`, beside the redaction rule it enforces) with a fake for core tests. There
 is one deliberate exception, and it is narrow: **pure code that sits in an adapter package because
 of what it imports, not because it does I/O**, is tested in the fast suite, with nothing faked.
 The whole list is `chrome-args.ts`, `browser-process-query.ts`, `browser-paths.ts`, `app-paths.ts`
@@ -411,8 +435,10 @@ remove it: that action deletes the user's data, and this is the machine's. See
 So "where can data about this machine land?" has three answers - `%APPDATA%/hecaton`, the temp
 directory, and `C:\ProgramData\hecaton` - and only the first two hold anything about a session.
 
-Paths come from `@hecaton/storage` (`appDataDir`, `configFilePath`, `logsDir`,
-`profilesDir`, `electronUserDataDir`, `machineSealPath`) and are never assembled by hand.
+Paths come from `@hecaton/storage` — `appDataDir`, `logsDir`, `machineSealPath`, `panelCacheDir`,
+and the per-account `accountsDir`, `accountDir`, `accountConfigFilePath`, `accountProfilesDir` — and
+are never assembled by hand. `configFilePath` and `profilesDir` name the pre-accounts layout and are
+read only by the migration.
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration
 step on load. Nearly free now; expensive to retrofit once users have saved files.
@@ -616,8 +642,8 @@ The load-bearing points:
   `WM_CLOSE` posted to the embedded child.
 - **Disposal is bounded, and that is load-bearing.** `before-quit` defers the quit until all three
   workers are disposed, so an unbounded wait there is not a slow shutdown but a permanent one:
-  the app stays alive with its windows already hidden, holding the single-instance lock, and the
-  next launch quits silently against it. Each worker gives its polite `exit` a deadline and kills
+  the app stays alive with its windows already hidden, and the account it holds stays unopenable by
+  any other window. Each worker gives its polite `exit` a deadline and kills
   the process either way. Found in the wild on 2026-08-09. The Win32 and WASAPI workers are each
   covered by an integration test that drives a real PowerShell which prints READY and then ignores
   stdin forever; the mutex worker's one-second bound is unconditional rather than tested that way,
@@ -636,10 +662,11 @@ user-initiated update check, which is the app's only network request · no telem
 no monetization. The security review of the surfaces this phase created was done on 2026-08-09 and
 its findings are below.
 
-**Phase 4 — the app stands on its own. Three fronts, all landed, none released yet.** The app
-**ships its own Chromium** and launches nothing else
-([ADR-0016](adr/0016-ship-our-own-chromium.md)); it allows **one instance per machine**, across
-Windows accounts rather than within one session, sealed to the hardware
+**Phase 4 — the app stands on its own. Three fronts, all landed and released as `v0.2.0` on
+2026-09-17.** The app **ships its own Chromium** and launches nothing else
+([ADR-0016](adr/0016-ship-our-own-chromium.md)); it bound itself to the machine with a hypervisor
+refusal, a hardware seal and — until [ADR-0021](adr/0021-several-windows-one-account-each.md)
+replaced that layer with one window per account — a single instance
 ([ADR-0018](adr/0018-one-instance-per-machine.md)); and the artifact **stays a zip the user
 extracts** ([ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md)). The third front went
 out and came back: bundling the browser took the artifact to 809 MiB, the phase answered that with

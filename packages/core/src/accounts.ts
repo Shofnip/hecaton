@@ -171,3 +171,29 @@ function isControl(character: string): boolean {
   const code = character.codePointAt(0) ?? 0
   return code < 32 || code === 127
 }
+
+/**
+ * Which of the panel cache directories left on disk may be removed.
+ *
+ * Each launch writes its own (named by pid, see `panelCacheDir` in storage), and
+ * a launch that is killed leaves it behind. The rule is the narrowest one that
+ * cleans up: a directory whose name is a pid, that is not this process, and that
+ * no live process answers to.
+ *
+ * The liveness answer comes from the caller - the core may not ask the operating
+ * system anything - and a caller that cannot tell must say `true`, because the
+ * cost of keeping a stale directory is a few megabytes and the cost of removing
+ * a live one is another window losing its cache mid-session.
+ */
+export function stalePanelCaches(
+  names: readonly string[],
+  ownPid: number,
+  isAlive: (pid: number) => boolean,
+): string[] {
+  return names.filter((name) => {
+    const pid = Number(name)
+    if (!Number.isInteger(pid) || pid < 1 || String(pid) !== name) return false
+    if (pid === ownPid) return false
+    return !isAlive(pid)
+  })
+}

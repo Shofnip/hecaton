@@ -14,7 +14,7 @@
  */
 import { join } from 'node:path'
 import { accountDirName } from '@hecaton/core'
-import { appDataDir } from './app-paths.js'
+import { ELECTRON_DIR_NAME, appDataDir } from './app-paths.js'
 
 /**
  * The directory every account lives under.
@@ -84,23 +84,40 @@ export function legacyProfilesDir(
 }
 
 /**
- * Electron's own cache and storage for the window that owns this account.
+ * Electron's own cache and storage for **this process**.
  *
- * Per account rather than one shared directory, and for the same reason the
- * profiles are: two Electron processes pointed at one `userData` fight over the
- * same Chromium cache - which is where "unable to move the cache: access
- * denied" came from when the app shared `%APPDATA%/Electron` with every other
- * Electron app (ADR-0004). Allowing several windows (ADR-0021) brings that back
- * unless each has its own.
+ * Per process, not per account, and that was a correction rather than the first
+ * idea. Per account looks right and breaks the moment a window switches
+ * accounts: `app.setPath('userData', …)` can only be set before Electron
+ * resolves its session, so after a switch the window keeps the directory of the
+ * account it *started* on. Two consequences followed, both found in review -
+ * another window claiming that account would collide on the same cache, which
+ * is the "unable to move the cache" failure ADR-0004 exists to avoid, and the
+ * wide delete would report failure over a directory the deleting window itself
+ * was holding open.
+ *
+ * A pid is known before `ready` and never shared, so it answers both. What it
+ * costs is a directory per launch, which `stalePanelCaches` clears.
  *
  * It holds no game session: the panel is a `file://` page under
  * `connect-src 'none'`, and the games run in a browser this directory knows
  * nothing about.
  */
-export function accountElectronUserDataDir(
-  id: number,
+export function panelCacheDir(
+  pid: number,
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
 ): string {
-  return join(accountDir(id, env, platform), 'shell')
+  if (!Number.isInteger(pid) || pid < 1) {
+    throw new Error(`pid must be a positive integer, got ${JSON.stringify(pid)}`)
+  }
+  return join(appDataDir(env, platform), ELECTRON_DIR_NAME, String(pid))
+}
+
+/** The parent of every launch's cache directory. */
+export function panelCachesDir(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return join(appDataDir(env, platform), ELECTRON_DIR_NAME)
 }

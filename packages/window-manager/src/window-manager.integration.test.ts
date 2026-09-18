@@ -494,10 +494,16 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
     }
   })
 
-  it('moves the out-of-view window onto the desktop', () => {
+  it('moves the out-of-view window onto the desktop', async () => {
     expect(embedManager.revealDetachedWindows(screenPid!)).toBe(1)
 
-    const rescued = detachedBoundsOf(screenPid!)
+    // The move goes through the persistent worker, so it lands a beat later -
+    // the adapter answers "I asked for it", not "Windows has done it".
+    let rescued = detachedBoundsOf(screenPid!)
+    for (let attempt = 0; attempt < 30 && rescued?.x === -32000; attempt++) {
+      await new Promise((r) => setTimeout(r, 100))
+      rescued = detachedBoundsOf(screenPid!)
+    }
     expect(rescued, 'no top-level window left to inspect').toBeDefined()
     expect(rescued!.x).toBeGreaterThan(-32000)
     expect(rescued!.y).toBeGreaterThan(-32000)
@@ -514,6 +520,21 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
     expect(detachedBoundsOf(screenPid!)).toEqual(before)
   })
 
+  it('never rescues the same window twice, even if it goes out of view again', async () => {
+    // The rule that stops the app chasing a window the user put away. Minimizing
+    // is the case that forced it: a minimized window is still "visible" to
+    // Win32 and reports (-32000,-32000), so without this the rescue would move
+    // it back every two seconds, for ever, with a log line each time.
+    const hwnd = topLevelOf(screenPid!)
+    expect(hwnd).toBeDefined()
+    moveWindowTo(hwnd!, -32000, -32000)
+
+    expect(embedManager.revealDetachedWindows(screenPid!)).toBe(0)
+
+    await new Promise((r) => setTimeout(r, 500))
+    expect(detachedBoundsOf(screenPid!)?.x).toBe(-32000)
+  })
+
   it('does nothing for a process with no embedded screen', () => {
     // Before the embed, a screen is *supposed* to be off-screen - that is what
     // keeps it from flashing on the desktop. Rescuing then would undo the
@@ -522,6 +543,27 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
     expect(virgin.revealDetachedWindows(screenPid!)).toBe(0)
   })
 })
+
+/** The handle of the one visible, titled top-level window a process has. */
+function topLevelOf(pid: number): number | undefined {
+  return windowManager
+    .getWindows()
+    .find((window) => window.processId === pid && window.isVisible() && window.getTitle().trim())
+    ?.id
+}
+
+/** Moves a window by handle, in screen pixels, without the library's scaling. */
+function moveWindowTo(hwnd: number, x: number, y: number): void {
+  execFileSync('powershell', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;" +
+      'public class Mv{[DllImport("user32.dll")]public static extern bool SetWindowPos(' +
+      "IntPtr h,IntPtr a,int x,int y,int cx,int cy,uint f);}'; " +
+      `[void][Mv]::SetWindowPos([IntPtr]${hwnd}, [IntPtr](0), ${x}, ${y}, 0, 0, 0x0001 -bor 0x0004)`,
+  ])
+}
 
 /**
  * The bounds of the one visible, titled top-level window a process still has.

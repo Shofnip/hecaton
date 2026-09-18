@@ -23,7 +23,25 @@ export class FileLogger implements Logger {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /**
+   * Set when the user has deleted their data, and never cleared.
+   *
+   * Between the deletion and the process exiting there is a beat in which the
+   * orchestrator and the adapters can still emit - and every line recreates the
+   * logs directory, because `log` makes it. So the app would put part of
+   * `%APPDATA%/hecaton` back while the user watched their "delete everything"
+   * take effect, which is the same symptom the shell's `userDataDeleted` flag
+   * exists to prevent for the config file.
+   */
+  private silenced = false
+
+  /** Stops writing for good. Called once, after a deletion, by the shell. */
+  silence(): void {
+    this.silenced = true
+  }
+
   log(entry: LogEntry): void {
+    if (this.silenced) return
     const timestamp = this.now()
     const record = formatLogRecord(entry, timestamp.toISOString())
     // The date part of the ISO string is the file for the day.

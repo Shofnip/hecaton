@@ -23,8 +23,8 @@ so the **core** can be tested without I/O, including auto-restart on crash.
 
 The one exception, and it is narrow: **pure code that lives in an adapter package because of what
 it imports, not because it does I/O, is tested in the fast suite.** `chrome-args.ts`,
-`browser-process-query.ts`, `browser-paths.ts`, `app-paths.ts` and `WmiMachineIdentity.digest` are
-the whole list. Nothing is faked in those tests — that is what keeps the rule honest. Read as an
+`browser-process-query.ts`, `browser-paths.ts`, `app-paths.ts`, `account-paths.ts` and
+`WmiMachineIdentity.digest` are the whole list. Nothing is faked in those tests — that is what keeps the rule honest. Read as an
 absolute, the paragraph above would push a pinned sha256 into a manual, Windows-only run.
 
 **Never `--no-verify`, and never commit around a red test.** The pre-commit hook running
@@ -73,7 +73,7 @@ then stage by name.
   adapter.
 - **Adapters are thin and hold no business rules.** Each sits behind a narrow interface
   declared in `core/src/ports.ts` (`BrowserLauncher`, `WindowManager`, `AudioController`,
-  `Storage`, `ProfileArchive`, `MachineIdentity`, `InstanceLock`) — or, for the logger, in
+  `Storage`, `ProfileArchive`, `MachineIdentity`, `InstanceLock`, `BrowserAccess`) — or, for the logger, in
   `core/src/log.ts`, where `Logger` sits beside the redaction rule it exists to enforce. Fakes for them live in `core/src/testing/`, excluded from the build so
   they never ship.
 - **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}` and
@@ -105,7 +105,7 @@ beside the exe as `CHANGELOG.txt`.
 ## Data locations
 
 Everything the app **persists** goes under `%APPDATA%/hecaton`, **including in development** —
-config, logs, and the per-slot browser profiles under `profiles/`. Never the repo directory:
+logs, and — per account — config and the browser profiles under `accounts/<id>/`. Never the repo directory:
 logs can contain page URLs with session tokens in query strings, and a profile _is_ a
 logged-in session, so a single ignore-rule mistake would leak a real account. Same path in
 dev and prod also kills a class of packaging bug.
@@ -127,11 +127,15 @@ dev and prod also kills a class of packaging bug.
    user's data and this is the machine's. Raw hardware identifiers go in **neither** this file nor
    the log.
 
-Use `appDataDir()`, `configFilePath()`, `logsDir()`, `profilesDir()`, `electronUserDataDir()` and
-`machineSealPath()` from `@hecaton/storage`. Never build these paths by hand. `electronUserDataDir()` is Electron's own
-cache, kept under the app's directory rather than the shared `%APPDATA%/Electron`, and it is the
-single entry **inside `%APPDATA%/hecaton`** allowed to survive the "delete all my data" action —
-the running process holds it open. `machineSealPath()` is exception 2 above and lives outside that
+Use `appDataDir()`, `logsDir()`, `machineSealPath()`, `panelCacheDir()` and the per-account
+`accountsDir()`, `accountDir(id)`, `accountConfigFilePath(id)`, `accountProfilesDir(id)` from
+`@hecaton/storage`. Never build these paths by hand. `configFilePath()` and `profilesDir()` are the
+pre-accounts layout and are read only by the migration. `panelCacheDir(pid)` is Electron's own
+cache, kept under the app's directory rather than the shared `%APPDATA%/Electron` and **one per
+launch**: several windows run at once, and per account does not work because `setPath('userData')`
+cannot move after Electron resolves its session. `shell/` — the directory holding them — is the
+single entry **inside `%APPDATA%/hecaton`** allowed to survive the "delete all my data" action,
+because the running process holds its own open. `machineSealPath()` is exception 2 above and lives outside that
 directory entirely, so that action never reaches it.
 
 **Never run anything destructive against the real `%APPDATA%/hecaton`.** It holds the owner's

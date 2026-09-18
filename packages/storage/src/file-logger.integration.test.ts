@@ -115,3 +115,21 @@ describe('FileLogger.prune', () => {
     expect(() => new FileLogger(join(dir, 'not-created-yet')).prune(14)).not.toThrow()
   })
 })
+
+describe('after the user deletes their data', () => {
+  it('writes nothing more, and does not recreate the directory', () => {
+    // The beat between the deletion and the process exiting: the orchestrator
+    // and the adapters can still emit, and every line makes the directory it
+    // writes into. Without this the app puts `logs/` back while the user is
+    // watching their "delete everything" take effect.
+    const logger = new FileLogger(join(dir, 'gone'))
+    logger.log({ level: 'info', event: 'before' })
+    expect(existsSync(join(dir, 'gone'))).toBe(true)
+    rmSync(join(dir, 'gone'), { recursive: true, force: true })
+
+    logger.silence()
+    logger.log({ level: 'info', event: 'after' })
+
+    expect(existsSync(join(dir, 'gone'))).toBe(false)
+  })
+})

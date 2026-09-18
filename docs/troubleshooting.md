@@ -173,7 +173,7 @@ generates accepted `--delete-app-data` on its command line, and given that flag 
 `deleteAppDataOnUninstall: false` governed a different branch. Nothing reached it by accident: probe
 P1 measured that clicking Uninstall does not pass the flag and that an update passes `--updated`
 instead. [ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md) retired it with the
-installer, and no release ever carried one. **Three paths, all the app's own, is the whole list
+installer, and no release ever carried one. **Four paths, all the app's own, is the whole list
 today.**
 
 ---

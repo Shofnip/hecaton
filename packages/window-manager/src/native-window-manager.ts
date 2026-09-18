@@ -42,6 +42,8 @@ const require = createRequire(import.meta.url)
 interface NativeMonitor {
   id: number
   getWorkArea(): { x: number; y: number; width: number; height: number }
+  /** 1 at 100%, 1.5 at 150%. `getBounds` on a window is divided by this. */
+  getScaleFactor(): number
 }
 
 interface NativeWindow {
@@ -403,33 +405,56 @@ export class NativeWindowManager implements WindowManager {
   revealDetachedWindows(pid: number): number {
     if (!this.embedded.has(pid)) return 0
 
-    const monitors = windowManager.getMonitors().map((monitor) => asCell(monitor.getWorkArea()))
+    // Everything here is in **physical pixels**, and that is a correction rather
+    // than a detail. `Monitor.getWorkArea()` hands back the raw Win32 rectangle
+    // while `Window.getBounds()` divides by that monitor's scale factor - read in
+    // node-window-manager's own source, not assumed - so comparing the two
+    // directly is wrong on any scaled display and wrong in a way that only shows
+    // on somebody else's machine.
+    const monitors = windowManager
+      .getMonitors()
+      .map((monitor) => asCell(monitor.getWorkArea()))
+      .filter((area) => area.width > 0 && area.height > 0)
     if (monitors.length === 0) return 0
-    const target = this.panelArea() ?? monitors[0]!
+    const target = this.panelArea()
+    // A panel that is itself off-screen - minimized, most often - is no place to
+    // move anything to. Better to leave the window where it is than to drag it
+    // somewhere equally invisible, every tick.
+    if (!target || isOffScreen(target, monitors)) return 0
 
     let moved = 0
     for (const window of windowManager.getWindows()) {
       if (window.processId !== pid) continue
       if (!window.isVisible() || !window.getTitle().trim()) continue
-      const bounds = asCell(window.getBounds())
+      // Once per window, for the life of this process. A window is rescued when
+      // it is born out of view; a window the user then minimizes or drags off a
+      // second monitor is theirs to place, and chasing it would be the app
+      // rearranging somebody's desktop on a two-second clock.
+      if (this.rescued.has(window.id)) continue
+      const bounds = physicalBounds(window)
       if (!isOffScreen(bounds, monitors)) continue
 
       const { x, y } = centredOver(bounds, target)
-      window.setBounds({ x, y, width: bounds.width, height: bounds.height })
-      // Raised as well as moved: the panel is the window the user just clicked
-      // in, so a login window merely moved would land behind it.
-      window.bringToTop()
+      // Through the worker rather than `setBounds`, for two reasons: the library
+      // would re-scale these coordinates by the scale factor of whichever monitor
+      // the window is nearest, and a minimized window has to be left alone, which
+      // only Win32 can answer (IsIconic).
+      this.fire(`movetop ${window.id} ${x} ${y}`)
+      this.rescued.add(window.id)
       moved++
     }
     return moved
   }
+
+  /** Windows already brought into view, so none is moved twice. */
+  private readonly rescued = new Set<number>()
 
   /** The panel's own rectangle, when the shell gave this adapter a way to find it. */
   private panelArea(): GridCell | undefined {
     const parent = this.parentHwnd?.()
     if (parent === undefined) return undefined
     const panel = windowManager.getWindows().find((window) => window.id === parent)
-    return panel ? asCell(panel.getBounds()) : undefined
+    return panel ? physicalBounds(panel) : undefined
   }
 
   /** The native window handle. Diagnostics and tests only. */
@@ -468,4 +493,23 @@ export class NativeWindowManager implements WindowManager {
  */
 function asCell(rect: { x?: number; y?: number; width?: number; height?: number }): GridCell {
   return { x: rect.x ?? 0, y: rect.y ?? 0, width: rect.width ?? 0, height: rect.height ?? 0 }
+}
+
+/**
+ * A window's rectangle in physical pixels, which is the space monitors are in.
+ *
+ * `getBounds` divides by the scale factor of the window's monitor, so this
+ * multiplies it back. On a 100% display the two are the same number, which is
+ * exactly why the mismatch was invisible here and would not have been on a
+ * laptop at 150%.
+ */
+function physicalBounds(window: NativeWindow): GridCell {
+  const scale = window.getMonitor().getScaleFactor() || 1
+  const bounds = asCell(window.getBounds())
+  return {
+    x: Math.round(bounds.x * scale),
+    y: Math.round(bounds.y * scale),
+    width: Math.round(bounds.width * scale),
+    height: Math.round(bounds.height * scale),
+  }
 }

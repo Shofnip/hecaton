@@ -132,3 +132,15 @@ moves live logged-in sessions, with partial-failure states, to solve a problem t
 user on one day. That reasoning is the strongest reading of
 [ADR-0005](0005-never-delete-a-persistent-profile.md), and it holds only because there was no
 installed base at the time.
+
+## Correction (2026-09-18)
+
+"None ever will be" stopped being true today, and the sentence was accurate when it was written:
+the data directory had been renamed with nothing shipped, so there was nothing to move.
+[ADR-0021](0021-several-windows-one-account-each.md) introduced accounts, and with them a one-time
+move of `config.json` and `profiles/` into `accounts/1/` — renames through a staging directory,
+nothing copied and nothing deleted. Verify in `packages/storage/src/account-layout.ts` and in the
+`whenReady` handler of `apps/shell/src/main/main.ts`, which runs it before anything else.
+
+Everything else here stands: the location, the reasoning against the repository directory, and the
+rule that a profile is a logged-in session.

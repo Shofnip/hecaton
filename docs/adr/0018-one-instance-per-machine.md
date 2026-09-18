@@ -117,7 +117,7 @@ the verdict travels as the URL fragment and CSS `:target` selects one of four se
 in P6c: exactly one section per verdict, and none at all for an unknown fragment, which leaves the
 heading rather than a wrong reason.
 
-**Electron's own `requestSingleInstanceLock` stays**, unchanged, for the same-session case — it is
+**Electron's own `requestSingleInstanceLock` stays** [see Correction (2026-09-18)], unchanged, for the same-session case — it is
 the one that can focus the running panel instead of merely refusing.
 
 ## The ceiling, measured rather than assumed
@@ -211,3 +211,12 @@ could only reach `held-by-this-user`, because it ran two instances under one acc
 
 So the mutex layer now rests on nothing inferred. `docs/architecture.md` carries the present-tense
 record; this note exists only so the body's standing instruction is not acted on twice.
+
+## Correction (2026-09-18)
+
+`requestSingleInstanceLock` no longer stays: it was removed by
+[ADR-0021](0021-several-windows-one-account-each.md), which allows several windows. Electron's lock
+cannot express what replaced it — it fires before there is any way to know which account a window
+will get — so the same-session case it used to cover is now handled by the per-account mutex like
+every other case. Verify by grepping the source: the only occurrence of the name left is the comment
+in `apps/shell/src/main/main.ts` explaining its removal.

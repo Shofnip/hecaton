@@ -32,6 +32,7 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * Protocol, one command line in -> one reply line out:
  *   reparent <child> <parent>       -> OK parent=<hwnd>
  *   movechild <hwnd> <x> <y> <w> <h> -> OK        (x,y in the parent's client area)
+ *   movetop <hwnd> <x> <y>          -> OK        (x,y in screen px; keeps size and frame)
  *   focusat <parent> <x> <y>        -> OK <hwnd> | OK none  (x,y in the parent's client area)
  *   show <hwnd> <cmd>               -> OK         (0 = SW_HIDE, 5 = SW_SHOW)
  *   reload <hwnd>                   -> OK
@@ -56,6 +57,8 @@ public static class W {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
   [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
@@ -127,6 +130,20 @@ public static class W {
     return "OK " + child.ToInt64();
   }
 
+  // A top-level window moved in screen pixels, keeping its size and its frame.
+  // Deliberately not MoveChild: that one clips the title bar away, which is
+  // right for an embedded screen and wrong for a window the user has to drag
+  // and close - a rescued login window keeps everything it was born with.
+  public static string MoveTop(IntPtr h, int x, int y) {
+    // A minimized window reports (-32000,-32000) and is "visible" to
+    // IsWindowVisible, so without this the rescue would chase a window the user
+    // deliberately minimized, every tick, for ever.
+    if (IsIconic(h)) return "OK minimized";
+    SetWindowPos(h, (IntPtr)0, x, y, 0, 0, 0x0001 | 0x0004);  // NOSIZE | NOZORDER
+    BringWindowToTop(h);
+    return "OK";
+  }
+
   public static string MoveChild(IntPtr h, int x, int y, int w, int hh) {
     // x,y,w,hh is where the GAME should appear (a viewport), in parent-client px.
     // Chrome draws a title bar (APP_TITLE) at the top of its client and keeps a
@@ -182,6 +199,7 @@ while ($true) {
     switch ($a[0]) {
       'reparent'  { Reply ([W]::Reparent([IntPtr][int64]$a[1], [IntPtr][int64]$a[2])) }
       'movechild' { Reply ([W]::MoveChild([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3], [int]$a[4], [int]$a[5])) }
+      'movetop'   { Reply ([W]::MoveTop([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'focusat'   { Reply ([W]::FocusAt([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'show'      { Reply ([W]::Show([IntPtr][int64]$a[1], [int]$a[2])) }
       'reload'    { Reply ([W]::Reload([IntPtr][int64]$a[1])) }

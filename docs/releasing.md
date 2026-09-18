@@ -103,11 +103,16 @@ stops is the **download** that fills them. Measured 2026-08-18, with the flag wo
 directories present in all four slots, **zero files, zero bytes**, whole profiles at 238–387 MB.
 
 ```powershell
-Get-ChildItem $env:APPDATA\hecaton\profiles -Directory | ForEach-Object {
-  $slot = $_.Name
-  Get-ChildItem $_.FullName -Directory -Filter 'OptGuide*' | ForEach-Object {
-    $f = @(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue)
-    '{0,-8} {1,-38} {2,4} files {3,10:N2} MB' -f $slot, $_.Name, $f.Count, (($f | Measure-Object Length -Sum).Sum / 1MB)
+# Per account since ADR-0021: the profiles moved under accounts/<id>/profiles, and
+# a command still pointed at the old path enumerates nothing and reads as a pass.
+Get-ChildItem $env:APPDATA\hecatonccounts -Directory | ForEach-Object {
+  $account = $_.Name
+  Get-ChildItem "$($_.FullName)\profiles" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    $slot = $_.Name
+    Get-ChildItem $_.FullName -Directory -Filter 'OptGuide*' | ForEach-Object {
+      $f = @(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue)
+      '{0}/{1,-8} {2,-38} {3,4} files {4,10:N2} MB' -f $account, $slot, $_.Name, $f.Count, (($f | Measure-Object Length -Sum).Sum / 1MB)
+    }
   }
 }
 ```
