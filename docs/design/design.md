@@ -70,7 +70,7 @@ Tons "papel" rebaixados — nenhuma superfície em branco puro, texto em cinza-e
 
 - Fonte: **Sora** (pesos 400 / 600 / 700), fallback `Segoe UI, system-ui, sans-serif`.
 - Raio de borda: **6px** nos cards de tela e miniaturas; **9–12px** em botões e itens de modal; **16px** em modais.
-- Espaçamento da grade: **4px** entre telas e nas margens da área principal.
+- Espaçamento: **1px** entre telas (grade e miniaturas) e **4px** de padding nas margens da área principal.
 - Transições: 150–250ms `ease` para cores, bordas e opacidade.
 - Acessibilidade: todo botão tem `:focus-visible` com contorno de 2px na cor `accent`; todo ícone tem `title` (tooltip) descritivo.
 
@@ -149,7 +149,7 @@ Mensagens de erro:
 
 ### 5.3 Barra de controles
 
-Botões de 20×20px com ícones de 13px sobre fundo `panelSoft`. **Ordem fixa** (esquerda → direita), com um espaçador flexível separando os dois grupos:
+Botões de 20×20px com ícones de 16px sobre fundo `panelSoft` — o ícone quase preenche o botão, de propósito: a 13px os glifos viravam manchas parecidas. O `svg` precisa de `flex-shrink: 0`, senão o flex esmaga a largura dele e o tamanho declarado não vale de nada. **Ordem fixa** (esquerda → direita), com um espaçador flexível separando os dois grupos:
 
 **Grupo de uso cotidiano (esquerda):**
 
@@ -179,7 +179,7 @@ Popover ancorado **acima** do botão de volume, estilo player de vídeo:
 - Ativação: clique no **nome** da tela ou no **botão de foco**; ambos alternam (segunda ativação sai do foco).
 - A tela focada ocupa a área principal com todos os controles normais.
 - As demais viram **miniaturas** numa fileira inferior:
-  - Dividem **igualmente toda a largura** disponível (flex 1, gap 4px).
+  - Dividem **igualmente toda a largura** disponível (flex 1, gap 1px).
   - Altura padrão **100px**; conteúdo: LED (9px, a mesma classe `.led` do card) + nome (11px) no cabeçalho. No corpo, uma tela **em execução** recebe a própria janela do Chrome embutida — o painel publica esse retângulo em `screens:layout`, como no §5.2, e é isso que mantém o mural vivo no modo foco. As demais mostram o estado em texto ("carregando…" / "erro ao carregar" / "desligada").
   - Discretas por padrão (opacidade 0.85); hover acende a borda no `accent` e restaura a opacidade.
   - **Clicar no cabeçalho da miniatura transfere o foco para ela.** No corpo isso só vale quando a tela não está em execução: no corpo de uma tela ligada o clique chega ao jogo, porque ali está a janela do navegador.
@@ -270,7 +270,7 @@ Itens, de cima para baixo — a lista descreve o que **está no app hoje**, não
 
 ## 12. Feedback (toasts)
 
-Notificações transitórias (~2,6s) em pílula centralizada na base da área principal. Mensagens em uso, conferidas contra os dez `showToast` do renderer: "Ligando todas as telas…", "Todas as telas desligadas", "Tela adicionada", "Abrindo logs…", "Cache das telas limpo", "Cache da {nome} limpo", "Dados arquivados excluídos", "Abrindo no navegador…", "Abrindo pasta…", "Dados apagados. Fechando o aplicativo…". Remover uma tela **não** emite toast: a remoção empurra o estado e a grade se redesenha sozinha.
+Notificações transitórias (~2,6s) em pílula centralizada na base da área principal. Mensagens em uso, conferidas contra os quatorze `showToast` do renderer: "Ligando todas as telas…", "Todas as telas desligadas", "Tela adicionada", "Abrindo logs…", "Cache das telas limpo", "Cache da {nome} limpo", "Dados arquivados excluídos", "Abrindo no navegador…", "Abrindo pasta…", "Dados apagados. Fechando o aplicativo…", "Dados da conta apagados. Fechando o aplicativo…", "Agora em {conta}", "Conta renomeada", "Conta criada", e as três recusas de troca de conta ("Essa conta já está aberta em outra janela", "Essa conta está aberta em outra conta do Windows", "Não foi possível reservar essa conta agora"). Remover uma tela **não** emite toast: a remoção empurra o estado e a grade se redesenha sozinha.
 
 ---
 

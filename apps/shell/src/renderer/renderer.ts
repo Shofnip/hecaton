@@ -349,8 +349,22 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node
 }
 
-/** The icon size inside a control-bar button, which is 20px since design §5.3 halved. */
-const CTRL_ICON = 13
+/**
+ * The icon size inside a control-bar button.
+ *
+ * The button is 20px (design §5.3, halved on 2026-09-18) and the glyph is 16px:
+ * it fills the button almost edge to edge, on purpose. The first pass used 13
+ * and the owner could not tell the icons apart - at that size a power symbol, a
+ * reload arrow and a focus reticle are three similar smudges. The button keeps
+ * its size; only what is drawn inside it grew.
+ *
+ * Raising this number did nothing at all until `.icon-btn svg` got
+ * `flex-shrink: 0`. An svg is a flex item inside these buttons, and the default
+ * shrink let the button's fixed width crush it: measured from the running app,
+ * a `width=40` glyph was laid out at **6x40**, and every value tried before that
+ * looked identical on screen because the width was being taken away anyway.
+ */
+const CTRL_ICON = 16
 
 function iconButton(
   name: keyof typeof ICONS,
@@ -976,7 +990,7 @@ function volumePopover(s: SlotSnapshot): HTMLElement {
     const v = shown()
     pct.textContent = `${v}%`
     fill.style.setProperty('--volume-fill', `${v}%`)
-    mute.replaceChildren(icon(s.muted || s.volume === 0 ? 'volumeOff' : 'volume', 13))
+    mute.replaceChildren(icon(s.muted || s.volume === 0 ? 'volumeOff' : 'volume', CTRL_ICON))
     mute.title = s.muted ? 'Ativar som' : 'Silenciar'
     mute.classList.toggle('muted', s.muted)
   }

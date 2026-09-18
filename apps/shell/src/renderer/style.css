@@ -188,6 +188,15 @@ svg {
   transition: all 0.15s ease;
 }
 
+/* An svg is a flex item in these buttons, and a flex item shrinks. With a fixed
+   button size that took the glyph's *width* away and left its height alone -
+   measured in the running app as a 6x40 box for a 40px icon, which is why every
+   icon size looked the same on screen. The same guard the danger buttons and the
+   url row already carry. */
+.icon-btn svg {
+  flex-shrink: 0;
+}
+
 .icon-btn:hover:not(:disabled) {
   color: var(--text);
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
