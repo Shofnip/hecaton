@@ -53,6 +53,7 @@ export type { LogEntry, LogLevel, LogRecord, Logger } from './log.js'
 
 export {
   IPC_CHANNELS,
+  parseAccountEdit,
   parseAccountRename,
   parseAccountSwitch,
   parseAudioFollowsFocus,

@@ -156,6 +156,18 @@ export const IPC_CHANNELS = [
   // Hecaton they are about to open. It takes nothing either, for the reason
   // `create` takes nothing - which id is next is worked out here, from the disk.
   'accounts:createOnly',
+  // Editing a profile this window is **not** on (owner, 2026-09-19). These two
+  // are the only channels that carry an account id into a write, and the reason
+  // they are allowed to is the lock: main claims that account's mutex before
+  // touching anything, so a profile another window is running is refused rather
+  // than written under. Without that, `renameAt` would be two processes on one
+  // config file - the race `accounts:rename` carries no id to avoid - and
+  // `deleteAt` would remove a browser profile out from under a live session.
+  //
+  // `deleteAt` never accepts this window's own account: that path has to stop
+  // the screens and move the window somewhere, which is `data:deleteAccount`.
+  'accounts:renameAt',
+  'accounts:deleteAt',
 ] as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number]
@@ -248,6 +260,19 @@ export function parseSlotRename(input: unknown): { id: number; name: string } {
  */
 export function parseAccountRename(input: unknown): string {
   return parseAccountName(asObject(input, 'account rename')['name'])
+}
+
+/**
+ * A rename of some other profile: which one, and what to call it.
+ *
+ * The name goes through the same rule as every other account name, and the id
+ * through the same rule as every other account id - this is a different channel,
+ * not different rules. What makes it safe is not in this file: main takes that
+ * account's lock before it writes.
+ */
+export function parseAccountEdit(input: unknown): { id: number; name: string } {
+  const rest = asObject(input, 'account edit')
+  return { id: parseAccountId(rest['id']), name: parseAccountName(rest['name']) }
 }
 
 /** The account to move this window to. An id and nothing else. */
@@ -351,6 +376,7 @@ export type OverlayRequest =
   | { kind: 'edit'; id: number }
   | { kind: 'volume'; id: number; anchor: GridCell }
   | { kind: 'settings' }
+  | { kind: 'profiles' }
   | { kind: 'confirmRemove'; id: number }
 
 export function parseOverlayRequest(input: unknown): OverlayRequest {
@@ -361,6 +387,8 @@ export function parseOverlayRequest(input: unknown): OverlayRequest {
   const kind = rest['kind']
   switch (kind) {
     case 'settings':
+      return { kind }
+    case 'profiles':
       return { kind }
     case 'edit':
       return { kind, id: parseSlotId(rest['id']) }

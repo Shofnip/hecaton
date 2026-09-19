@@ -29,7 +29,8 @@ const ASSETS = [
   'assets/sora-latin.woff2',
   'assets/sora-latin-ext.woff2',
   'assets/Sora-OFL.txt',
-  'assets/poke.ico',
+  'assets/poke-idleworld.ico',
+  'assets/tibidle.ico',
 ]
 
 for (const asset of ASSETS) {

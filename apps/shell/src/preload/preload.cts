@@ -63,6 +63,11 @@ const api = {
   switchAccount: (id: number) => ipcRenderer.invoke('accounts:switch', { id }),
   createAccount: () => ipcRenderer.invoke('accounts:create'),
   createAccountOnly: () => ipcRenderer.invoke('accounts:createOnly'),
+  // The two that name another profile. Safe because main takes that account's
+  // lock before it writes; see ipc.ts.
+  renameAccountAt: (id: number, name: string) =>
+    ipcRenderer.invoke('accounts:renameAt', { id, name }),
+  deleteAccountAt: (id: number) => ipcRenderer.invoke('accounts:deleteAt', { id }),
 
   // The overlay window (modals + volume popover, above the games). The wall asks
   // to open one; the overlay renders it and asks to close when done.

@@ -9,7 +9,7 @@
  * the two accent tokens as the gradient stops, and the same near-black letter.
  * Change the tokens there and re-run this.
  *
- * The game's poke.ico is deliberately not reused: it belongs to Poke IdleWorld,
+ * The games' own icons are deliberately not reused: it belongs to Poke IdleWorld,
  * and shipping it as the product icon would present Hecaton as if it were the
  * game.
  *

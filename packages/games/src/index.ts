@@ -12,6 +12,7 @@
 import { buildRegistry } from '@hecaton/core'
 import type { GameDefinition } from '@hecaton/core'
 import { pokeIdleWorld } from './poke-idleworld.js'
+import { tibidle } from './tibidle.js'
 
 /**
  * Every game the app ships with.
@@ -20,7 +21,7 @@ import { pokeIdleWorld } from './poke-idleworld.js'
  * through the core validator at build time so the rules the type cannot express
  * — kebab-case ids, https urls, unique ids — fail too.
  */
-export const GAME_DEFINITIONS: readonly GameDefinition[] = [pokeIdleWorld]
+export const GAME_DEFINITIONS: readonly GameDefinition[] = [pokeIdleWorld, tibidle]
 
 /**
  * The shipped games, indexed by id and validated.
@@ -34,3 +35,4 @@ export function buildGameRegistry(): Map<string, GameDefinition> {
 }
 
 export { pokeIdleWorld } from './poke-idleworld.js'
+export { tibidle } from './tibidle.js'

@@ -18,6 +18,7 @@ import { dirname, join } from 'node:path'
 import {
   IPC_CHANNELS,
   Orchestrator,
+  parseAccountEdit,
   parseAccountRename,
   parseAccountSwitch,
   parseAudioFollowsFocus,
@@ -1048,6 +1049,59 @@ function registerIpc(): void {
       }
       return { ok: true, id, name: defaultAccountName(id) }
     },
+
+    'accounts:renameAt': async (payload) => {
+      // Renaming a profile this window is not on. The name lives in that
+      // account's own config, which is a file only its owner is supposed to
+      // write - so the owner is what this becomes, for as long as the write
+      // takes, by holding its lock.
+      const { id, name } = parseAccountEdit(payload)
+      if (id === accountId) {
+        globals = { ...globals, accountName: name }
+        await saveConfiguration()
+        refreshAccounts()
+        pushState()
+        return { ok: true }
+      }
+      return withAccountHeld(id, async () => {
+        // Read-modify-write, and the read is what keeps it honest: the file
+        // holds that account's screens, and writing a config with only a name
+        // in it would delete them. A file that will not parse is a refusal, not
+        // an excuse to replace it.
+        const storageForAccount = new JsonFileStorage<unknown>(accountConfigFilePath(id))
+        // `undefined` is the honest answer for a profile created but never
+        // opened - `accounts:createOnly` writes a directory and no config - and
+        // the core reads it as the shipped defaults, which is exactly what that
+        // profile would get on its first launch anyway.
+        const parsed = parseConfig(await storageForAccount.load())
+        await storageForAccount.save({
+          ...parsed.globals,
+          accountName: name,
+          slots: parsed.slots,
+        })
+        logger.log({ level: 'info', event: 'accounts.renamed', message: String(id) })
+      })
+    },
+
+    'accounts:deleteAt': async (payload) => {
+      // Deleting a profile this window is not on. Same lock, for a stronger
+      // reason: the directory holds logged-in browser profiles, and removing one
+      // under a running Chrome half-succeeds (probe P4).
+      const id = parseAccountSwitch(payload)
+      if (id === accountId) {
+        // This window's own account has to stop its screens and move somewhere,
+        // which is `data:deleteAccount` and nothing this channel should repeat.
+        throw new Error('use data:deleteAccount for this window own account')
+      }
+      return withAccountHeld(id, async () => {
+        const remaining = deleteUserData([{ path: accountDir(id), leaf: accountDirName(id) }])
+        // Nothing may survive: no window holds this account - that is what the
+        // lock just proved - so anything left is a browser that outlived its
+        // window, and the caller has to hear about it.
+        verifyUserDataDeletion(remaining, [])
+        logger.log({ level: 'info', event: 'accounts.deleted', message: String(id) })
+      })
+    },
   }
 
   for (const channel of IPC_CHANNELS) {
@@ -1360,6 +1414,42 @@ async function adoptAccount(lock: MutexInstanceLock, targetId: number): Promise<
   startTimers()
   refreshAccounts()
   pushState()
+}
+
+/**
+ * Runs something against an account this window does not own, with that
+ * account's lock held for exactly as long as it takes.
+ *
+ * The whole safety of editing another profile (owner's decision, 2026-09-19).
+ * Reading whether a window has it open and then acting on the answer would leave
+ * a gap in which one opens; taking the lock **is** the question and the answer.
+ * A profile somebody is running is refused, in the lock's own words, and the
+ * panel phrases it.
+ *
+ * The lock is always released, including when the work throws: this window is
+ * not adopting the account, only borrowing it, and a lock left behind would make
+ * that profile unopenable until the app closed.
+ */
+async function withAccountHeld(
+  id: number,
+  work: () => Promise<void>,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!listAccountIds().includes(id)) throw new Error(`no account ${id}`)
+  const lock = new MutexInstanceLock(accountMutexPrefix())
+  const state = await lock.claim(id)
+  if (state !== 'free') {
+    await lock.release()
+    logger.log({ level: 'info', event: 'accounts.edit-refused', message: state })
+    return { ok: false, reason: state }
+  }
+  try {
+    await work()
+    return { ok: true }
+  } finally {
+    await lock.release()
+    refreshAccounts()
+    pushState()
+  }
 }
 
 /**

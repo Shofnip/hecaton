@@ -78,8 +78,9 @@ then stage by name.
   they never ship.
 - **Keep the game registry contract tiny.** The core knows `{id, name, url, viewport}` and
   nothing else. URLs are **https only**, in the registry and in custom slots alike. Do not
-  grow the shared layer speculatively — with one game, any bigger schema is a guess. Promote
-  a field only when a second game proves the need.
+  grow the shared layer speculatively. The second game (Tibidle, 2026-09-19) arrived and proved
+  no field was needed — its icon is found by id, `assets/<id>.ico` — so the rule stands as it was:
+  promote a field only when a game proves the need, and "proves" means it cannot work otherwise.
 
 ## Browser control: no CDP
 

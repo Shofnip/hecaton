@@ -1286,19 +1286,155 @@ textarea,
   -webkit-user-select: text;
 }
 
-/*
- * A neutral button carrying the weight of the section (owner, 2026-09-18):
- * "criar outro perfil e ir para ele" sits under a quieter "apenas criar", and
- * the pair only reads as a choice if one of them is clearly the main one. The
- * accent border and tint say that without turning it into a .btn.primary, which
- * in this app means "the confirm button of a dialog".
+/* ============================ hover and press ============================
+ *
+ * Every control says, on hover, that it is a control (owner, 2026-09-19).
+ * Before this only five of them did, and which five was an accident of the
+ * order they were written in — the icon buttons, the sidebar's power and add,
+ * a card's name, the retry button and the danger buttons. The rest were
+ * indistinguishable from text until clicked.
+ *
+ * One shape throughout, so hovering teaches the same thing everywhere: the
+ * border picks up the accent, the surface lifts a step, and pressing sinks the
+ * control 1px. Disabled controls do none of it — a hover effect on something
+ * that cannot be used is a promise the click breaks. `transition: all .15s` is
+ * already on these elements, so the change is animated for free.
  */
-.neutral-btn.accent {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  font-weight: 700;
+.btn:hover:not(:disabled),
+.neutral-btn:hover:not(:disabled),
+.field-select:hover:not(:disabled),
+.field-input:hover:not(:disabled):not(:focus) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-soft));
 }
 
-.neutral-btn.accent svg {
+.btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, #fff 12%, var(--accent));
+}
+
+.btn.destructive:hover:not(:disabled) {
+  background: color-mix(in srgb, #fff 12%, var(--danger));
+}
+
+.toggle:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.segmented button:hover:not(.active):not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* The press. Applied to everything clickable at once, including the controls
+   that already had a hover of their own. */
+.btn:active:not(:disabled),
+.neutral-btn:active:not(:disabled),
+.danger-btn:active:not(:disabled),
+.icon-btn:active:not(:disabled),
+.toggle:active:not(:disabled),
+.profile-open:active:not(:disabled),
+.segmented button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Keyboard users get the same information the mouse does. `:focus-visible`
+   rather than `:focus`, so a click does not leave a ring behind. */
+.btn:focus-visible,
+.neutral-btn:focus-visible,
+.danger-btn:focus-visible,
+.icon-btn:focus-visible,
+.toggle:focus-visible,
+.profile-open:focus-visible,
+.card-name:focus-visible,
+.segmented button:focus-visible,
+.field-select:focus-visible,
+.field-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ============================ profiles modal ============================
+ *
+ * One row per profile: the name (a button that enters it), then rename and
+ * delete. The row for the window's own profile carries a badge and its name is
+ * not clickable — there is nowhere to go.
+ */
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-open {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  text-align: left;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.profile-open:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The current profile: not faded like a refused control, because it is not
+   refused — there is simply nowhere for it to take you. */
+.profile-open:disabled {
+  cursor: default;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.profile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-here {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
   color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.profile-action {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.profile-action.danger:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.profile-name-input {
+  flex: 1;
+  min-width: 0;
 }

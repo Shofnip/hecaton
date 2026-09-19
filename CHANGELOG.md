@@ -16,11 +16,11 @@ Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
   recusado: ele abre no segundo perfil, e cria um se ainda não existir. Cada
   perfil tem as próprias telas, os próprios logins e o próprio cache — até 4
   telas por perfil —, então duas janelas nunca mexem nas mesmas telas.
-- **Perfis em Configurações.** Uma lista com todos os perfis da máquina, o nome
-  deste perfil (com botão para salvar) e um botão para criar outro e ir para
-  ele. Trocar de perfil desliga as telas desta janela e carrega as do outro;
-  nada é apagado. Se o perfil escolhido já estiver aberto em outra janela, o
-  aplicativo diz isso ali mesmo, em vez de não fazer nada.
+- **Perfis, na barra da esquerda.** Um botão só para eles abre a lista com todos
+  os perfis da máquina: entrar em um, renomear, apagar e criar. Trocar de perfil
+  desliga as telas desta janela e carrega as do outro; nada é apagado. Se o
+  perfil escolhido já estiver aberto em outra janela, o aplicativo diz isso ali
+  mesmo, em vez de não fazer nada.
 - **Mais tela de jogo e menos moldura.** As barras de cima e de baixo de cada
   tela ficaram com metade da altura, o espaço entre as telas caiu para 1 pixel e
   a barra lateral ficou mais estreita. Nada mudou de lugar — tudo o que estava
@@ -36,13 +36,23 @@ Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
   junto: nem quem você é, nem qual versão está usando. Nada é baixado nem instalado pelo
   aplicativo, como antes. Sem internet, ele não diz nada. _Configurações → Procurar
   atualizações_ continua onde estava, para quando você quiser perguntar na hora.
-- **Configurações em cinco categorias.** Perfil, Aparência e som, Aplicativo, Seus dados e
+- **Tibidle.** O segundo jogo da lista, com o ícone dele nas telas. Escolha em
+  _Editar tela → Jogo_, como o Poke IdleWorld.
+- **Perfis agora têm janela própria.** Um botão novo na barra da esquerda abre a
+  lista de todos os perfis da máquina. Dá para **renomear e apagar qualquer
+  perfil sem entrar nele** — se o perfil estiver aberto em outra janela do
+  Hecaton, o aplicativo recusa e diz isso, em vez de mexer nos dados de quem
+  está usando. Criar, renomear, trocar e apagar ficam todos aqui; a seção Perfil
+  saiu de Configurações.
+- **Os botões reagem ao mouse.** Passar o cursor por qualquer botão, campo ou
+  lista agora acende a borda e o fundo, e clicar afunda o botão 1 pixel. Antes
+  só cinco controles faziam isso, e quais eram era acidente de ordem de escrita.
+- **Configurações em quatro categorias.** Perfil, Aparência e som, Aplicativo, Seus dados e
   Zona de risco, cada uma com título e uma linha que atravessa a largura — antes eram três
   blocos separados por um fio fino, e não dava para ver onde um terminava.
-- **Dois jeitos de criar um perfil.** _Apenas criar um perfil_ cria e deixa você onde está: o
-  perfil novo entra na lista e é o que o próximo Hecaton abre. _Criar outro perfil e ir para
-  ele_ continua fazendo as duas coisas, e agora está destacado, porque é o que desliga as
-  telas desta janela.
+- **Dois jeitos de criar um perfil.** _Criar novo perfil_ cria e deixa você onde
+  está: o perfil novo entra na lista e é o que o próximo Hecaton abre. _Criar
+  outro perfil e ir para ele_ continua fazendo as duas coisas.
 - **O modal de configurações não fica mais na frente de tudo.** Ele cobria qualquer outro
   programa da máquina enquanto estava aberto; agora fica na frente das telas do jogo, que é
   o que precisava, e atrás da janela que você colocar na frente.

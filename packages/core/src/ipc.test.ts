@@ -3,6 +3,7 @@ import { DEFAULT_GLOBAL_CONFIG } from './config.js'
 import {
   IPC_CHANNELS,
   parseAccountRename,
+  parseAccountEdit,
   parseAccountSwitch,
   parseAudioFollowsFocus,
   parseNoPayload,
@@ -63,6 +64,8 @@ describe('the channel list', () => {
       'accounts:switch',
       'accounts:create',
       'accounts:createOnly',
+      'accounts:renameAt',
+      'accounts:deleteAt',
     ])
   })
 })
@@ -70,6 +73,7 @@ describe('the channel list', () => {
 describe('parseOverlayRequest', () => {
   it('accepts each modal kind with its fields', () => {
     expect(parseOverlayRequest({ kind: 'settings' })).toEqual({ kind: 'settings' })
+    expect(parseOverlayRequest({ kind: 'profiles' })).toEqual({ kind: 'profiles' })
     expect(parseOverlayRequest({ kind: 'edit', id: 3 })).toEqual({ kind: 'edit', id: 3 })
     expect(parseOverlayRequest({ kind: 'confirmRemove', id: 2 })).toEqual({
       kind: 'confirmRemove',
@@ -396,5 +400,27 @@ describe('the account channels', () => {
     expect(() => parseAccountSwitch({ id: '2' })).toThrow()
     expect(() => parseAccountSwitch({ id: 2.5 })).toThrow()
     expect(() => parseAccountSwitch(2)).toThrow()
+  })
+})
+
+describe('parseAccountEdit', () => {
+  it('takes an id and a name together', () => {
+    // Renaming a profile this window is not on (owner, 2026-09-19). The id is
+    // what `accounts:rename` deliberately does not carry: with it, main takes
+    // that account's lock before writing, which is the whole safety of it.
+    expect(parseAccountEdit({ id: 2, name: 'Casa' })).toEqual({ id: 2, name: 'Casa' })
+  })
+
+  it('applies the same name rule as a rename of this window', () => {
+    expect(() => parseAccountEdit({ id: 2, name: '   ' })).toThrow(/blank/)
+    expect(() => parseAccountEdit({ id: 2, name: 'x'.repeat(25) })).toThrow(/24/)
+  })
+
+  it('refuses an id that is not a positive integer', () => {
+    // It becomes a directory name and a mutex name, so nothing that could climb
+    // out of either is accepted.
+    expect(() => parseAccountEdit({ id: 0, name: 'a' })).toThrow(/account id/)
+    expect(() => parseAccountEdit({ id: -1, name: 'a' })).toThrow(/account id/)
+    expect(() => parseAccountEdit({ id: '2', name: 'a' })).toThrow(/account id/)
   })
 })

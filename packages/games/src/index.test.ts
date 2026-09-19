@@ -7,6 +7,7 @@
  * real validator over the real data is what turns that into a build failure.
  */
 import { describe, expect, it } from 'vitest'
+import { existsSync } from 'node:fs'
 import { buildRegistry } from '@hecaton/core'
 import { GAME_DEFINITIONS, buildGameRegistry } from './index.js'
 
@@ -52,4 +53,28 @@ describe('every shipped url', () => {
       expect(new URL(url).protocol).toBe('https:')
     },
   )
+})
+
+describe('Tibidle', () => {
+  it('is in the registry, at its own root', () => {
+    // The root, not a deeper path: /play, /game, /login and /dashboard all
+    // answer 404 (measured 2026-09-19), so the entry point is the page the site
+    // itself serves, which handles both the logged-in and logged-out states.
+    expect(buildGameRegistry().get('tibidle')).toEqual({
+      id: 'tibidle',
+      name: 'Tibidle',
+      url: 'https://tibidle.com/',
+    })
+  })
+})
+
+describe('every shipped game', () => {
+  // The renderer draws a slot's favicon from `./assets/<id>.ico`, with no
+  // registry field and no mapping table - the id is the file name. A game added
+  // without its icon would silently fall back to the generic globe, which is
+  // also what a broken image looks like.
+  it.each(GAME_DEFINITIONS.map((game) => [game.id] as const))('%s ships an icon', (id) => {
+    const icon = new URL(`../../../apps/shell/src/renderer/assets/${id}.ico`, import.meta.url)
+    expect(existsSync(icon), `missing assets/${id}.ico`).toBe(true)
+  })
 })

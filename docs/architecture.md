@@ -359,8 +359,11 @@ const game: GameDefinition = {
 `injectCss` and `actions` were in the original design and are **not in v1** — without CDP
 there is no way to implement them. They return if the extension path is taken later.
 
-**Keep the common layer tiny.** With one game the contract is a guess; promote a field only
-when a second game proves the need. The `name` field is UI text, therefore Portuguese.
+**Keep the common layer tiny.** The contract is `{id, name, url, viewport?}` and the second game
+(Tibidle, 2026-09-19) needed nothing added to it: its favicon is found by id at
+`apps/shell/src/renderer/assets/<id>.ico`, with a test in `packages/games` failing when a shipped
+game has no icon file, so neither a registry field nor a mapping table exists. Promote a field only
+when a game cannot work without it. The `name` field is UI text, therefore Portuguese.
 
 **Custom slot:** URL plus generic options only. No game-specific anything.
 
@@ -570,7 +573,12 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
   window holds it; `accounts:create` and `accounts:createOnly` take nothing at all — which id is
   next is worked out here from the disk, and the second differs only in that it creates the account,
   releases its lock and leaves this window where it is, for somebody preparing the profile the next
-  Hecaton will open.
+  Hecaton will open. **Two more carry an id into a write** — `accounts:renameAt` and
+  `accounts:deleteAt`, added on 2026-09-19 so a profile can be renamed or removed without entering
+  it — and what makes that safe is `withAccountHeld`: the lock of the account being edited is taken
+  first, so a profile another window is running is refused rather than written under, and released
+  as soon as the work is done. `deleteAt` refuses this window's own account outright; that path has
+  to stop the screens and move the window, which is `data:deleteAccount`.
 
 - **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
   `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.

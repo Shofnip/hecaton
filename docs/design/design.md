@@ -108,8 +108,10 @@ Largura **38px**, apenas botões de ícone (28×28px, ícones de 16px), sem text
    - Quando **nem todas** as telas estão ligadas: verde (`accent` + `accentSoft`), tooltip "Ligar todas as telas". Ao clicar, liga apenas as telas desligadas.
    - Quando **todas** estão ligadas: vermelho (`danger` + `dangerSoft`), tooltip "Desligar todas as telas".
 3. **Adicionar tela** — ícone `+`. Ativo apenas com menos de 4 telas; desabilitado mantém o mesmo estilo dos demais botões com **opacidade 0.45** (não muda a cor do ícone), cursor `not-allowed`, tooltip "Limite de 4 telas atingido". Hover (quando ativo) acende borda e ícone no `accent`.
-4. _(espaço flexível)_
-5. **Configurações** — ícone de engrenagem, ancorado na base. Abre o modal de configurações.
+4. **Perfis** — ícone de duas pessoas. Abre o modal de perfis (§10.2), que desde 2026-09-19 é
+   onde tudo sobre perfis acontece; antes disso era uma seção dentro de Configurações.
+5. _(espaço flexível)_
+6. **Configurações** — ícone de engrenagem, ancorado na base. Abre o modal de configurações.
 
 ---
 
@@ -129,7 +131,7 @@ As duas barras do card — cabeçalho e controles — têm **metade da altura** 
 - **Nome da tela** (12px, bold). **Clicável**: alterna o modo foco daquela tela (entra se não está em foco; sai se já está). Hover pinta o nome no `accent`.
 - **Favicon** (14×14px, cantos 4px) alinhado à direita — o mesmo ícone da aba do navegador do endereço configurado. Fallback: ícone de globo se o favicon não carregar. Tooltip com o nome/endereço.
   - No protótipo o favicon vinha de `google.com/s2/favicons?domain=...&sz=64`. Na implementação
-    real ele é **empacotado no app** (`assets/poke.ico`; globo genérico para endereço
+    real ele é **empacotado no app** (`assets/<id do jogo>.ico`; globo genérico para endereço
     personalizado): sem evento de favicon e sem rede em tempo de execução (§13). Não é o
     `page-favicon-updated` de um `<webview>` — `webviewTag` está desligado pela ADR-0007, e
     `connect-src 'none'` bloquearia a busca de qualquer forma.
@@ -232,59 +234,38 @@ Observação de comportamento: apagar uma tela **arquiva** o perfil do slot (nã
 
 ## 10. Modal de configurações
 
-**Cinco categorias**, cada uma com um cabeçalho: o nome em caixa alta, na cor do texto, seguido de
+**Quatro categorias**, cada uma com um cabeçalho: o nome em caixa alta, na cor do texto, seguido de
 uma régua de 2px que atravessa o resto da linha (`settings-section`). Substituíram os divisores
 finos com rótulo apagado que havia antes — o dono não conseguia ver onde um grupo terminava e o
 outro começava, que é justamente para o que serve um título. A "Zona de risco" usa a mesma forma em
 `danger`.
 
-A ordem é a de quem usa: quem é esta janela, como ela parece e soa, o aplicativo em si, onde ficam
-os arquivos e, por último, o que não tem volta.
+A ordem é a de quem usa: como o app parece e soa, o aplicativo em si, onde ficam os arquivos e, por
+último, o que não tem volta. **Perfis saíram daqui em 2026-09-19** e têm modal próprio (§10.2), com
+entrada na barra lateral.
 
-1. **Perfil** — a seção de perfis (ADR-0021; a UI chama de **perfil** o espaço de trabalho, e de
-   **tela** o que antes chamava de perfil do navegador), com quatro controles dentro de um
-   `field-box`: um **dropdown** com todos os perfis da máquina (o desta janela vem selecionado), o
-   **nome deste perfil** em campo de texto de até 24 caracteres **com botão Salvar** (habilitado só
-   quando o texto muda; Enter também salva), **Apenas criar um perfil** e **Criar outro perfil e ir
-   para ele**. Os dois botões de criar vêm nessa ordem e com pesos diferentes: o primeiro é neutro e
-   não mexe em nada nesta janela — cria o perfil, ele entra no dropdown e o próximo Hecaton o abre —,
-   e o segundo leva a borda e o fundo em `accent`, porque é o que desliga as telas daqui. Trocar de
-   perfil e criar-e-ir passam pelo modal de confirmação da seção 9 na forma **não destrutiva** —
-   "Confirmar" em `accent`, porque nada é apagado. Criar sem ir não pede confirmação: nada é
-   desligado nem apagado. Um perfil aberto em outra janela **não** aparece marcado: só dá para saber
-   isso tomando a trava dele, e uma sondagem que toma a trava por um instante pode empurrar uma
-   janela que está abrindo para outro perfil. A troca falha e a razão aparece **dentro do modal**, em
-   `danger` — o modal vive na janela de overlay, que não tem faixa de toast, e é para onde o usuário
-   está olhando quando a recusa acontece. Já trocar e renomear com sucesso são anunciados pela
-   **parede**, que é a janela que sobra na frente quando o modal se fecha; criar-sem-ir é anunciado
-   dentro do próprio modal, que continua aberto.
-2. **Aparência e som** — **Tema**, controle segmentado Claro/Escuro com ícones de sol/lua (a opção
+1. **Aparência e som** — **Tema**, controle segmentado Claro/Escuro com ícones de sol/lua (a opção
    ativa em `accent`), e **Áudio apenas na tela em foco**, toggle com estado claramente visível
    (fundo `accentSoft` + borda `accent` + interruptor deslizante quando ativo). Descrição:
    "Silencia automaticamente as telas fora de foco". Integra-se ao modo foco (seção 7).
-3. **Aplicativo** — **Versão + Procurar atualizações** (a única ação **do usuário** que toca a
+2. **Aplicativo** — **Versão + Procurar atualizações** (a única ação **do usuário** que toca a
    rede; a outra é a verificação automática de abertura, §10.1 — ADR-0014 e ADR-0023),
    **Novidades da versão {N}** (só quando o `CHANGELOG.md` tem seção para a
    versão em execução), **Aviso sobre os termos do jogo** e **Abrir logs**.
-4. **Seus dados** — onde os dados ficam, a divulgação sobre senhas salvas pelo navegador, e **Abrir
+3. **Seus dados** — onde os dados ficam, a divulgação sobre senhas salvas pelo navegador, e **Abrir
    pasta dos dados**.
-5. **Zona de risco** — **quatro** botões:
+4. **Zona de risco** — **três** botões:
    - **Limpar cache das telas**
    - **Limpar dados arquivados**
-   - **Apagar este perfil** — apaga `accounts/<id>`: as telas, os logins e o cache deste perfil,
-     deixando os outros intactos. Vem antes do botão abaixo de propósito: é o que quase sempre se
-     quer dizer com "apagar". **A janela não fecha** — ela adota outro perfil já existente. Quando
-     não há nenhum livre (é o único perfil, ou os outros estão abertos em outras janelas) a ação é
-     **recusada e nada é apagado**: a recusa aparece logo abaixo do botão e recomenda _Limpar cache
-     das telas_, que é o que se quer dizer quando a intenção era só esvaziar o perfil. Sendo o único
-     perfil da máquina, o botão já vem desabilitado dizendo isso.
    - **Apagar todos os perfis** — apaga `%APPDATA%/hecaton` inteiro, sessões logadas incluídas, e
-     aí sim fecha o app, porque não sobra perfil nenhum para adotar. A confirmação avisa, com essas
-     palavras, que outra janela aberta perde os dados no meio do uso.
+     fecha o app, porque não sobra perfil nenhum para adotar. A confirmação avisa, com essas
+     palavras, que outra janela aberta perde os dados no meio do uso. Fica desabilitado enquanto
+     houver tela aberta nesta janela.
 
-   Os dois últimos ficam desabilitados enquanto houver tela aberta nesta janela, e são as **únicas**
-   ações do produto que apagam um perfil vivo — este documento já omitiu esse inventário uma vez, o
-   mesmo erro que a Correção de 2026-08-08 da ADR-0008 teve de consertar.
+   Apagar **um** perfil saiu daqui e vive em §10.2, ao lado do perfil que apaga. As duas ações
+   continuam sendo as **únicas** do produto que apagam um perfil vivo — este documento já omitiu
+   esse inventário uma vez, o mesmo erro que a Correção de 2026-08-08 da ADR-0008 teve de
+   consertar.
 
 ### 10.1 Atualização disponível (modal de abertura)
 
@@ -294,6 +275,35 @@ abre antes de qualquer tela estar embutida. Traz a versão publicada, a que est�
 release em `pre` (texto puro, nunca markup — veio da rede) e três ações, da menos para a mais
 enfática: **Não lembrar mais** e **Lembrar depois** neutros, **Atualizar agora** em `primary`.
 Fechar no X ou no Escape equivale a "lembrar depois": nada é gravado.
+
+### 10.2 Modal de perfis
+
+Aberto pelo botão de perfis na barra lateral (§4), e é o único lugar onde perfis são criados,
+renomeados, trocados e apagados. Estava dentro de Configurações até 2026-09-19.
+
+**Uma linha por perfil**, na ordem dos ids: o nome (botão que entra naquele perfil), um lápis e uma
+lixeira. A linha do perfil desta janela traz o selo **ESTA JANELA** em `accent` e o nome não é
+clicável — não há para onde ir — mas não fica apagada como um controle recusado, porque não é
+recusa.
+
+- **Entrar** passa pela confirmação não destrutiva da seção 9: as telas desta janela são
+  desligadas e as do outro perfil assumem. Se o perfil escolhido estiver aberto em outra janela, a
+  recusa aparece no próprio modal.
+- **Renomear** troca a linha por um campo de texto com salvar e cancelar (Enter salva, Esc
+  cancela). Renomear **outro** perfil escreve no `config.json` dele, então o processo principal
+  toma a trava daquele perfil antes e recusa quando outra janela o mantém aberto — a regra decidida
+  pelo dono em 2026-09-19 e a razão de o canal poder carregar um id.
+- **Apagar** pede a confirmação destrutiva. No perfil desta janela vale a regra de sempre: as telas
+  precisam estar paradas, a janela adota outro perfil e a ação é recusada quando não há nenhum
+  livre. Em outro perfil, a trava é a garantia: um perfil aberto em outra janela não é apagado.
+
+Abaixo da lista, dois botões neutros e do mesmo peso — **Criar novo perfil**, que cria e deixa a
+janela onde está (o perfil entra na lista e é o que o próximo Hecaton abre), e **Criar outro perfil
+e ir para ele**, que passa pela confirmação porque desliga as telas daqui.
+
+Diferente dos outros modais, este **se redesenha** quando chega estado novo: tudo nele é uma visão
+do que existe em disco, e a resposta de uma ação e o empurrão de estado que a segue chegam em
+qualquer ordem. Um nome sendo digitado suspende o redesenho até o campo fechar.
 
 ---
 
