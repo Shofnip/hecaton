@@ -4,6 +4,7 @@ import {
   stalePanelCaches,
   MAX_ACCOUNT_NAME_LENGTH,
   accountDirName,
+  claimExistingAccount,
   claimFreeAccount,
   defaultAccountName,
   needsLegacyMigration,
@@ -30,8 +31,10 @@ describe('accountDirName', () => {
 describe('defaultAccountName', () => {
   it('names an account after its number, in the app language', () => {
     // UI text, so Portuguese - the same rule the game registry's `name` follows.
-    expect(defaultAccountName(1)).toBe('Conta 1')
-    expect(defaultAccountName(3)).toBe('Conta 3')
+    // "Perfil" rather than "Conta" since 2026-09-18: the interface calls this a
+    // perfil and calls a screen's browser profile a tela.
+    expect(defaultAccountName(1)).toBe('Perfil 1')
+    expect(defaultAccountName(3)).toBe('Perfil 3')
   })
 })
 
@@ -224,5 +227,45 @@ describe('stalePanelCaches', () => {
 
   it('keeps everything when the caller cannot tell who is alive', () => {
     expect(stalePanelCaches(['2000', '3000'], 1, () => true)).toEqual([])
+  })
+})
+
+describe('claimExistingAccount', () => {
+  it('takes the first free account and never invents one', async () => {
+    // The difference from claimFreeAccount, and the reason it exists: this is
+    // the successor a window moves to when the account it is on is deleted, and
+    // "there is nowhere to go" has to be an answer rather than a new empty
+    // account nobody asked for.
+    const tryClaim = vi.fn(async (id: number) => id === 2)
+
+    await expect(claimExistingAccount([1, 2, 3], tryClaim)).resolves.toBe(2)
+    expect(tryClaim).not.toHaveBeenCalledWith(4)
+  })
+
+  it('walks the ids in order, whatever order it was handed', async () => {
+    const seen: number[] = []
+    const tryClaim = vi.fn(async (id: number) => {
+      seen.push(id)
+      return id === 3
+    })
+
+    await expect(claimExistingAccount([3, 1, 2], tryClaim)).resolves.toBe(3)
+    expect(seen).toEqual([1, 2, 3])
+  })
+
+  it('answers undefined when every account is in use', async () => {
+    const tryClaim = vi.fn().mockResolvedValue(false)
+
+    await expect(claimExistingAccount([1, 2], tryClaim)).resolves.toBeUndefined()
+  })
+
+  it('answers undefined when there is no other account at all', async () => {
+    // The single-profile case. Deleting the only profile would leave the window
+    // with nothing to adopt, so the deletion is refused instead - clearing the
+    // screens' cache is the action that does what the user meant.
+    const tryClaim = vi.fn().mockResolvedValue(true)
+
+    await expect(claimExistingAccount([], tryClaim)).resolves.toBeUndefined()
+    expect(tryClaim).not.toHaveBeenCalled()
   })
 })

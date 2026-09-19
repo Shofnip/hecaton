@@ -46,7 +46,8 @@ something breaks on their machine.
 ## Consequences
 
 - **The app's only network request is the update check**
-  ([ADR-0014](0014-the-apps-first-network-request.md)), which happens only when the user asks. There
+  ([ADR-0014](0014-the-apps-first-network-request.md)), which happens only when the user asks.
+  [see Correction (2026-09-18)] There
   is no second main-process network surface, no endpoint, and no third party storing anything.
 - **`architecture.md`'s "no telemetry (if ever, explicit opt-in)" and `README.md`'s "there is no
   telemetry" stay true and stop being conditional.** The "if ever" was opened and closed without
@@ -110,3 +111,15 @@ than a verdict. They differ enormously in what they demand: a link to a funding 
 from the software and leaves every decision intact, while subscriptions or licence keys need
 identity, entitlement checks and a server — reopening the licence, the signing identity and accounts
 simultaneously. That is the line worth knowing before the conversation starts.
+
+## Correction (2026-09-18)
+
+**"Which happens only when the user asks" was overtaken** by
+[ADR-0023](0023-an-update-check-at-launch.md): the same request now also runs once per launch, by
+itself. The substance of this ADR is untouched — still no metrics, no analytics endpoint, no
+installation id, no third party, and nothing sent with the request but the request. What changed is
+who triggers it, and the exposure that adds (GitHub sees an address each time a window opens) is
+weighed in ADR-0023 rather than here.
+
+The neighbouring promises this ADR made about other documents still hold: `architecture.md` and
+`README.md` describe the launch check, and neither claims the app is silent until asked.

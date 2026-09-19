@@ -194,3 +194,16 @@ describe('no workspace escapes the test type-check', () => {
     expect(matchesAny(`${dir}/src/example.test.ts`, testTsconfig.include)).toBe(true)
   })
 })
+
+describe('the development launcher writes to the development directory', () => {
+  // `dev.mjs` is plain JavaScript run before anything is built, so it cannot
+  // import the constant it has to agree with - it repeats the literal. The two
+  // drifting apart is silent and expensive: a development run would land in
+  // `%APPDATA%/hecaton` and share the owner's real logged-in profiles with the
+  // app under test, which is the whole thing ADR-0022 exists to prevent.
+  it('uses the same directory name the storage package defines', () => {
+    const declared = /DEV_APP_DIR_NAME = '([^']+)'/.exec(read('packages/storage/src/app-paths.ts'))
+    expect(declared?.[1]).toBeDefined()
+    expect(read('apps/shell/scripts/dev.mjs')).toContain(`HECATON_APP_DIR: '${declared?.[1]}'`)
+  })
+})

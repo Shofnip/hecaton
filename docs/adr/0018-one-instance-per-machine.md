@@ -167,7 +167,7 @@ Recorded once here so a later session does not read any of it as a bug to fix.
   when its worker fails to run, and the call site treats an unresolvable seal path as `allow`. The
   cost is that all three layers can be absent without anyone noticing: of those three paths, only
   the last writes a log line.
-- **The two-account case is still an inference** [see Correction], though a much narrower one than it was: P6b
+- **The two-account case is still an inference** [see Correction (2026-08-21)], though a much narrower one than it was: P6b
   observed `ACCESS_DENIED` across a real session boundary from a different security context, and
   the adapter's integration test exercises the classification against a real kernel denial on
   every run. A run from a second interactive account remains a pre-release check.

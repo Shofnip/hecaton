@@ -56,6 +56,8 @@ interface PanelState {
   configError?: string
   configQuarantinedAs?: string
   releaseNotes?: string
+  /** The update this launch found, when there is one worth offering. */
+  updateOffer?: { version: string; notes: string }
   needsReleaseNotes: boolean
   /** The account this window owns (ADR-0021). */
   account: { id: number; name: string }
@@ -93,12 +95,13 @@ interface HecatonApi {
   clearSlotCache(id: number): Promise<void>
   clearAllCaches(): Promise<void>
   revealUserData(): Promise<void>
-  deleteAccountData(): Promise<void>
+  deleteAccountData(): Promise<{ ok: boolean; reason?: string }>
   deleteAllUserData(): Promise<void>
   acknowledgeTerms(): Promise<void>
   acknowledgeReleaseNotes(): Promise<void>
   checkForUpdates(): Promise<UpdateCheck>
   openReleasesPage(): Promise<void>
+  dismissUpdate(): Promise<void>
   setAudioFollowsFocus(enabled: boolean): Promise<void>
   renameSlot(id: number, name: string): Promise<void>
   setSlotVolume(id: number, volume: number): Promise<void>
@@ -109,6 +112,7 @@ interface HecatonApi {
   renameAccount(name: string): Promise<void>
   switchAccount(id: number): Promise<{ ok: boolean; reason?: string }>
   createAccount(): Promise<{ ok: boolean; reason?: string }>
+  createAccountOnly(): Promise<{ ok: boolean; reason?: string; id?: number; name?: string }>
   openOverlay(request: OverlayRequest): Promise<void>
   closeOverlay(): Promise<void>
   onState(listener: (state: PanelState) => void): void
@@ -315,6 +319,7 @@ const ICONS: Record<string, Shape[]> = {
     ['path', { d: 'M2 12h20' }],
   ],
   loader: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
+  check: [['path', { d: 'M20 6 9 17l-5-5' }]],
 }
 
 function icon(name: keyof typeof ICONS, size = 16): SVGElement {
@@ -381,9 +386,23 @@ function iconButton(
   return b
 }
 
-/** Shows a failed action by name. The overlay has no banner; the wall does. */
+/**
+ * Where a failure is shown while a modal is open.
+ *
+ * The overlay window has no banner and no toast strip, so before this a rejected
+ * IPC call from inside a modal reached nothing but the console: the user pressed
+ * a button, the action failed, and the dialog just sat there. A modal that has
+ * somewhere to say so registers it here for as long as it is open.
+ */
+let reportInModal: ((message: string) => void) | undefined
+
+/** Shows a failed action by name: the open modal's own line, or the wall's banner. */
 function showError(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
+  if (reportInModal) {
+    reportInModal(message)
+    return
+  }
   if (configError) {
     configError.textContent = message
     configError.hidden = false
@@ -422,9 +441,9 @@ let state: PanelState = {
   needsTerms: false,
   needsReleaseNotes: false,
   version: '',
-  // Account 1 until main says which one this window actually got. The dropdown
-  // only opens from Configurações, by which point the real values have arrived.
-  account: { id: 1, name: 'Conta 1' },
+  // Id 0 means "main has not said yet", which is what keeps the first push from
+  // announcing a profile change that is really just the app starting.
+  account: { id: 0, name: '' },
   accounts: [],
 }
 
@@ -623,11 +642,81 @@ function openReleaseNotes(): void {
   )
 }
 
+/**
+ * The update this launch found, offered once, with the three answers the owner
+ * asked for.
+ *
+ * Shown by the wall rather than by the overlay, like the release notes and for
+ * the same reason: it opens before anything is embedded, at a moment the overlay
+ * has nothing to sit above. It waits for the terms gate and for the notes of the
+ * running version - two modals at once would stack, and neither is urgent. It
+ * waits for notes that will actually open, though: `needsReleaseNotes` stays
+ * true for ever on a version the changelog has no section for, and waiting on a
+ * modal that never appears is how this offer went missing on its first run.
+ *
+ * The three answers differ in what they write. *Atualizar agora* opens the
+ * release page and nothing is recorded, so the offer returns next launch if the
+ * user did not actually update. *Lembrar depois* writes nothing at all, which is
+ * exactly what "later" means here. *Não lembrar mais* is the only one that
+ * persists, and it is about this version: the next release asks again.
+ */
+let updateOfferShown = false
+function renderUpdateOffer(): void {
+  const offer = state.updateOffer
+  if (updateOfferShown || offer === undefined) return
+  if (state.needsTerms) return
+  if (state.needsReleaseNotes && state.releaseNotes !== undefined) return
+  updateOfferShown = true
+
+  openModal(
+    (dialog, close) => {
+      modalHead(dialog, 'Atualização disponível', close)
+      const body = el('div', 'modal-body')
+      body.append(
+        el(
+          'p',
+          'modal-desc',
+          `A versão ${offer.version} do Hecaton foi publicada. Você está na ${state.version}.`,
+        ),
+      )
+      if (offer.notes !== '') {
+        // textContent, never innerHTML: this text came off the network.
+        const notes = el('pre', 'update-notes')
+        notes.textContent = offer.notes
+        body.append(notes)
+      }
+
+      const actions = el('div', 'modal-actions')
+      const never = el('button', 'btn', 'Não lembrar mais')
+      never.type = 'button'
+      never.addEventListener('click', () => {
+        close()
+        run(() => window.hecaton.dismissUpdate())
+      })
+      const later = el('button', 'btn', 'Lembrar depois')
+      later.type = 'button'
+      later.addEventListener('click', close)
+      const now = el('button', 'btn primary', 'Atualizar agora')
+      now.type = 'button'
+      now.addEventListener('click', () => {
+        close()
+        showToast('Abrindo no navegador…')
+        run(() => window.hecaton.openReleasesPage())
+      })
+      actions.append(never, later, now)
+      body.append(actions)
+      dialog.append(body)
+    },
+    { extraClass: 'wide' },
+  )
+}
+
 // ============================ the board ============================
 
 function render(): void {
   renderTermsGate()
   renderReleaseNotes()
+  renderUpdateOffer()
   document.documentElement.dataset.theme = state.theme
   if (configError) {
     // Two different things share the banner, and the error wins: if the load
@@ -1122,8 +1211,8 @@ function openConfirmRemove(id: number): void {
 }
 
 const REMOVE_DETAIL =
-  'O perfil deste slot será arquivado: o cache, os cookies e as senhas salvas nele deixam de ser ' +
-  'usados. Use "Limpar arquivados" para apagá-los de vez.'
+  'Os dados desta tela serão arquivados: o cache, os cookies e as senhas salvas nela deixam de ser ' +
+  'usados. Use "Limpar dados arquivados" para apagá-los de vez.'
 
 // ============================ modals ============================
 
@@ -1140,8 +1229,21 @@ interface ModalOptions {
  */
 let overlayDepth = 0
 
-/** Hides the overlay window once nothing is left open in it. */
+/** Whether this renderer is the overlay window rather than the wall. */
+function inOverlay(): boolean {
+  return document.body.dataset['mode'] === 'overlay'
+}
+
+/**
+ * Hides the overlay window once nothing is left open in it.
+ *
+ * Only the overlay's own modals count. The wall draws three of its own (the
+ * terms gate, the release notes and the update offer), and those used to reach
+ * this too - the wall telling main to hide a window it does not own, on a
+ * counter that belongs to the other renderer.
+ */
 function overlayClosed(): void {
+  if (!inOverlay()) return
   if (--overlayDepth === 0) void window.hecaton.closeOverlay()
 }
 
@@ -1160,7 +1262,7 @@ function openModal(
   dialog.setAttribute('role', 'dialog')
   dialog.setAttribute('aria-modal', 'true')
   backdrop.append(dialog)
-  overlayDepth++
+  if (inOverlay()) overlayDepth++
 
   let closed = false
   const close = (): void => {
@@ -1170,6 +1272,11 @@ function openModal(
     backdrop.remove()
     document.removeEventListener('keydown', onKey)
     overlayClosed()
+    // The wall hides whichever embedded screens a modal covers, and that is
+    // computed from the DOM (`emitLayout`). Opening one happens inside a render,
+    // which re-emits; closing one does not, so without this the screen under a
+    // dismissed modal stayed hidden until the next state push.
+    if (!inOverlay()) scheduleLayout()
   }
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') close()
@@ -1181,6 +1288,7 @@ function openModal(
 
   build(dialog, close)
   document.body.append(backdrop)
+  if (!inOverlay()) scheduleLayout()
 }
 
 function modalHead(dialog: HTMLElement, title: string, close: () => void): void {
@@ -1232,6 +1340,16 @@ function openSettings(): void {
     modalHead(dialog, 'Configurações', close)
     const body = el('div', 'modal-body')
 
+    // Five named groups, in the order somebody reaches for them: who this window
+    // is, how it looks and sounds, the app itself, where its files are, and the
+    // things that cannot be undone. Before this the sections were three unnamed
+    // runs separated by a hairline, and the owner could not tell where one ended
+    // - which is the whole reason a heading exists.
+    body.append(sectionHead('Perfil'))
+    body.append(accountBox(close))
+
+    body.append(sectionHead('Aparência e som'))
+    body.append(themeRow())
     body.append(
       toggle(
         'Áudio apenas na tela em foco',
@@ -1241,28 +1359,10 @@ function openSettings(): void {
       ),
     )
 
-    body.append(el('div', 'risk-divider'))
-    body.append(el('span', 'section-label', 'Conta'))
-    body.append(accountBox(close))
+    body.append(sectionHead('Aplicativo'))
+    body.append(updateRow())
 
-    body.append(el('div', 'risk-divider'))
-
-    const logs = el('button', 'neutral-btn')
-    logs.type = 'button'
-    logs.append(icon('logs', 18), el('span', undefined, 'Abrir logs'))
-    logs.addEventListener('click', () => {
-      showToast('Abrindo logs…')
-      run(() => window.hecaton.revealLogs())
-    })
-    body.append(logs)
-
-    const terms = el('button', 'neutral-btn')
-    terms.type = 'button'
-    terms.append(icon('alert', 18), el('span', undefined, 'Aviso sobre os termos do jogo'))
-    terms.addEventListener('click', openTerms)
-    body.append(terms)
-
-    // Same shape as the terms entry above, and there for the same reason: the
+    // Same shape as the terms entry below, and there for the same reason: the
     // notes open by themselves exactly once, so without this "what changed in
     // this version?" has nowhere to go a day later. Absent when the changelog
     // has no section for the running version — an entry that opened an empty
@@ -1275,16 +1375,25 @@ function openSettings(): void {
       body.append(notes)
     }
 
-    body.append(updateRow())
+    const terms = el('button', 'neutral-btn')
+    terms.type = 'button'
+    terms.append(icon('alert', 18), el('span', undefined, 'Aviso sobre os termos do jogo'))
+    terms.addEventListener('click', openTerms)
+    body.append(terms)
 
-    body.append(themeRow())
+    const logs = el('button', 'neutral-btn')
+    logs.type = 'button'
+    logs.append(icon('logs', 18), el('span', undefined, 'Abrir logs'))
+    logs.addEventListener('click', () => {
+      showToast('Abrindo logs…')
+      run(() => window.hecaton.revealLogs())
+    })
+    body.append(logs)
 
-    body.append(el('div', 'risk-divider'))
-    body.append(el('span', 'section-label', 'Seus dados'))
+    body.append(sectionHead('Seus dados'))
     body.append(userDataBox())
 
-    body.append(el('div', 'risk-divider'))
-    body.append(el('span', 'risk-label', 'Zona de risco'))
+    body.append(sectionHead('Zona de risco', true))
     body.append(
       dangerButton(
         'Limpar cache das telas',
@@ -1323,23 +1432,52 @@ function openSettings(): void {
           }),
       ),
     )
-    // Narrow first, wide second: the one that touches only this account is the
+    // Narrow first, wide second: the one that touches only this profile is the
     // one somebody reaching for "apagar" usually means, and the one that reaches
-    // every account - including a window somebody else has open - reads as the
+    // every profile - including a window somebody else has open - reads as the
     // deliberate extra step it is.
-    body.append(deleteAccountButton())
+    body.append(deleteAccountButton(close))
     body.append(deleteEverythingButton())
 
     dialog.append(body)
-  })
+  }, MODAL_REPORTS_ITS_OWN_FAILURES)
+}
+
+/**
+ * Closing Configurações takes its error line with it.
+ *
+ * `accountBox` points `reportInModal` at its own status line while the modal is
+ * up; this is the other half, so a later failure elsewhere does not write into a
+ * node nobody is looking at.
+ */
+const MODAL_REPORTS_ITS_OWN_FAILURES: ModalOptions = {
+  onClose: () => {
+    reportInModal = undefined
+  },
+}
+
+/**
+ * A category heading in Configurações: the name, then a rule across the rest of
+ * the row.
+ *
+ * The rule is part of the heading rather than a separate divider element, which
+ * is what the modal had before. A divider says "something ended"; a heading with
+ * a rule says what begins, and there is no way to end up with two of them
+ * stacked or a heading with no line.
+ */
+function sectionHead(title: string, risk = false): HTMLElement {
+  const head = el('div', risk ? 'settings-section risk' : 'settings-section')
+  head.append(el('span', 'section-label', title), el('div', 'section-rule'))
+  return head
 }
 
 /**
  * The version, and the only button in the app that touches the network.
  *
- * The check happens on this click and nowhere else — never at launch, never on a
- * timer (D7/D8). The version sits beside it because "há uma atualização" says
- * nothing without saying from what.
+ * The check happens on this click, and once per launch by itself (ADR-0023) —
+ * never on a timer. This is the entrance for "is there one now?", and the
+ * version sits beside it because "há uma atualização" says nothing without
+ * saying from what.
  */
 function updateRow(): HTMLElement {
   const box = el('div', 'field-box')
@@ -1474,20 +1612,55 @@ function openTerms(): void {
  * window that is starting onto a different account. A switch to an account
  * somebody else has open fails and says so.
  */
+/**
+ * Things in the open settings modal that show the account's name.
+ *
+ * The modal is built once and deliberately never redrawn on a state push, so a
+ * rename has to reach them by hand. Cleared each time the modal is built.
+ */
+const renameListeners: ((name: string) => void)[] = []
+
+/**
+ * Things that depend on **how many** profiles exist, for the same reason.
+ *
+ * Creating one from inside the modal changes what "Apagar este perfil" may do:
+ * with a second profile on the machine the deletion stops being impossible, and
+ * a button still greyed out saying "é o único perfil" would be a leftover.
+ */
+const accountCountListeners: ((count: number) => void)[] = []
+
 function accountBox(closeSettings: () => void): HTMLElement {
+  renameListeners.length = 0
+  accountCountListeners.length = 0
   const box = el('div', 'field-box')
 
   box.append(
     el(
       'span',
       'data-note',
-      'Cada conta tem as próprias telas, os próprios logins e o próprio cache — até 4 telas por ' +
-        'conta. Abrir um segundo Hecaton abre a próxima conta livre, e cria uma se não houver.',
+      'Cada perfil tem as próprias telas, os próprios logins e o próprio cache — até 4 telas por ' +
+        'perfil. Abrir um segundo Hecaton abre o próximo perfil livre, e cria um se não houver.',
     ),
   )
 
+  // Where a refusal is shown. The modal renders in the overlay window, which has
+  // no toast strip, so a message from here has nowhere else to go - and a switch
+  // that is refused is exactly the moment the user is looking at this box.
+  const status = el('span', 'account-status')
+  status.hidden = true
+  const say = (message: string, bad = true): void => {
+    status.textContent = message
+    status.classList.toggle('bad', bad)
+    status.hidden = false
+  }
+  // Anything that throws while this modal is open lands here too. The overlay
+  // window has no banner and no toasts, so without this an IPC rejection - a
+  // deletion that half-failed, a rename that could not be written - showed the
+  // user nothing at all.
+  reportInModal = (message) => say(message)
+
   const row = el('div', 'account-row')
-  row.append(el('span', 'toggle-label', 'Conta desta janela'))
+  row.append(el('span', 'toggle-label', 'Perfil desta janela'))
   const select = document.createElement('select')
   select.className = 'field-select account-control'
   const accounts = state.accounts.length > 0 ? state.accounts : [state.account]
@@ -1502,22 +1675,28 @@ function accountBox(closeSettings: () => void): HTMLElement {
     const target = Number(select.value)
     if (target === state.account.id) return
     // Put the dropdown back first: the switch is not done until the user
-    // confirms, and a select showing an account this window is not on would be
+    // confirms, and a select showing a profile this window is not on would be
     // the UI lying about where it is.
     select.value = String(state.account.id)
-    const name = accounts.find((account) => account.id === target)?.name ?? `Conta ${target}`
+    // Spelled out rather than imported: the renderer cannot reach the core. The
+    // source of truth is `defaultAccountName` in `packages/core/src/accounts.ts`,
+    // and a rename there has to be repeated here.
+    const name = accounts.find((account) => account.id === target)?.name ?? `Perfil ${target}`
     openConfirm({
       title: `Trocar para ${name}?`,
       message:
-        'Todas as telas desta janela serão desligadas e as telas da outra conta assumem o ' +
+        'Todas as telas desta janela serão desligadas e as telas do outro perfil assumem o ' +
         'painel. Nenhum dado é apagado.',
       danger: false,
       confirmLabel: 'Confirmar',
       onYes: () =>
         run(async () => {
           const result = await window.hecaton.switchAccount(target)
-          showToast(result.ok ? `Agora em ${name}` : accountBusyMessage(result.reason))
+          // Only a refusal is reported here. A switch that works closes this
+          // modal, and the wall says "Agora em {nome}" when the new state
+          // arrives - the window the user is actually looking at by then.
           if (result.ok) closeSettings()
+          else say(accountBusyMessage(result.reason))
         }),
     })
   })
@@ -1525,58 +1704,114 @@ function accountBox(closeSettings: () => void): HTMLElement {
   box.append(row)
 
   const nameRow = el('div', 'account-row')
-  nameRow.append(el('span', 'toggle-label', 'Nome desta conta'))
+  nameRow.append(el('span', 'toggle-label', 'Nome deste perfil'))
+  const nameField = el('div', 'account-name-field')
   const input = document.createElement('input')
   input.type = 'text'
-  input.className = 'field-input account-control'
+  input.className = 'field-input'
   input.maxLength = 24
   input.value = state.account.name
+  const save = el('button', 'neutral-btn account-save')
+  save.type = 'button'
+  save.append(icon('check', 16), el('span', undefined, 'Salvar'))
+  // Typing and then closing the modal used to lose the name silently: the field
+  // committed on blur, which nothing on screen said and which never happened if
+  // the user clicked the X. An explicit button is the confirmation, and it is
+  // disabled while there is nothing to save so it also reports the state.
+  const refreshSave = (): void => {
+    const value = input.value.trim()
+    save.disabled = value === '' || value === state.account.name
+  }
+  refreshSave()
+  input.addEventListener('input', refreshSave)
   const commit = (): void => {
     const value = input.value.trim()
-    if (value === '' || value === state.account.name) {
-      input.value = state.account.name
-      return
-    }
+    if (value === '' || value === state.account.name) return
     run(async () => {
       await window.hecaton.renameAccount(value)
-      showToast('Conta renomeada')
+      state.account = { ...state.account, name: value }
+      // The modal does not redraw on a state push - that would wipe a field
+      // somebody is typing in - so the two places that carry the name are
+      // updated here. Without this the new name only appeared after the app was
+      // restarted, which is what the owner hit.
+      const mine = [...select.options].find((option) => option.value === String(state.account.id))
+      if (mine) mine.textContent = value
+      renameListeners.forEach((listener) => listener(value))
+      say('Nome salvo', false)
+      refreshSave()
     })
   }
-  input.addEventListener('blur', commit)
+  save.addEventListener('click', commit)
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') input.blur()
+    if (event.key === 'Enter') commit()
   })
-  nameRow.append(input)
+  nameField.append(input, save)
+  nameRow.append(nameField)
   box.append(nameRow)
 
-  const create = el('button', 'neutral-btn')
+  // Two ways to make one, and the quiet one first: it changes nothing about
+  // this window, so it reads as the smaller step - which is what the owner asked
+  // for. The one below stops this window's screens, so it is the one with the
+  // weight.
+  const createOnly = el('button', 'neutral-btn')
+  createOnly.type = 'button'
+  createOnly.append(icon('plus', 18), el('span', undefined, 'Apenas criar um perfil'))
+  createOnly.addEventListener('click', () => {
+    run(async () => {
+      const result = await window.hecaton.createAccountOnly()
+      if (!result.ok) {
+        // Not the switch's refusal: nothing was created, and the only way to get
+        // here is two windows reaching for the same next id at the same instant.
+        say('Outra janela acabou de criar esse perfil. Tente de novo.')
+        return
+      }
+      // No confirmation before it: nothing is stopped, nothing is deleted, and
+      // an empty profile that goes unused costs a directory. The new name is
+      // added to the dropdown here because the modal never redraws itself.
+      const created = result.name ?? 'Perfil'
+      if (result.id !== undefined) {
+        const option = document.createElement('option')
+        option.value = String(result.id)
+        option.textContent = created
+        select.append(option)
+      }
+      accountCountListeners.forEach((listener) => listener(select.options.length))
+      say(`${created} criado. Ele abre no próximo Hecaton, ou escolha-o aqui em cima.`, false)
+    })
+  })
+  box.append(createOnly)
+
+  const create = el('button', 'neutral-btn accent')
   create.type = 'button'
-  create.append(icon('plus', 18), el('span', undefined, 'Criar outra conta e ir para ela'))
+  create.append(icon('plus', 18), el('span', undefined, 'Criar outro perfil e ir para ele'))
   create.addEventListener('click', () => {
     openConfirm({
-      title: 'Criar outra conta?',
+      title: 'Criar outro perfil?',
       message:
-        'Uma conta nova começa vazia, com as próprias telas e os próprios logins. As telas desta ' +
+        'Um perfil novo começa vazio, com as próprias telas e os próprios logins. As telas desta ' +
         'janela serão desligadas. Nenhum dado é apagado.',
       danger: false,
       confirmLabel: 'Confirmar',
       onYes: () =>
         run(async () => {
           const result = await window.hecaton.createAccount()
-          showToast(result.ok ? 'Conta criada' : accountBusyMessage(result.reason))
           if (result.ok) closeSettings()
+          else say(accountBusyMessage(result.reason))
         }),
     })
   })
   box.append(create)
+  box.append(status)
   return box
 }
 
 /** Why a switch did not happen, in the words the lock answered with. */
 function accountBusyMessage(reason: string | undefined): string {
-  if (reason === 'held-by-another-user') return 'Essa conta está aberta em outra conta do Windows'
-  if (reason === 'held-by-this-user') return 'Essa conta já está aberta em outra janela'
-  return 'Não foi possível reservar essa conta agora'
+  if (reason === 'held-by-another-user') {
+    return 'Esse perfil está aberto em outra conta do Windows'
+  }
+  if (reason === 'held-by-this-user') return 'Esse perfil já está aberto em outra janela'
+  return 'Não foi possível reservar esse perfil agora'
 }
 
 function userDataBox(): HTMLElement {
@@ -1593,9 +1828,9 @@ function userDataBox(): HTMLElement {
     el(
       'span',
       'data-note',
-      'Uma tela com sessão limpa não usa essa pasta: ela recebe um perfil temporário na pasta ' +
-        'Temp do Windows, apagado quando a tela para. Se o aplicativo for encerrado à força, esse ' +
-        'perfil fica lá até o Windows recolher.',
+      'Uma tela com sessão limpa não usa essa pasta: os dados dela ficam numa pasta temporária do ' +
+        'Windows, apagada quando a tela para. Se o aplicativo for encerrado à força, essa pasta ' +
+        'fica lá até o Windows recolher.',
     ),
   )
 
@@ -1633,49 +1868,97 @@ function userDataBox(): HTMLElement {
  * safeguard: main refuses the same thing, because Chrome holds its profile open
  * and a deletion underneath a running browser only half-succeeds.
  */
-function deleteAccountButton(): HTMLElement {
+function deleteAccountButton(closeSettings: () => void): HTMLElement {
+  const box = el('div', 'stacked-field')
   const open = state.slots.filter((s) => s.state !== 'stopped').length
-  const button = dangerButton(
-    'Apagar os dados desta conta',
-    open > 0
-      ? `Pare todas as telas primeiro (${open} ainda aberta${open > 1 ? 's' : ''}).`
-      : `Perfis, telas e cache da ${state.account.name}. As outras contas ficam intactas.`,
-    () =>
-      openConfirm({
-        title: `Apagar os dados da ${state.account.name}?`,
-        message:
-          'Isto apaga os perfis desta conta — você sai das contas do jogo que estão nela —, as ' +
-          'telas configuradas e o cache dela. As outras contas do Hecaton não são tocadas. É ' +
-          'permanente e não pode ser desfeito, e o aplicativo fecha em seguida.',
-        danger: true,
-        confirmLabel: 'Sim, apagar',
-        onYes: () =>
-          run(async () => {
-            await window.hecaton.deleteAccountData()
-            showToast('Dados da conta apagados. Fechando o aplicativo…')
-          }),
-      }),
+  // The only profile on the machine cannot be deleted, and saying so before the
+  // click is better than refusing after it: the window has to land somewhere,
+  // and there is nowhere. Known from the state rather than from the lock, which
+  // is why this is the one case that can be shown up front - whether another
+  // profile is *free* is only knowable by taking its lock, so that refusal
+  // arrives after the attempt, below.
+  let alone = state.accounts.length <= 1
+  const describe = (name: string): string => {
+    if (open > 0)
+      return `Pare todas as telas primeiro (${open} ainda aberta${open > 1 ? 's' : ''}).`
+    if (alone) return 'É o único perfil. Use "Limpar cache das telas" para esvaziá-lo.'
+    // No article before the name: it is the user's own text, and an "o" guessed
+    // from "Perfil N" reads wrong the moment somebody renames it to "Casa".
+    return `Telas, logins e cache de "${name}". Os outros perfis ficam intactos.`
+  }
+
+  const status = el('span', 'account-status')
+  status.hidden = true
+
+  const button = dangerButton('Apagar este perfil', describe(state.account.name), () =>
+    openConfirm({
+      title: `Apagar "${state.account.name}"?`,
+      message:
+        'Isto apaga os dados das telas deste perfil — você sai das contas do jogo que estão ' +
+        'nelas —, a lista de telas e o cache dele. Os outros perfis do Hecaton não são tocados. ' +
+        'É permanente e não pode ser desfeito. A janela continua aberta, em outro perfil.',
+      danger: true,
+      confirmLabel: 'Sim, apagar',
+      onYes: () =>
+        run(async () => {
+          const result = await window.hecaton.deleteAccountData()
+          if (!result.ok) {
+            // Nothing was deleted: every other profile is open in another
+            // window, so this one has nowhere to go. The suggestion is the
+            // action that does what "apagar este perfil" usually means when
+            // somebody only wants it empty.
+            status.textContent =
+              'Nenhum outro perfil está livre para assumir esta janela, então nada foi apagado. ' +
+              'Feche as outras janelas do Hecaton, ou use "Limpar cache das telas" para esvaziar ' +
+              'este perfil sem apagá-lo.'
+            status.classList.add('bad')
+            status.hidden = false
+            return
+          }
+          // The window stays open, on another profile: the wall says which one
+          // when the new state arrives, and this modal has nothing left to show
+          // - the profile it was describing is gone.
+          closeSettings()
+        }),
+    }),
   )
-  button.disabled = open > 0
-  return button
+  button.disabled = open > 0 || alone
+  // Both halves of this button name the profile, so a rename has to reach them
+  // while the modal is open.
+  const redescribe = (name: string): void => {
+    const desc = button.querySelector('.danger-desc')
+    if (desc) desc.textContent = describe(name)
+    button.disabled = open > 0 || alone
+  }
+  renameListeners.push(redescribe)
+  // Creating a profile from the box above stops this one being the only one, so
+  // the button stops being impossible. Without this it stayed greyed out saying
+  // "é o único perfil" until Configurações was closed and opened again.
+  accountCountListeners.push((count) => {
+    alone = count <= 1
+    redescribe(state.account.name)
+  })
+  box.append(button, status)
+  return box
 }
 
 function deleteEverythingButton(): HTMLElement {
   const open = state.slots.filter((s) => s.state !== 'stopped').length
   const others = Math.max(0, state.accounts.length - 1)
   const button = dangerButton(
-    'Apagar TODOS os dados',
+    'Apagar todos os perfis',
     open > 0
       ? `Pare todas as telas primeiro (${open} ainda aberta${open > 1 ? 's' : ''}).`
       : others > 0
-        ? `Todas as contas (${state.accounts.length}), inclusive as abertas em outras janelas.`
-        : 'Perfis, configuração e logs. Você sai de todas as contas e o aplicativo fecha.',
+        ? `Todos os perfis (${state.accounts.length}), inclusive os abertos em outras janelas.`
+        : 'Telas, logins, configuração e logs. Você sai de todas as contas do jogo e o aplicativo fecha.',
     () =>
       openConfirm({
-        title: 'Apagar TODOS os dados?',
+        title: 'Apagar todos os perfis?',
         message:
-          'Isto apaga %APPDATA%\\hecaton inteiro: **todas as contas**, os perfis — você sai de ' +
-          'todas as contas do jogo —, a configuração e os logs. Se houver outra janela do Hecaton ' +
+          'Isto apaga %APPDATA%\\hecaton inteiro: **todos os perfis**, com os dados das ' +
+          'telas — você sai de todas as contas do jogo —, a configuração e os logs. Se houver ' +
+          'outra janela do Hecaton ' +
           'aberta, ela perde os dados dela no meio do uso. É permanente e não pode ser desfeito. O ' +
           'aplicativo fecha em seguida, e uma pasta com o cache dele continua lá, sem nenhum login ' +
           'dentro.',
@@ -2018,8 +2301,17 @@ function initWall(): void {
   new ResizeObserver(scheduleLayout).observe(document.getElementById('stage')!)
 
   window.hecaton.onState((next) => {
+    // The wall is where a successful account change is reported, and it has to be:
+    // the settings modal renders in the overlay, which has no toast strip, and it
+    // closes itself the moment the switch is accepted. So the window the user is
+    // left looking at is the one that says what happened - and it knows, because
+    // the state it just received names a different profile.
+    const moved = state.account.id !== 0 && next.account.id !== state.account.id
+    const renamed = next.account.id === state.account.id && next.account.name !== state.account.name
     // A background push must not redraw the wall out from under a divider drag.
     state = next
+    if (moved) showToast(`Agora em ${next.account.name}`)
+    else if (renamed) showToast(`Perfil renomeado para ${next.account.name}`)
     if (!interacting()) {
       render()
       scheduleLayout()

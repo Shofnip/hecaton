@@ -96,6 +96,15 @@ body {
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
+  /*
+   * Nothing in the interface is selectable text (owner, 2026-09-18). This is a
+   * control surface, not a document: a drag across a card used to leave a blue
+   * smear over labels nobody copies, and on the wall the same drag is how a
+   * screen is aimed at. The fields somebody types in opt back in below - they
+   * are the only place selecting means anything.
+   */
+  user-select: none;
+  -webkit-user-select: none;
   transition:
     background 0.25s ease,
     color 0.25s ease;
@@ -543,11 +552,6 @@ svg {
   animation: hw-spin 1s linear infinite;
 }
 
-.ctrl-wrap {
-  position: relative;
-  display: flex;
-}
-
 /* ---- volume popover (design §6) ---- */
 .volume-popover {
   position: absolute;
@@ -980,20 +984,6 @@ svg {
   margin-top: 2px;
 }
 
-.risk-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 6px 0;
-}
-
-.risk-label {
-  font-size: 11px;
-  color: var(--danger);
-  font-weight: 700;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
 /* ---- update check (D7) ---- */
 .update-row {
   display: flex;
@@ -1093,13 +1083,46 @@ svg {
   justify-content: flex-end;
 }
 
-/* Same heading as .risk-label, for a section that is not a risk. */
+/*
+ * A category heading in Configurações: the name and a rule filling the row.
+ *
+ * Heavier than the hairline dividers it replaced (2px, and the name in the body
+ * colour rather than the muted one) because the owner could not see where one
+ * group of settings ended and the next began.
+ */
+.settings-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 2px;
+}
+
+.settings-section:first-child {
+  margin-top: 0;
+}
+
 .section-label {
-  font-size: 11px;
-  color: var(--muted);
+  font-size: 12px;
+  color: var(--text);
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 1.4px;
   text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.section-rule {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+}
+
+.settings-section.risk .section-label {
+  color: var(--danger);
+}
+
+.settings-section.risk .section-rule {
+  background: var(--danger-border);
 }
 
 .data-note {
@@ -1148,6 +1171,46 @@ svg {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* The name field and its Salvar button, side by side: the button is the
+   confirmation the rename never had - it used to commit on blur, which nothing
+   said and which never happened if the modal was closed with the X. */
+.account-name-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 58%;
+  flex-shrink: 0;
+}
+
+.account-name-field .field-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.account-save {
+  width: auto;
+  flex-shrink: 0;
+  padding: 7px 10px;
+  gap: 6px;
+}
+
+.account-save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Where a refused switch is reported. The settings modal renders in the overlay
+   window, which has no toast strip, so this line is the only place a message
+   from that box can appear. */
+.account-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.account-status.bad {
+  color: var(--danger);
 }
 
 .account-row .account-control {
@@ -1203,4 +1266,39 @@ body[data-mode='overlay'] .modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 20;
+}
+
+/* A control and the line that reports what it just did, as one block. The modal
+   body is a flex column with its own gap, so the pair needs a box of its own to
+   keep the message against the button it belongs to rather than floating
+   between two settings. */
+.stacked-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* The exception to the rule on body: what the user writes, they may select. */
+input,
+textarea,
+[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * A neutral button carrying the weight of the section (owner, 2026-09-18):
+ * "criar outro perfil e ir para ele" sits under a quieter "apenas criar", and
+ * the pair only reads as a choice if one of them is clearly the main one. The
+ * accent border and tint say that without turning it into a .btn.primary, which
+ * in this app means "the confirm button of a dialog".
+ */
+.neutral-btn.accent {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.neutral-btn.accent svg {
+  color: var(--accent);
 }

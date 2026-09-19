@@ -75,8 +75,9 @@ export const IPC_CHANNELS = [
   // that accepted a path would be "delete an arbitrary directory" wearing a
   // friendly name, which is the one thing this app must never expose.
   //
-  // `data:deleteAll` is the only way to delete a *live* profile in this app, and
-  // deliberately the only one: it exists because nothing else asks the question —
+  // These two are the only ways to delete a *live* profile in this app, and
+  // deliberately the only ones: `data:deleteAll` exists because nothing else
+  // asks the question —
   // a zip has no uninstaller to ask it in (D4, and again ADR-0020), and the
   // installer that existed in between deliberately did not ask (ADR-0019). There
   // is no command-line equivalent — see the note in main.ts about the flag that
@@ -94,13 +95,21 @@ export const IPC_CHANNELS = [
   // read is the main process's to know, not the renderer's to assert — a channel
   // that accepted a number would let the panel claim any of them.
   'terms:acknowledge',
-  // The update check (D7): the app's only network request, and only when the
-  // user asks. Neither takes a payload — the API address and the release page
+  // The update check: the app's only network request. Since ADR-0023 it also
+  // runs once per launch by itself, so this channel is the user asking now. Neither takes a payload — the API address and the release page
   // are constants in main. `openPage` in particular must never learn a url from
   // anywhere: not from the renderer, and not from the document the check
   // fetched, or `shell.openExternal` stops being safe.
   'update:check',
   'update:openPage',
+  // The answer to the offer the app makes at launch (owner, 2026-09-18), and
+  // only the permanent one: "não lembrar mais". No payload, exactly like
+  // `notes:acknowledge` - which version was on offer is main's own knowledge,
+  // since main is what asked GitHub and decided to show it, and a channel that
+  // accepted a version string would let the panel silence any of them.
+  // "Lembrar depois" has no channel at all: it writes nothing, which is what
+  // makes the offer come back at the next launch.
+  'update:dismiss',
   // The release notes for the version now running, dismissed once (decided by
   // the owner 2026-08-09, which is what adding a channel takes here). No payload,
   // for exactly the reason `terms:acknowledge` has none: which version was on
@@ -119,7 +128,8 @@ export const IPC_CHANNELS = [
   // owner): the renderer sends where each embedded screen goes, main relays it.
   'screens:layout',
   // The overlay window (UI rework, approved by the owner): modals and the volume
-  // popover render in a separate always-on-top window so they paint above the
+  // popover render in a separate window owned by the panel (not always-on-top -
+  // see ADR-0011's Correction) so they paint above the
   // embedded game windows without hiding any screen. `open` asks main to show it
   // with a request; `close` asks main to hide it. The one modal the wall still
   // draws itself is the release-notes one, which opens before anything is
@@ -141,6 +151,11 @@ export const IPC_CHANNELS = [
   'accounts:rename',
   'accounts:switch',
   'accounts:create',
+  // The same channel with its second half removed: creates the next account and
+  // leaves this window where it is, for somebody preparing a profile for the
+  // Hecaton they are about to open. It takes nothing either, for the reason
+  // `create` takes nothing - which id is next is worked out here, from the disk.
+  'accounts:createOnly',
 ] as const
 
 export type IpcChannel = (typeof IPC_CHANNELS)[number]

@@ -104,11 +104,18 @@ beside the exe as `CHANGELOG.txt`.
 
 ## Data locations
 
-Everything the app **persists** goes under `%APPDATA%/hecaton`, **including in development** —
+Everything the app **persists** goes under `%APPDATA%/hecaton` —
 logs, and — per account — config and the browser profiles under `accounts/<id>/`. Never the repo directory:
 logs can contain page URLs with session tokens in query strings, and a profile _is_ a
-logged-in session, so a single ignore-rule mistake would leak a real account. Same path in
-dev and prod also kills a class of packaging bug.
+logged-in session, so a single ignore-rule mistake would leak a real account.
+
+**A development run uses `%APPDATA%/hecaton-dev` instead**
+([ADR-0022](docs/adr/0022-a-separate-data-directory-for-development.md)), so it can be open beside
+the real app — which testing accounts requires. The name comes from `HECATON_APP_DIR`, set only by
+`npm start`, and everything hangs off it: config, logs, profiles, panel caches, the machine seal and
+the account lock prefix. **There is deliberately no `app.isPackaged` branch** — that was the point of
+the old "same path in dev and prod" rule and it is what kills a class of packaging bug, so a packaged
+app resolves the production name through the same line of code. `electron .` by hand is production.
 
 **Two exceptions, both deliberate.**
 
@@ -129,8 +136,8 @@ dev and prod also kills a class of packaging bug.
 
 Use `appDataDir()`, `logsDir()`, `machineSealPath()`, `panelCacheDir()` and the per-account
 `accountsDir()`, `accountDir(id)`, `accountConfigFilePath(id)`, `accountProfilesDir(id)` from
-`@hecaton/storage`. Never build these paths by hand. `configFilePath()` and `profilesDir()` are the
-pre-accounts layout and are read only by the migration. `panelCacheDir(pid)` is Electron's own
+`@hecaton/storage`. Never build these paths by hand. The pre-accounts layout is named by
+`legacyConfigFilePath()` and `legacyProfilesDir()`, read only by the migration. `panelCacheDir(pid)` is Electron's own
 cache, kept under the app's directory rather than the shared `%APPDATA%/Electron` and **one per
 launch**: several windows run at once, and per account does not work because `setPath('userData')`
 cannot move after Electron resolves its session. `shell/` — the directory holding them — is the
@@ -159,6 +166,7 @@ npm run format            # prettier --write
 npm run check             # the four above that CI runs: typecheck, lint, format:check, test
 npm run test:integration  # real bundled browser/windows/disk, Windows only, manual
 npm run package --workspace @hecaton/shell   # builds the zip; Windows only, ~3.5 min
+npm --prefix apps/shell start   # a development run: builds, then launches with HECATON_APP_DIR=hecaton-dev
 ```
 
 `package` is the only way to produce the artifact locally, and it is the same command the release

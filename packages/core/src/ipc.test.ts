@@ -49,6 +49,7 @@ describe('the channel list', () => {
       'terms:acknowledge',
       'update:check',
       'update:openPage',
+      'update:dismiss',
       'notes:acknowledge',
       'slots:rename',
       'slots:setVolume',
@@ -61,6 +62,7 @@ describe('the channel list', () => {
       'accounts:rename',
       'accounts:switch',
       'accounts:create',
+      'accounts:createOnly',
     ])
   })
 })

@@ -148,19 +148,26 @@ the integration tests do the same in their cleanup. If you write new code that r
 profile directory, expect the race.
 
 Note that no **lifecycle** path deletes a live `profiles/slot-N` — nothing that happens while
-screens start, stop, crash or get removed. **Three** deletion paths exist, and the third is the
-one to know about:
+screens start, stop, crash or get removed. **Four** deletion paths exist, and the last two are the
+ones to know about:
 
 - `ChromeLauncher.discard` removes a throwaway clean-session profile under `%TEMP%` on `stop()`.
 - `clearArchives` (the "clear archives" action) permanently removes profiles a removed slot
   archived to `slot-N.old-<stamp>` — a persistent session, but only after removing its slot
   explicitly archived it.
-- **`data:deleteAll`** (Configurações → _Apagar todos os meus dados_) removes `%APPDATA%/hecaton`
-  whole, **live profiles included**. It exists because nothing else in the product can ask the
-  question — there is no uninstaller ([ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md))
-  — and it is guarded by an explicit confirmation and by every screen having to be stopped first.
+- **`data:deleteAccount`** (Configurações → _Apagar este perfil_) removes `accounts/<id>` — this
+  window's profiles, config and cache, **live profiles included** — and leaves every other account
+  alone ([ADR-0021](adr/0021-several-windows-one-account-each.md)). Guarded like the one below, and
+  additionally **refused outright** when no other account is free for the window to move to: nothing
+  is deleted in that case.
+- **`data:deleteAll`** (Configurações → _Apagar todos os perfis_) removes `%APPDATA%/hecaton`
+  whole, **every account's live profiles included**. It exists because nothing else in the product
+  can ask the question — there is no uninstaller
+  ([ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md)) — and it is guarded by an
+  explicit confirmation and by every screen having to be stopped first.
 
-The third arrived on 2026-08-08 and this page was not updated with it, which is worth naming: the
+The last two arrived on 2026-08-08 and 2026-09-18, and this page was not updated with either at the
+time, which is worth naming: the
 sentence that used to be here read as a structural guarantee that the app _cannot_ destroy a
 logged-in session, and someone auditing "where can cookies go" from it would have counted wrong.
 See ADR-0005 (and **both** its Corrections) and ADR-0008.
@@ -173,8 +180,8 @@ generates accepted `--delete-app-data` on its command line, and given that flag 
 `deleteAppDataOnUninstall: false` governed a different branch. Nothing reached it by accident: probe
 P1 measured that clicking Uninstall does not pass the flag and that an update passes `--updated`
 instead. [ADR-0020](adr/0020-a-zip-the-user-extracts-not-an-installer.md) retired it with the
-installer, and no release ever carried one. **Four paths, all the app's own, is the whole list
-today.**
+installer, and no release ever carried one. **Five paths, all the app's own, is the whole list
+today — four live and that one retired.**
 
 ---
 
@@ -193,7 +200,7 @@ next free account instead of being refused.
 
 | Reason on screen                           | What it means                                                                                                                                                                                                                                                                               | What to do                                                                                                                                                                                      |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| _Não foi possível reservar uma conta_      | No account's lock could be taken, existing or new — in practice the PowerShell worker that holds it would not run. **This is the one refusal that is not about the machine**, and the one place the app does not fail open: starting anyway would risk two windows over one browser profile | Close the other Hecaton windows and try again; if it persists, reboot. The log line is `instance.account-failed`, with the error                                                                |
+| _Não foi possível reservar um perfil_      | No account's lock could be taken, existing or new — in practice the PowerShell worker that holds it would not run. **This is the one refusal that is not about the machine**, and the one place the app does not fail open: starting anyway would risk two windows over one browser profile | Close the other Hecaton windows and try again; if it persists, reboot. The log line is `instance.account-failed`, with the error                                                                |
 | _Esta parece ser uma máquina virtual_      | `Win32_ComputerSystem` Manufacturer/Model matched a known hypervisor                                                                                                                                                                                                                        | Nothing, on a real VM. On physical hardware it means your vendor wrote a hypervisor-looking string into SMBIOS — check with `Get-CimInstance Win32_ComputerSystem`                              |
 | _Esta máquina não é a que está registrada_ | The seal in `C:\ProgramData\hecaton\machine.json` does not match this hardware, or could not be read at all — **any** failure to read it refuses the launch, not only a parse error, provided the machine has a readable identity to compare against in the first place                     | If the machine is yours — a motherboard swap does this — delete that file **as an administrator** and start again; it writes a fresh seal. A standard user cannot delete it, which is the point |
 
@@ -402,8 +409,7 @@ folder was extracted read-only.
 To see the ACL by hand:
 
 ```powershell
-icacls "<extracted folder>
-esources\chromium\chrome-win\chrome.exe"
+icacls "<extracted folder>\resources\chromium\chrome-win\chrome.exe"
 ```
 
 The entry to look for is the application-packages one, under whatever name Windows gives it in your
@@ -458,7 +464,7 @@ fallback to an installed Chrome. The binary is not in git, so a fresh clone does
 
 The path in the message tells the two cases apart. Under `node_modules/electron/dist/resources` it
 is a development tree that has not fetched the browser; under the installed app's `resources`
-(`%LOCALAPPDATA%\Programs\Hecaton` by default) it is an incomplete package, which is a build
+(wherever the zip was extracted, beside `Hecaton.exe`) it is an incomplete package, which is a build
 problem rather than yours.
 
 **What to do**

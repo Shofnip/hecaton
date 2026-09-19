@@ -46,6 +46,7 @@ const api = {
   acknowledgeReleaseNotes: () => ipcRenderer.invoke('notes:acknowledge'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   openReleasesPage: () => ipcRenderer.invoke('update:openPage'),
+  dismissUpdate: () => ipcRenderer.invoke('update:dismiss'),
 
   // The video-wall runtime controls (UI rework, decision 7).
   renameSlot: (id: number, name: string) => ipcRenderer.invoke('slots:rename', { id, name }),
@@ -61,6 +62,7 @@ const api = {
   renameAccount: (name: string) => ipcRenderer.invoke('accounts:rename', { name }),
   switchAccount: (id: number) => ipcRenderer.invoke('accounts:switch', { id }),
   createAccount: () => ipcRenderer.invoke('accounts:create'),
+  createAccountOnly: () => ipcRenderer.invoke('accounts:createOnly'),
 
   // The overlay window (modals + volume popover, above the games). The wall asks
   // to open one; the overlay renders it and asks to close when done.

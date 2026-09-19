@@ -1,12 +1,12 @@
 export {
   APP_DIR_NAME,
+  DEV_APP_DIR_NAME,
   ELECTRON_DIR_NAME,
+  accountMutexPrefix,
+  appDirName,
   appDataDir,
-  configFilePath,
-  electronUserDataDir,
   logsDir,
   machineSealPath,
-  profilesDir,
 } from './app-paths.js'
 export {
   ACCOUNTS_DIR_NAME,

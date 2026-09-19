@@ -1,6 +1,6 @@
 # ADR-0014 — The app's first network request: an update check, only when the user asks
 
-**Status:** Accepted · **Date:** 2026-07-29 (implemented 2026-08-09)
+**Status:** Superseded in part by [ADR-0023](0023-an-update-check-at-launch.md) · **Date:** 2026-07-29 (implemented 2026-08-09)
 
 Supersedes in part [ADR-0007](0007-electron-security-posture.md), decision 4.
 
@@ -24,7 +24,7 @@ or hijacked feed host bricks or takes over installations holding logged-in sessi
 
 ## Decision
 
-**The app checks for updates only when the user presses the button.** A `fetch` from the main
+**The app checks for updates only when the user presses the button.** [see Correction (2026-09-18)] A `fetch` from the main
 process asks the GitHub Releases API what the latest release is, the panel shows the changelog for
 anything newer, and — if the user wants it — `shell.openExternal` opens the release page in their
 own browser. The download and the install are the user's, by hand.
@@ -38,7 +38,7 @@ Three properties this shape has, each of which was the reason for a rejection be
   ([ADR-0013](0013-a-portable-unsigned-zip-under-apache-2.md)), an in-app updater would be
   auto-executing an unsigned binary whose only integrity check came from the same feed that served
   it. Handing the user a browser and a release page keeps that step where they can see it.
-- **No silent ping.** Because the request happens only on an explicit action, the app never contacts
+- **No silent ping.** [see Correction (2026-09-18)] Because the request happens only on an explicit action, the app never contacts
   a server carrying the user's IP, version and clock without them asking — which would be telemetry
   regardless of intent, and would contradict a promise made in two places.
 
@@ -119,3 +119,16 @@ the tag.
 
 Verify in `packages/core/src/update.ts` — `interpretUpdateCheck`, whose own docblock carries the
 measurement of both states.
+
+## Correction (2026-09-18)
+
+**The Decision's "only when the user presses the button" no longer holds.**
+[ADR-0023](0023-an-update-check-at-launch.md) adds a check at every launch, which is the "automatic
+check at launch" this ADR listed under Alternatives rejected — taken in its non-opt-in form, by the
+owner, on the discoverability argument this ADR's own Consequences made against itself.
+
+Everything else here stands and is worth re-reading rather than assuming: no forced update, no kill
+switch, no download or execution by the app, both urls constants in main, no url read out of the
+response, the two ceilings on the body, and the bare `Hecaton` User-Agent. The launch check reuses
+that same code path exactly — `checkForUpdates` in `main.ts` is still the single `fetch` in the
+process.

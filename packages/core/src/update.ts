@@ -3,8 +3,10 @@
  * not write.
  *
  * This is the app's **only** network surface (D7, which reverses ADR-0007's
- * decision 4 premise that v1 makes no request at all), and it is reached only
- * when the user asks. Everything here is the untrusted half: what arrives is
+ * decision 4 premise that v1 makes no request at all). It is reached twice: when
+ * the user presses the button, and once per launch by the app itself (ADR-0023,
+ * which superseded "only when the user asks" — `shouldOfferUpdate` below owns
+ * the rule for when that second one is worth interrupting for). Everything here is the untrusted half: what arrives is
  * whatever `api.github.com` returned, or whatever anything between the user and
  * it returned, and the main process is where it lands. So the parsing lives in
  * the core, in the fast suite, next to the IPC validators and for the same
@@ -73,6 +75,29 @@ export function isNewerVersion(candidate: string, current: string): boolean {
     if (a[i]! !== b[i]!) return a[i]! > b[i]!
   }
   return false
+}
+
+/**
+ * Whether a finished check is worth interrupting a launch for.
+ *
+ * The app checks by itself now, once per launch, and the owner approved that on
+ * 2026-09-18 knowing what it costs: GitHub sees an address every time the app
+ * opens (D7 said the request would only ever follow a click). What keeps the
+ * interruption honest is this rule — only a real update, and only one the user
+ * has not already answered "não lembrar mais" about.
+ *
+ * The answer is stored as **the version it was about**, not as a flag, so the
+ * next release asks again. "Lembrar depois" stores nothing at all: it is the
+ * absence of an answer, which is why it comes back at the next launch.
+ *
+ * A `dismissedFor` that is not a version — hand-edited, or a file from a fork —
+ * is read as no answer rather than as one. Comparing against it would silence
+ * the offer for ever, and silence is the failure mode nobody notices.
+ */
+export function shouldOfferUpdate(check: UpdateCheck, dismissedFor: string | undefined): boolean {
+  if (check.status !== 'update-available') return false
+  if (dismissedFor === undefined || parseVersion(dismissedFor) === undefined) return true
+  return isNewerVersion(check.version, dismissedFor)
 }
 
 /**

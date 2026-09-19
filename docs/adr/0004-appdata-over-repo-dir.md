@@ -7,7 +7,8 @@
 > holding a sha256 and nothing else. It has to be shared by every Windows account on the machine,
 > which `%APPDATA%` cannot be. The substance of this ADR is untouched: everything the app persists
 > **on the user's behalf** — config, logs, profiles — is still under `%APPDATA%/hecaton` in
-> development and in production alike, and nothing is ever written into the repository.
+> development and in production alike [see Correction (2026-09-18)], and nothing is ever written
+> into the repository.
 
 ## Context
 
@@ -29,7 +30,7 @@ failure mode worth naming: it looked settled precisely because three files agree
 ## Decision
 
 **`%APPDATA%/helloweb`, always — the same path in development and in production.**
-[see Correction (2026-07-21)] [see Correction (2026-07-30)]
+[see Correction (2026-07-21)] [see Correction (2026-07-30)] [see Correction (2026-09-18)]
 
 |                   |                                                            |
 | ----------------- | ---------------------------------------------------------- |
@@ -144,3 +145,14 @@ nothing copied and nothing deleted. Verify in `packages/storage/src/account-layo
 
 Everything else here stands: the location, the reasoning against the repository directory, and the
 rule that a profile is a logged-in session.
+
+## Correction (2026-09-18, second)
+
+"Including in development" stopped being true the same day the Correction above was written.
+[ADR-0022](0022-a-separate-data-directory-for-development.md) lets a development run keep its data
+under `%APPDATA%/hecaton-dev`, so it can be open beside the real app - which testing accounts
+requires. The reason this ADR gave for one path was to prevent a class of packaging bug, and that is
+kept rather than traded: the name comes from an environment variable with the production default and
+there is still no `app.isPackaged` branch, so a packaged app resolves its path through the same line
+of code. Verify in `packages/storage/src/app-paths.ts` (`appDirName`) and
+`apps/shell/scripts/dev.mjs`.

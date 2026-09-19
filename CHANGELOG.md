@@ -12,15 +12,15 @@ nos commits.
 
 Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
 
-- **Várias janelas, uma conta em cada.** Abrir um segundo Hecaton não é mais
-  recusado: ele abre na segunda conta, e cria uma se ainda não existir. Cada
-  conta tem as próprias telas, os próprios logins e o próprio cache — até 4
-  telas por conta —, então duas janelas nunca mexem nos mesmos perfis.
-- **Contas em Configurações.** Uma lista com todas as contas da máquina, o nome
-  desta conta (dá para renomear) e um botão para criar outra e ir para ela.
-  Trocar de conta desliga as telas desta janela e carrega as da outra; nada é
-  apagado. Se a conta escolhida já estiver aberta em outra janela, o aplicativo
-  avisa em vez de abrir duas vezes a mesma.
+- **Várias janelas, um perfil em cada.** Abrir um segundo Hecaton não é mais
+  recusado: ele abre no segundo perfil, e cria um se ainda não existir. Cada
+  perfil tem as próprias telas, os próprios logins e o próprio cache — até 4
+  telas por perfil —, então duas janelas nunca mexem nas mesmas telas.
+- **Perfis em Configurações.** Uma lista com todos os perfis da máquina, o nome
+  deste perfil (com botão para salvar) e um botão para criar outro e ir para
+  ele. Trocar de perfil desliga as telas desta janela e carrega as do outro;
+  nada é apagado. Se o perfil escolhido já estiver aberto em outra janela, o
+  aplicativo diz isso ali mesmo, em vez de não fazer nada.
 - **Mais tela de jogo e menos moldura.** As barras de cima e de baixo de cada
   tela ficaram com metade da altura, o espaço entre as telas caiu para 1 pixel e
   a barra lateral ficou mais estreita. Nada mudou de lugar — tudo o que estava
@@ -28,9 +28,33 @@ Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
 - **Os ícones das telas voltaram a ser legíveis.** Eles estavam sendo espremidos
   para uns 6 pixels de largura por um detalhe de layout, e por isso pareciam
   manchas parecidas. Agora cada um ocupa o botão inteiro.
-- **Apagar dados agora são dois botões.** _Apagar os dados desta conta_ mexe só
-  na conta em que você está; _Apagar TODOS os dados_ continua apagando tudo, de
-  todas as contas — e avisa que outra janela aberta perde os dados dela junto.
+- **Aviso quando sai uma versão nova.** Ao abrir, o Hecaton pergunta ao GitHub se há versão
+  mais recente e, se houver, avisa uma vez com três respostas: _Atualizar agora_ abre a
+  página da versão no seu navegador, _Lembrar depois_ volta a avisar na próxima abertura, e
+  _Não lembrar mais_ silencia **aquela** versão neste perfil — a seguinte avisa de
+  novo. Nada é enviado
+  junto: nem quem você é, nem qual versão está usando. Nada é baixado nem instalado pelo
+  aplicativo, como antes. Sem internet, ele não diz nada. _Configurações → Procurar
+  atualizações_ continua onde estava, para quando você quiser perguntar na hora.
+- **Configurações em cinco categorias.** Perfil, Aparência e som, Aplicativo, Seus dados e
+  Zona de risco, cada uma com título e uma linha que atravessa a largura — antes eram três
+  blocos separados por um fio fino, e não dava para ver onde um terminava.
+- **Dois jeitos de criar um perfil.** _Apenas criar um perfil_ cria e deixa você onde está: o
+  perfil novo entra na lista e é o que o próximo Hecaton abre. _Criar outro perfil e ir para
+  ele_ continua fazendo as duas coisas, e agora está destacado, porque é o que desliga as
+  telas desta janela.
+- **O modal de configurações não fica mais na frente de tudo.** Ele cobria qualquer outro
+  programa da máquina enquanto estava aberto; agora fica na frente das telas do jogo, que é
+  o que precisava, e atrás da janela que você colocar na frente.
+- **O texto da interface não é mais selecionável.** Arrastar o mouse sobre um card não deixa
+  mais aquele rastro azul. Nos campos em que você escreve, selecionar continua funcionando.
+- **Apagar dados agora são dois botões.** _Apagar este perfil_ mexe só no perfil
+  em que você está, e a janela continua aberta, em outro perfil; _Apagar todos
+  os perfis_ apaga tudo e fecha o aplicativo — e avisa que outra janela aberta
+  perde os dados dela junto. Se não houver outro perfil livre para assumir a
+  janela — é o único, ou os outros estão abertos em outras janelas —, apagar é
+  recusado e **nada** é apagado: o aplicativo diz isso e recomenda limpar o
+  cache das telas, que é o que costuma se querer dizer.
 
 **Sobre as telas em segundo plano**: foi medido, e elas não desaceleram. Com o
 aplicativo fora de foco, coberto por outra janela, minimizado, e até com o

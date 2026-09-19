@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { UPDATE_NOTES_MAX, interpretUpdateCheck, isNewerVersion } from './update.js'
+import {
+  UPDATE_NOTES_MAX,
+  interpretUpdateCheck,
+  isNewerVersion,
+  shouldOfferUpdate,
+} from './update.js'
 
 describe('isNewerVersion', () => {
   it.each([
@@ -159,5 +164,44 @@ describe('interpretUpdateCheck', () => {
       '0.1.0',
     )
     expect(JSON.stringify(result)).not.toMatch(/evil\.example|http/)
+  })
+})
+
+describe('shouldOfferUpdate', () => {
+  const available = { status: 'update-available', version: '0.4.0', notes: '' } as const
+
+  it('offers when nothing has been dismissed', () => {
+    expect(shouldOfferUpdate(available, undefined)).toBe(true)
+  })
+
+  it('stays quiet about a version the user said not to remind them of', () => {
+    // "Não lembrar mais" is about the version on screen, not about updates in
+    // general: the user has seen this one and answered.
+    expect(shouldOfferUpdate(available, '0.4.0')).toBe(false)
+  })
+
+  it('speaks up again when a newer version appears', () => {
+    // The whole reason the answer is stored as a version rather than a flag.
+    expect(shouldOfferUpdate({ ...available, version: '0.5.0' }, '0.4.0')).toBe(true)
+  })
+
+  it('treats a dismissal of something newer as covering this one', () => {
+    // Only reachable by editing the file by hand, and the reading that does no
+    // harm: they are not asking about an older release.
+    expect(shouldOfferUpdate(available, '0.5.0')).toBe(false)
+  })
+
+  it('ignores a dismissal that is not a version', () => {
+    // A hand-edited or corrupt value must not silence the offer for ever, which
+    // is what comparing against an unparseable string would do.
+    expect(shouldOfferUpdate(available, 'sim')).toBe(true)
+  })
+
+  it('offers nothing for any other outcome', () => {
+    // Up to date, nothing published, no network: none of these is news, and the
+    // launch must not open a modal to say so.
+    expect(shouldOfferUpdate({ status: 'up-to-date', version: '0.3.0' }, undefined)).toBe(false)
+    expect(shouldOfferUpdate({ status: 'none-published' }, undefined)).toBe(false)
+    expect(shouldOfferUpdate({ status: 'unavailable', reason: 'offline' }, undefined)).toBe(false)
   })
 })

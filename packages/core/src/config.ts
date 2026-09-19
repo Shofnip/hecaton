@@ -55,8 +55,10 @@ export interface GlobalConfig {
    * accounts would have been the obvious design and would have put a
    * read-modify-write race where losing it costs a user their names.
    *
-   * Absent means nobody renamed it, and the UI shows `Conta {N}` — a stored
-   * placeholder would make a default look like a decision.
+   * Absent means nobody renamed it, and the UI shows `Perfil {N}` — a stored
+   * placeholder would make a default look like a decision. (`Perfil` in the
+   * interface, `account` in the code: the UI word changed on 2026-09-18, the
+   * code's did not, because `profile` already means a browser profile here.)
    */
   accountName?: string
   /**
@@ -67,6 +69,18 @@ export interface GlobalConfig {
    * same reading `termsAcknowledged` takes.
    */
   releaseNotesShownFor?: string
+  /**
+   * The version the user answered "não lembrar mais" about, if any.
+   *
+   * The app checks for an update by itself at every launch (owner, 2026-09-18),
+   * so it needs to know when to keep quiet. A version rather than a flag, like
+   * `releaseNotesShownFor` above and for the mirror-image reason: the answer is
+   * about the release that was on screen, and the next one is news again.
+   *
+   * "Lembrar depois" deliberately writes nothing. Its meaning is "no answer",
+   * and the absence of a record is what brings the offer back next time.
+   */
+  updateDismissedFor?: string
 }
 
 /** What a slot may override. Everything except the id is optional. */

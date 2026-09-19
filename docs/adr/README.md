@@ -54,7 +54,7 @@ turned out wrong, that is a new ADR, not a correction.
 Only for factual errors. An ADR whose historical context has since changed is not wrong: it
 records what was true when the decision was taken, which is the point of the format.
 
-ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014 and ADR-0018 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009 and ADR-0013 carry
+ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0018 and ADR-0021 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0011, ADR-0013, ADR-0014 and ADR-0018 carry
 two or more each, which is what a dated `[see Correction (YYYY-MM-DD)]` marker is for: with more than one, an
 undated marker no longer says which.
 
@@ -63,7 +63,7 @@ undated marker no longer says which.
 | ADR                                                        | Decision                                      | Status                                                                                                     |
 | ---------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | [0001](0001-electron-over-tauri.md)                        | Electron for the shell                        | Accepted                                                                                                   |
-| [0002](0002-real-windows-over-thumbnails.md)               | Real OS windows, not a screencast             | Superseded in part by [0011](0011-embed-spawned-chrome-into-the-shell.md)                                  |
+| [0002](0002-real-windows-over-thumbnails.md)               | Real OS windows, not a screencast             | Superseded in part by ADR-0011 · w/ Correction                                                             |
 | [0003](0003-spawn-over-cdp.md)                             | Spawn Chrome instead of using CDP             | Superseded in part by [0016](0016-ship-our-own-chromium.md) · w/ Corrections                               |
 | [0004](0004-appdata-over-repo-dir.md)                      | All app state in `%APPDATA%` (one file aside) | Superseded in part by ADR-0018 · w/ Corrections                                                            |
 | [0005](0005-never-delete-a-persistent-profile.md)          | The app never deletes a profile               | Accepted · w/ Corrections                                                                                  |
@@ -72,16 +72,19 @@ undated marker no longer says which.
 | [0008](0008-archive-a-removed-slot-profile.md)             | Archive a removed slot's profile              | Accepted · w/ Corrections                                                                                  |
 | [0009](0009-login-is-bound-to-the-tab.md)                  | The game's login is bound to the tab          | Accepted · w/ Corrections                                                                                  |
 | [0010](0010-audio-follows-focus-without-a-dependency.md)   | Audio follows focus via WASAPI shell-out      | Accepted (with Correction)                                                                                 |
-| [0011](0011-embed-spawned-chrome-into-the-shell.md)        | Embed spawned Chrome into the shell           | Accepted (with Correction)                                                                                 |
+| [0011](0011-embed-spawned-chrome-into-the-shell.md)        | Embed spawned Chrome into the shell           | Accepted · w/ Corrections                                                                                  |
 | [0012](0012-hecaton-and-the-data-directory.md)             | The product is Hecaton; no migration          | Its "no migration" half reversed by [0021](0021-several-windows-one-account-each.md) · w/ Correction       |
 | [0013](0013-a-portable-unsigned-zip-under-apache-2.md)     | A portable, unsigned zip under Apache-2.0     | Accepted, its format restored by [0020](0020-a-zip-the-user-extracts-not-an-installer.md) · w/ Corrections |
-| [0014](0014-the-apps-first-network-request.md)             | The app's first network request               | Accepted (with Correction)                                                                                 |
-| [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization      | Superseded in part by ADR-0018                                                                             |
+| [0014](0014-the-apps-first-network-request.md)             | The app's first network request               | Superseded in part by [0023](0023-an-update-check-at-launch.md) · w/ Corrections                           |
+| [0015](0015-what-the-app-deliberately-does-not-collect.md) | No metrics, no accounts, no monetization      | Superseded in part by ADR-0018 · w/ Correction                                                             |
 | [0016](0016-ship-our-own-chromium.md)                      | The app ships its own Chromium                | Accepted                                                                                                   |
 | [0017](0017-repaint-an-embedded-screen.md)                 | Reload an embedded screen before showing it   | Accepted                                                                                                   |
-| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Superseded in part by [0021](0021-several-windows-one-account-each.md) · w/ Correction                     |
+| [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Superseded in part by [0021](0021-several-windows-one-account-each.md) · w/ Corrections                    |
 | [0019](0019-an-assisted-installer-for-a-792-mb-app.md)     | An assisted installer for a 792 MB app        | Superseded by [0020](0020-a-zip-the-user-extracts-not-an-installer.md)                                     |
 | [0020](0020-a-zip-the-user-extracts-not-an-installer.md)   | A zip the user extracts, not an installer     | Accepted                                                                                                   |
+| [0021](0021-several-windows-one-account-each.md)           | Several windows, one account each             | Accepted · w/ Correction                                                                                   |
+| [0022](0022-a-separate-data-directory-for-development.md)  | A separate data directory for development     | Accepted                                                                                                   |
+| [0023](0023-an-update-check-at-launch.md)                  | An update check at launch, asked once         | Accepted, superseding part of [0014](0014-the-apps-first-network-request.md)                               |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
@@ -97,8 +100,11 @@ wrong.
 
 Phase 3 added two more of the same kind. 0012's "no migration code, ever" is the friendly-looking
 feature a future session would write in an afternoon, and writing it would create a permanent code
-path that moves live logged-in sessions. 0014's "only when the user asks" is one `setInterval` away
-from becoming an automatic check, which is telemetry whatever it is called.
+path that moves live logged-in sessions. 0014's "only when the user asks" lasted until
+2026-09-18, when the owner weighed it against the discoverability cost the ADR had written down
+itself and took the launch check ([0023](0023-an-update-check-at-launch.md)) — the one thing left
+guarding that line is that the check still happens **once, at launch**, and a `setInterval` away
+from it is the timer both ADRs refuse.
 
 0018 belongs to that family too, from the other direction: it is the one a future session is most
 likely to think it should _strengthen_. Every layer in it has a measured ceiling written into the

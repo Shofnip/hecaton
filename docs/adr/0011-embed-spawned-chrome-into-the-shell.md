@@ -50,7 +50,7 @@ A Phase-0-style reparenting spike gated the decision; all six items passed and t
   has no grid to drag out of place). `computeGrid` survives only to seed a launch size.
 - **The app can now render over a game.** Modals and the volume popover are DOM, and a child
   Chrome window always paints over the panel's DOM — so they live in a **second, always-on-top,
-  transparent overlay `BrowserWindow`** that mirrors the panel's content rectangle. This directly
+  transparent overlay `BrowserWindow`** [see Correction (2026-09-18)] that mirrors the panel's content rectangle. This directly
   reverses ADR-0002's "cannot render anything over the game," and it is why the in-app HUD did
   not need the deferred extension route. Two IPC channels drive it: `overlay:open`/`overlay:close`.
 - **Audio follows the app's own focus mode, not the OS foreground** (owner decision, 2026-07-22).
@@ -164,3 +164,19 @@ sit over a child until the next layout emit moves it.
 
 This was wrong from the start — the sentence describes an implementation that did not exist when it
 was written, not one that later changed.
+
+## Correction (2026-09-18)
+
+**The overlay window is no longer always-on-top.** "A second, always-on-top, transparent overlay
+`BrowserWindow`" is two properties, and only one of them was ever needed: the overlay has to paint
+above the panel's **embedded child windows**, not above the rest of the machine. `alwaysOnTop: true`
+bought both, and the owner hit the second half — the settings modal sat in front of every other
+program until it was closed.
+
+Measured rather than reasoned (`spike/overlay-z`, a WinForms model of the same three windows): an
+owned, non-topmost window still paints over a WS_CHILD window embedded in its owner, and another
+application activated over it comes in front, as any window would. Setting the flag back in the same
+probe reproduced the old behaviour, which is what identifies the one line responsible.
+
+The decision this ADR records — modals as DOM in a second window mirroring the panel's content
+rectangle, driven by `overlay:open`/`overlay:close` — is untouched. Only the flag went.

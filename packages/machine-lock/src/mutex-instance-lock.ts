@@ -42,16 +42,6 @@ import { createInterface } from 'node:readline'
 import type { InstanceLock, InstanceLockState } from '@hecaton/core'
 
 /**
- * The prefix every account's lock name is built from.
- *
- * Derived from the account id and **nothing else** — not the user, not the
- * install path, not the machine id. Derive it from any of those and the lock
- * quietly becomes per-user or per-installation, and two windows under different
- * Windows accounts would happily open the same profiles.
- */
-export const ACCOUNT_MUTEX_PREFIX = 'Hecaton.Account'
-
-/**
  * Take the mutex, say what happened, then hold it until stdin closes.
  *
  * Holding it in a child rather than in the main process is forced: Electron
@@ -98,8 +88,21 @@ const CLAIM_TIMEOUT_MS = 15_000
 export class MutexInstanceLock implements InstanceLock {
   private worker: ChildProcessWithoutNullStreams | undefined
 
-  /** The prefix is a parameter so the integration test does not fight the real app. */
-  constructor(private readonly prefix: string = ACCOUNT_MUTEX_PREFIX) {}
+  /**
+   * The prefix every account's lock name is built from, and **required**.
+   *
+   * It used to default to a constant here, and that default was a trap: the app
+   * passes `accountMutexPrefix()`, which carries the data directory's name
+   * (`Hecaton.hecaton.Account`, or `Hecaton.hecaton-dev.Account` in development,
+   * ADR-0022). A caller that left the argument out would compile, run, and take
+   * a lock in a different namespace from every other window — which is the one
+   * thing this lock exists to prevent.
+   *
+   * What it must **not** carry is anything about the user, the install path or
+   * the machine: derive it from those and the lock quietly becomes per-user, and
+   * two Windows accounts would open the same profiles.
+   */
+  constructor(private readonly prefix: string) {}
 
   /** The holding process, for diagnostics and for the orphan test. */
   get workerPid(): number | undefined {

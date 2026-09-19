@@ -105,7 +105,7 @@ directories present in all four slots, **zero files, zero bytes**, whole profile
 ```powershell
 # Per account since ADR-0021: the profiles moved under accounts/<id>/profiles, and
 # a command still pointed at the old path enumerates nothing and reads as a pass.
-Get-ChildItem $env:APPDATA\hecatonccounts -Directory | ForEach-Object {
+Get-ChildItem "$env:APPDATA\hecaton\accounts" -Directory | ForEach-Object {
   $account = $_.Name
   Get-ChildItem "$($_.FullName)\profiles" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
     $slot = $_.Name
@@ -176,9 +176,10 @@ before reaching for `npm audit fix --force`, which would move `electron-builder`
 
 ## After
 
-Tell the friends. There is no automatic check and no notification: the app only looks for an update
-when somebody presses the button ([ADR-0014](adr/0014-the-apps-first-network-request.md)), so the
-author saying so is the distribution channel.
+Tell the friends anyway, but they will also be told: since
+[ADR-0023](adr/0023-an-update-check-at-launch.md) the app asks GitHub once at every launch and
+offers the release page, unless that person answered "não lembrar mais" for this version. There is
+still no auto-update and no installer — the download and the extraction are theirs.
 
 Say the two things they will otherwise discover: **SmartScreen warns on first run** (_More info_ →
 _Run anyway_), because nothing is signed, and the **SHA256 published beside the zip** is the only
@@ -190,5 +191,5 @@ And say the third, because it is the one they cannot discover: **deleting the fo
 logins alone.** `%APPDATA%/hecaton` is not beside the exe (ADR-0004), so there is no route — not
 even an uninstaller, since there is no uninstaller — by which removing the app removes a session. A
 newer folder finds every login where it was. Removing them is _Configurações → Zona de risco →
-Apagar todos os meus dados_ inside the app — the **Seus dados** section above it only opens the
+Apagar todos os perfis_ inside the app — the **Seus dados** section above it only opens the
 folder.

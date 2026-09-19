@@ -22,6 +22,7 @@ export {
   ACCOUNT_CLAIM_ATTEMPTS,
   MAX_ACCOUNT_NAME_LENGTH,
   accountDirName,
+  claimExistingAccount,
   claimFreeAccount,
   defaultAccountName,
   needsLegacyMigration,
@@ -88,7 +89,12 @@ export type {
 
 export { TERMS_VERSION, needsTermsAcknowledgement } from './terms.js'
 
-export { UPDATE_NOTES_MAX, interpretUpdateCheck, isNewerVersion } from './update.js'
+export {
+  UPDATE_NOTES_MAX,
+  interpretUpdateCheck,
+  isNewerVersion,
+  shouldOfferUpdate,
+} from './update.js'
 export type { UpdateCheck, UpdateFailure } from './update.js'
 
 export {

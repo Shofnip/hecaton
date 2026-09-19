@@ -41,6 +41,7 @@ const GLOBAL_KEYS = [
   'theme',
   'termsAcknowledged',
   'releaseNotesShownFor',
+  'updateDismissedFor',
   'accountName',
   'slots',
 ] as const
@@ -324,7 +325,7 @@ export function parseConfig(input: unknown): ParsedConfig {
   }
 
   // Optional with no default, like the release notes below: absent means nobody
-  // named this account, and the UI shows `Conta {N}`. Parsed through the core's
+  // named this account, and the UI shows `Perfil {N}`. Parsed through the core's
   // own rule rather than a local check, so the file and the rename channel
   // cannot disagree about what a name may be.
   if (input['accountName'] !== undefined) {
@@ -347,6 +348,19 @@ export function parseConfig(input: unknown): ParsedConfig {
     globals.releaseNotesShownFor = requireString(
       input['releaseNotesShownFor'],
       'releaseNotesShownFor',
+      'config: ',
+    )
+  }
+
+  // Same shape as the notes above: optional, no default, and absent means the
+  // launch check may offer whatever it finds. Only checked for being a string
+  // here - whether it names a real version is `shouldOfferUpdate`'s question,
+  // and it reads anything unparseable as "no answer" rather than refusing to
+  // open the app over a hand-edited line.
+  if (input['updateDismissedFor'] !== undefined) {
+    globals.updateDismissedFor = requireString(
+      input['updateDismissedFor'],
+      'updateDismissedFor',
       'config: ',
     )
   }

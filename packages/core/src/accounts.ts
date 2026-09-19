@@ -50,9 +50,17 @@ export function accountDirName(id: number): string {
   return String(requirePositiveInteger(id, 'account id'))
 }
 
-/** What a new account is called before anybody renames it. UI text. */
+/**
+ * What a new account is called before anybody renames it. UI text.
+ *
+ * **"Perfil" in the interface, `account` in the code**, decided by the owner on
+ * 2026-09-18: what the UI calls a perfil is this workspace, and what the UI used
+ * to call a perfil - a screen's browser profile - it now calls a tela. The code
+ * keeps `account` because renaming it to `profile` would collide with the
+ * browser profiles it is full of, which is the confusion the UI change fixes.
+ */
 export function defaultAccountName(id: number): string {
-  return `Conta ${requirePositiveInteger(id, 'account id')}`
+  return `Perfil ${requirePositiveInteger(id, 'account id')}`
 }
 
 /**
@@ -118,9 +126,8 @@ export async function claimFreeAccount(
   existing: readonly number[],
   tryClaim: (id: number) => Promise<boolean>,
 ): Promise<{ id: number; created: boolean }> {
-  for (const id of [...existing].sort((a, b) => a - b)) {
-    if (await tryClaim(id)) return { id, created: false }
-  }
+  const free = await claimExistingAccount(existing, tryClaim)
+  if (free !== undefined) return { id: free, created: false }
 
   let candidate = nextAccountId(existing)
   for (let attempt = 0; attempt < ACCOUNT_CLAIM_ATTEMPTS; attempt++) {
@@ -131,6 +138,30 @@ export async function claimFreeAccount(
   throw new Error(
     `no account could be claimed after ${ACCOUNT_CLAIM_ATTEMPTS} attempts past id ${nextAccountId(existing)}`,
   )
+}
+
+/**
+ * Takes the first account nobody else is running, and never creates one.
+ *
+ * The half of `claimFreeAccount` that only looks at what exists, because one
+ * caller must not have the other half: a window whose account has just been
+ * deleted needs somewhere to go, and "nowhere" is a real answer there. Creating
+ * an empty account to land in would answer a question the user did not ask -
+ * they asked to remove a profile, not to be handed a blank one - so the deletion
+ * is refused instead, and the panel points at clearing the cache, which is what
+ * "I want this profile emptied" actually means.
+ *
+ * `undefined` therefore covers two cases the caller treats alike: there are no
+ * other accounts, and every other account is open in another window.
+ */
+export async function claimExistingAccount(
+  existing: readonly number[],
+  tryClaim: (id: number) => Promise<boolean>,
+): Promise<number | undefined> {
+  for (const id of [...existing].sort((a, b) => a - b)) {
+    if (await tryClaim(id)) return id
+  }
+  return undefined
 }
 
 /** What the data directory looks like, as far as the migration is concerned. */

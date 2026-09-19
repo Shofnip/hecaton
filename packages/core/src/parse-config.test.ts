@@ -248,7 +248,7 @@ describe('the account name in a config file', () => {
   })
 
   it('leaves it absent when the file does not carry one', () => {
-    // Absent is meaningful: the UI shows the default "Conta {N}" rather than a
+    // Absent is meaningful: the UI shows the default "Perfil {N}" rather than a
     // name somebody chose, and writing a placeholder would make a default look
     // like a decision.
     expect(parseConfig(valid).globals.accountName).toBeUndefined()
@@ -261,5 +261,23 @@ describe('the account name in a config file', () => {
 
   it('refuses a name past the cap, like a screen name', () => {
     expect(() => parseConfig({ ...valid, accountName: 'x'.repeat(25) })).toThrow(/accountName/)
+  })
+})
+
+describe('the dismissed update in a config file', () => {
+  it('reads the version the user asked not to be reminded of', () => {
+    expect(parseConfig({ ...valid, updateDismissedFor: '0.4.0' }).globals.updateDismissedFor).toBe(
+      '0.4.0',
+    )
+  })
+
+  it('leaves it absent when nobody has dismissed anything', () => {
+    // Absent is the meaningful default: the launch check offers whatever it
+    // finds. A placeholder here would silence the first offer ever made.
+    expect(parseConfig(valid).globals.updateDismissedFor).toBeUndefined()
+  })
+
+  it('refuses a value that is not a string', () => {
+    expect(() => parseConfig({ ...valid, updateDismissedFor: 4 })).toThrow(/updateDismissedFor/)
   })
 })

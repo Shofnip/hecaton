@@ -3,7 +3,8 @@
 **Status:** Superseded in part by [ADR-0014](0014-the-apps-first-network-request.md) · **Date:** 2026-07-21
 
 Decision 4's conclusion — that the app makes no network request at all in v1 — was reversed on
-2026-07-29 and implemented on 2026-08-09: the app now makes exactly one, when the user asks for it.
+2026-07-29 and implemented on 2026-08-09: the app now makes exactly one, when the user asks for it
+[see Correction (2026-09-18, second)].
 **Its mechanism was not touched.** `default-src 'none'` / `connect-src 'none'` stand exactly as
 written below, because the request is a `fetch` in the main process where no CSP applies. Decisions
 1, 2, 3 and 5 stand in full.
@@ -161,3 +162,17 @@ guarded is now a browser profile rather than the app itself. Electron's own `use
 placed under the app's data directory and is now **one per launch**, `shell/<pid>`, because two
 windows on one cache bring back the error that placement exists to avoid. Nothing else in this
 ADR's posture changed.
+
+## Correction (2026-09-18, second)
+
+**"When the user asks for it" no longer describes when the request happens.** Since
+[ADR-0023](0023-an-update-check-at-launch.md) the same check also runs once per launch, by itself,
+and the owner took that knowing the exposure — `api.github.com` sees an address every time a window
+opens.
+
+Everything this ADR decides is untouched, and the distinction it drew is the reason: **decision 4's
+mechanism was never what changed.** `default-src 'none'` / `connect-src 'none'` still stand exactly
+as written, because the request is a `fetch` in the main process where no CSP applies. Decisions 1,
+2, 3 and 5 — the pinned supply chain, the locked-down `webPreferences`, the refusal of an
+arbitrary-open IPC surface, and the navigation allowlist — are all in force, and the launch check
+introduced no new dependency, no new url and no new channel that carries one.

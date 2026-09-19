@@ -5,7 +5,7 @@
 > **Superseded in part by [ADR-0011](0011-embed-spawned-chrome-into-the-shell.md) (2026-07-26):**
 > the _presentation_ half is reversed — the windows are now embedded in a single shell window
 > (a "video wall"), not arranged free on the desktop, and "the app cannot render anything over the
-> game" (Consequences) no longer holds: an always-on-top overlay window renders the HUD over the
+> game" (Consequences) no longer holds: an overlay window renders the HUD over the
 > games. The substance this ADR exists for — **real Chrome windows, not an NVR-style screencast
 > with forwarded input** — still stands, and turned out load-bearing (the screencast path depended
 > on CDP, which [ADR-0003](0003-spawn-over-cdp.md) later ruled out). The body below is left as
@@ -52,3 +52,15 @@ machinery, and it would have added latency between the player and a game they pl
 entirely on CDP, and [ADR-0003](0003-spawn-over-cdp.md) later established that CDP is unusable
 against the target game. Had the dashboard been chosen, the Phase 0 spike would have invalidated
 the product's core interaction rather than one implementation detail.
+
+## Correction (2026-09-18)
+
+The supersession note above described the overlay as "always-on-top" when it was written, and that
+word has been removed from it rather than left to mislead: since 2026-09-18 the overlay is an
+**owned, non-topmost** window. Being owned by the panel is what puts it over the embedded `WS_CHILD`
+game windows; the flag additionally put it over every other program on the machine, which is the
+defect the owner reported. Measured in `spike/overlay-z` and recorded in
+[ADR-0011](0011-embed-spawned-chrome-into-the-shell.md)'s Correction of the same date.
+
+Nothing about this ADR's own decision changes: the HUD still renders over the games, which is what
+reversed the "cannot render anything over the game" consequence in the first place.

@@ -78,6 +78,11 @@ Tons "papel" rebaixados — nenhuma superfície em branco puro, texto em cinza-e
 
 ## 3. Layout geral
 
+**Nada na interface é texto selecionável** (decisão do dono, 2026-09-18): `user-select: none` no
+`body`, com exceção dos campos em que o usuário escreve (`input`, `textarea`). É uma superfície de
+controle, não um documento — arrastar sobre um card deixava um rastro azul sobre rótulos que
+ninguém copia, e na parede arrastar é como se mira uma tela.
+
 ```
 ┌──┬──────────────────────────────┐
 │  │  ┌────────────┐┌────────────┐│
@@ -155,7 +160,7 @@ Botões de 20×20px com ícones de 16px sobre fundo `panelSoft` — o ícone qua
 
 1. **Ligar/Desligar** — destacado em `accent` quando a tela está ativa (qualquer estado exceto `off`).
 2. **Recarregar** — desabilitado (opacidade 0.45) quando a tela está desligada; o ícone gira durante o carregamento.
-3. **Volume** — abre o popover vertical (seção 6). Ícone fica vermelho quando mudo; destacado em `accent` com o popover aberto.
+3. **Volume** — abre o popover vertical (seção 6). Ícone fica vermelho quando mudo. O botão **não** ganha destaque enquanto o popover está aberto: o popover vive na janela de overlay, e a parede não guarda esse estado.
 
 **Grupo de visualização e gestão (direita):** 4. **Foco** — ícone de mira; destacado em `accent` quando aquela tela está em foco. Alterna o modo foco. 5. **Tela cheia** — alterna entre maximizar/restaurar (ícone muda entre expandir/contrair). 6. **Editar** — abre o modal de edição (seção 8). 7. **Apagar** — ícone de lixeira em `danger`, sempre o último botão (o mais distante das ações frequentes). Abre confirmação (seção 9).
 
@@ -180,7 +185,7 @@ Popover ancorado **acima** do botão de volume, estilo player de vídeo:
 - A tela focada ocupa a área principal com todos os controles normais.
 - As demais viram **miniaturas** numa fileira inferior:
   - Dividem **igualmente toda a largura** disponível (flex 1, gap 1px).
-  - Altura padrão **100px**; conteúdo: LED (9px, a mesma classe `.led` do card) + nome (11px) no cabeçalho. No corpo, uma tela **em execução** recebe a própria janela do Chrome embutida — o painel publica esse retângulo em `screens:layout`, como no §5.2, e é isso que mantém o mural vivo no modo foco. As demais mostram o estado em texto ("carregando…" / "erro ao carregar" / "desligada").
+  - Altura padrão **100px**; conteúdo: LED (a mesma classe `.led` do card, 7px) + nome (11px) no cabeçalho. No corpo, uma tela **em execução** recebe a própria janela do Chrome embutida — o painel publica esse retângulo em `screens:layout`, como no §5.2, e é isso que mantém o mural vivo no modo foco. As demais mostram o estado em texto ("carregando…" / "erro ao carregar" / "desligada").
   - Discretas por padrão (opacidade 0.85); hover acende a borda no `accent` e restaura a opacidade.
   - **Clicar no cabeçalho da miniatura transfere o foco para ela.** No corpo isso só vale quando a tela não está em execução: no corpo de uma tela ligada o clique chega ao jogo, porque ali está a janela do navegador.
 - **Divisor arrastável** entre a tela principal e as miniaturas:
@@ -227,36 +232,68 @@ Observação de comportamento: apagar uma tela **arquiva** o perfil do slot (nã
 
 ## 10. Modal de configurações
 
-Itens, de cima para baixo — a lista descreve o que **está no app hoje**, não o protótipo:
+**Cinco categorias**, cada uma com um cabeçalho: o nome em caixa alta, na cor do texto, seguido de
+uma régua de 2px que atravessa o resto da linha (`settings-section`). Substituíram os divisores
+finos com rótulo apagado que havia antes — o dono não conseguia ver onde um grupo terminava e o
+outro começava, que é justamente para o que serve um título. A "Zona de risco" usa a mesma forma em
+`danger`.
 
-1. **Áudio apenas na tela em foco** — toggle com estado claramente visível (fundo `accentSoft` + borda `accent` + interruptor deslizante quando ativo). Descrição: "Silencia automaticamente as telas fora de foco". Integra-se naturalmente ao modo foco (seção 7).
-2. **Conta** (divisor + rótulo) — a seção de contas (ADR-0021), com três controles dentro de um
-   `field-box`: um **dropdown** com todas as contas da máquina (a desta janela vem selecionada), o
-   **nome desta conta** em campo de texto de até 24 caracteres, e **Criar outra conta e ir para
-   ela** como botão neutro. Trocar de conta e criar conta passam pelo modal de confirmação da
-   seção 9 na forma **não destrutiva** — "Confirmar" em `accent`, porque nada é apagado, só as
-   telas desta janela são desligadas. Uma conta aberta em outra janela **não** aparece marcada: só
-   dá para saber isso tomando a trava dela, e uma sondagem que toma a trava por um instante pode
-   empurrar uma janela que está abrindo para outra conta. A troca simplesmente falha com um toast.
-3. **Abrir logs** — botão neutro com ícone de pergaminho.
-4. **Aviso sobre os termos do jogo** — reabre o texto mostrado na primeira execução.
-5. **Novidades da versão {N}** — só aparece quando o `CHANGELOG.md` tem seção para a versão em execução.
-6. **Versão + Procurar atualizações** — a única ação do app que toca a rede (ADR-0014).
-7. **Tema** — controle segmentado Claro/Escuro com ícones de sol/lua; a opção ativa fica em `accent`.
-8. **Seus dados** (divisor + rótulo) — onde os dados ficam, a divulgação sobre senhas salvas pelo navegador, e **Abrir pasta dos dados**.
-9. **Zona de risco** (divisor + rótulo vermelho em caps) — **quatro** botões:
+A ordem é a de quem usa: quem é esta janela, como ela parece e soa, o aplicativo em si, onde ficam
+os arquivos e, por último, o que não tem volta.
+
+1. **Perfil** — a seção de perfis (ADR-0021; a UI chama de **perfil** o espaço de trabalho, e de
+   **tela** o que antes chamava de perfil do navegador), com quatro controles dentro de um
+   `field-box`: um **dropdown** com todos os perfis da máquina (o desta janela vem selecionado), o
+   **nome deste perfil** em campo de texto de até 24 caracteres **com botão Salvar** (habilitado só
+   quando o texto muda; Enter também salva), **Apenas criar um perfil** e **Criar outro perfil e ir
+   para ele**. Os dois botões de criar vêm nessa ordem e com pesos diferentes: o primeiro é neutro e
+   não mexe em nada nesta janela — cria o perfil, ele entra no dropdown e o próximo Hecaton o abre —,
+   e o segundo leva a borda e o fundo em `accent`, porque é o que desliga as telas daqui. Trocar de
+   perfil e criar-e-ir passam pelo modal de confirmação da seção 9 na forma **não destrutiva** —
+   "Confirmar" em `accent`, porque nada é apagado. Criar sem ir não pede confirmação: nada é
+   desligado nem apagado. Um perfil aberto em outra janela **não** aparece marcado: só dá para saber
+   isso tomando a trava dele, e uma sondagem que toma a trava por um instante pode empurrar uma
+   janela que está abrindo para outro perfil. A troca falha e a razão aparece **dentro do modal**, em
+   `danger` — o modal vive na janela de overlay, que não tem faixa de toast, e é para onde o usuário
+   está olhando quando a recusa acontece. Já trocar e renomear com sucesso são anunciados pela
+   **parede**, que é a janela que sobra na frente quando o modal se fecha; criar-sem-ir é anunciado
+   dentro do próprio modal, que continua aberto.
+2. **Aparência e som** — **Tema**, controle segmentado Claro/Escuro com ícones de sol/lua (a opção
+   ativa em `accent`), e **Áudio apenas na tela em foco**, toggle com estado claramente visível
+   (fundo `accentSoft` + borda `accent` + interruptor deslizante quando ativo). Descrição:
+   "Silencia automaticamente as telas fora de foco". Integra-se ao modo foco (seção 7).
+3. **Aplicativo** — **Versão + Procurar atualizações** (a única ação **do usuário** que toca a
+   rede; a outra é a verificação automática de abertura, §10.1 — ADR-0014 e ADR-0023),
+   **Novidades da versão {N}** (só quando o `CHANGELOG.md` tem seção para a
+   versão em execução), **Aviso sobre os termos do jogo** e **Abrir logs**.
+4. **Seus dados** — onde os dados ficam, a divulgação sobre senhas salvas pelo navegador, e **Abrir
+   pasta dos dados**.
+5. **Zona de risco** — **quatro** botões:
    - **Limpar cache das telas**
    - **Limpar dados arquivados**
-   - **Apagar os dados desta conta** — apaga `accounts/<id>`: perfis, telas e cache desta conta,
-     deixando as outras intactas. Vem antes do botão abaixo de propósito: é o que quase sempre se
-     quer dizer com "apagar".
-   - **Apagar TODOS os dados** — apaga `%APPDATA%/hecaton` inteiro, **todas as contas**, sessões
-     logadas incluídas, e fecha o app. A confirmação avisa, com essas palavras, que outra janela
-     aberta perde os dados no meio do uso.
+   - **Apagar este perfil** — apaga `accounts/<id>`: as telas, os logins e o cache deste perfil,
+     deixando os outros intactos. Vem antes do botão abaixo de propósito: é o que quase sempre se
+     quer dizer com "apagar". **A janela não fecha** — ela adota outro perfil já existente. Quando
+     não há nenhum livre (é o único perfil, ou os outros estão abertos em outras janelas) a ação é
+     **recusada e nada é apagado**: a recusa aparece logo abaixo do botão e recomenda _Limpar cache
+     das telas_, que é o que se quer dizer quando a intenção era só esvaziar o perfil. Sendo o único
+     perfil da máquina, o botão já vem desabilitado dizendo isso.
+   - **Apagar todos os perfis** — apaga `%APPDATA%/hecaton` inteiro, sessões logadas incluídas, e
+     aí sim fecha o app, porque não sobra perfil nenhum para adotar. A confirmação avisa, com essas
+     palavras, que outra janela aberta perde os dados no meio do uso.
 
    Os dois últimos ficam desabilitados enquanto houver tela aberta nesta janela, e são as **únicas**
    ações do produto que apagam um perfil vivo — este documento já omitiu esse inventário uma vez, o
    mesmo erro que a Correção de 2026-08-08 da ADR-0008 teve de consertar.
+
+### 10.1 Atualização disponível (modal de abertura)
+
+Aparece sozinho, uma vez por abertura, quando a verificação automática encontra versão nova que o
+usuário ainda não dispensou (ADR-0023). É desenhado pela **parede**, como o de novidades, porque
+abre antes de qualquer tela estar embutida. Traz a versão publicada, a que está rodando, as notas da
+release em `pre` (texto puro, nunca markup — veio da rede) e três ações, da menos para a mais
+enfática: **Não lembrar mais** e **Lembrar depois** neutros, **Atualizar agora** em `primary`.
+Fechar no X ou no Escape equivale a "lembrar depois": nada é gravado.
 
 ---
 
@@ -270,7 +307,16 @@ Itens, de cima para baixo — a lista descreve o que **está no app hoje**, não
 
 ## 12. Feedback (toasts)
 
-Notificações transitórias (~2,6s) em pílula centralizada na base da área principal. Mensagens em uso, conferidas contra os quatorze `showToast` do renderer: "Ligando todas as telas…", "Todas as telas desligadas", "Tela adicionada", "Abrindo logs…", "Cache das telas limpo", "Cache da {nome} limpo", "Dados arquivados excluídos", "Abrindo no navegador…", "Abrindo pasta…", "Dados apagados. Fechando o aplicativo…", "Dados da conta apagados. Fechando o aplicativo…", "Agora em {conta}", "Conta renomeada", "Conta criada", e as três recusas de troca de conta ("Essa conta já está aberta em outra janela", "Essa conta está aberta em outra conta do Windows", "Não foi possível reservar essa conta agora"). Remover uma tela **não** emite toast: a remoção empurra o estado e a grade se redesenha sozinha.
+Notificações transitórias (~2,6s) em pílula centralizada na base da área principal. Mensagens em
+uso, conferidas contra os quatorze `showToast` do renderer (treze textos distintos — "Abrindo no
+navegador…" aparece em duas chamadas): "Ligando todas as telas…", "Todas as telas desligadas",
+"Tela adicionada", "Abrindo logs…", "Cache das telas limpo", "Cache da {nome} limpo", "Dados
+arquivados excluídos", "Abrindo no navegador…", "Abrindo pasta…", "Dados apagados. Fechando o
+aplicativo…", "Agora em {perfil}" e "Perfil renomeado para {nome}". **O que não é toast**, e de
+propósito: criar um perfil sem ir para ele, as três recusas de troca de perfil e a recusa de apagar
+o perfil aparecem **dentro do modal**, em `.account-status` — o modal vive na janela de overlay, que
+não tem faixa de toast, e é para onde o usuário está olhando. Apagar um perfil também não emite
+toast próprio: quem anuncia é a parede, com "Agora em {perfil}", quando a janela adota o próximo. Remover uma tela **não** emite toast: a remoção empurra o estado e a grade se redesenha sozinha.
 
 ---
 
@@ -301,9 +347,11 @@ Notificações transitórias (~2,6s) em pílula centralizada na base da área pr
   visíveis. Três correções em relação ao que este documento dizia antes, todas conferidas no
   código: não há encaminhamento de foco no evento `focus` da BrowserWindow (só o
   `WM_PARENTNOTIFY`), não há reafirmação de z-order na ativação, e um modal não esconde a grade
-  inteira. O popover de volume e quase todos os modais vivem na janela overlay always-on-top
-  (ADR-0011) e não escondem tela alguma; o único desenhado no próprio painel é o de novidades
-  da versão.
+  inteira. O popover de volume e quase todos os modais vivem na janela overlay — que
+  **não** é always-on-top desde 2026-09-18: ela é _owned_ pelo painel, o que já basta para pintar
+  acima das telas embutidas sem cobrir os outros programas da máquina (ADR-0011 e sua Correção) — e
+  não escondem tela alguma. Os desenhados no próprio painel são três: o portão dos termos, o de
+  novidades da versão e o de atualização disponível (§10.1).
 - **Recarregar**: `WM_APPCOMMAND` com `APPCOMMAND_BROWSER_REFRESH` (código **3**) direto na
   janela embutida — sem foco, sem clique, ~310ms. É a **única** operação que preserva o
   login do jogo (sessão presa à aba, ADR-0009): navegar e voltar, reabrir ou nova aba

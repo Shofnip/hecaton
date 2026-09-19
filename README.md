@@ -26,13 +26,16 @@ target game: **Poke IdleWorld**; any `https://` URL works too.
   at its own volume; focus one and the rest go quiet.
 - **Light/dark themes**, and small tools: clear a screen's cache without logging it out, open the
   logs, and remove/re-add screens (a removed screen's profile is archived, never deleted).
-- **Several windows, one account each**: open Hecaton again and it takes the next account, with its
-  own screens, logins and cache — never the same browser profiles as another window. Accounts are
-  named and switched from the settings modal.
-- **Delete your data**, from the settings modal: where it lives, and two confirmed actions — one for
-  the account you are in, one for every account — each of which closes the app afterwards.
-- **Check for updates** when you feel like it — never on its own. It reads the release list, shows
-  the changelog, and opens the page in your browser if you want it.
+- **Several windows, one profile each**: open Hecaton again and it takes the next profile, with its
+  own screens, logins and cache — never the same browser profiles as another window. Profiles are
+  named, created and switched from the settings modal.
+- **Delete your data**, from the settings modal: where it lives, and two confirmed actions —
+  _Apagar este perfil_, which leaves the window open on another profile and is refused outright when
+  there is no other profile free, and _Apagar todos os perfis_, which deletes everything and closes
+  the app.
+- **Check for updates**: once each time you open the app, and again whenever you ask. It reads the
+  release list, shows the changelog, and opens the page in your browser if you want it — nothing is
+  downloaded or installed by the app.
 
 ## Requirements
 
@@ -81,7 +84,7 @@ Three things to expect, all of them consequences of a decision rather than accid
   every session where it was — and so nothing you delete by hand can take them with it
   ([ADR-0020](docs/adr/0020-a-zip-the-user-extracts-not-an-installer.md)).
 
-To remove the logins and settings as well, use **Configurações → Zona de risco → Apagar TODOS os dados**, which
+To remove the logins and settings as well, use **Configurações → Zona de risco → Apagar todos os perfis**, which
 deletes that directory and closes the app — stop every screen first, since the browser holds its
 profile open. A folder with the app's own cache stays behind; it holds no login. A clean-session
 screen also leaves a throwaway profile in your temp directory if the app was killed before it could
@@ -138,11 +141,14 @@ npm --prefix apps/shell start
 ```
 
 That builds the app and launches the Electron window. (It is a shortcut for
-`cd apps/shell && npm start`, which runs `npm run build && electron .`.) Close the window to quit;
-the browser screens close with it.
+`cd apps/shell && npm start`, which builds and then runs `scripts/dev.mjs`.) Close the window to
+quit; the browser screens close with it.
 
-Everything the app saves lives under `%APPDATA%/hecaton` (see [Data](#data-and-privacy) below),
-so your logins and settings persist between runs.
+**A development run keeps its data in `%APPDATA%/hecaton-dev`**, separate from the real app's
+`%APPDATA%/hecaton` ([ADR-0022](docs/adr/0022-a-separate-data-directory-for-development.md)), so you
+can have both open at once and nothing you do while developing touches your own logins. It starts
+empty, like a fresh install. Running `electron .` by hand instead uses the production directory,
+because that is not a development run - it is the packaged behaviour exercised from the source tree.
 
 ## Development
 
@@ -165,8 +171,11 @@ moves a window or touches disk goes in `*.integration.test.ts`. Strict TDD throu
 
 ## Data and privacy
 
-Everything the app persists lives under `%APPDATA%/hecaton`, **including in development**: config,
-rotated logs, and — per account — the config and the browser profiles under `accounts/<id>/`. Nothing the app produces is ever
+Everything the app persists lives under `%APPDATA%/hecaton`: config, rotated logs, and — per
+profile — the config and the browser profiles under `accounts/<id>/`. A development run
+(`npm --prefix apps/shell start`) uses `%APPDATA%/hecaton-dev` instead, so it can be open beside the
+real app without sharing a login
+([ADR-0022](docs/adr/0022-a-separate-data-directory-for-development.md)). Nothing the app produces is ever
 written into the repository — a profile _is_ a logged-in session (cookies, saved passwords), and
 keeping it out of the working tree removes that risk at the source.
 
@@ -174,27 +183,32 @@ Two things live outside that directory. A screen set to a **clean session** keep
 throwaway directory under the OS temp folder, removed when the screen stops; if the app is killed
 before that, the directory survives until Windows reclaims it — worth knowing on a shared machine.
 And the machine seal at `C:\ProgramData\hecaton\machine.json` (see Requirements above) holds a
-hash of your hardware and nothing of yours, which is why _Apagar TODOS os dados_ leaves it
+hash of your hardware and nothing of yours, which is why _Apagar todos os perfis_ leaves it
 alone.
 
 The app **never stores passwords** — logins live only inside the bundled browser's own profile. No
 profile data leaves the machine, and there is no telemetry.
 
-It makes **one** network request, and only when you press **Configurações → Procurar
-atualizações**: it asks GitHub what the latest release is. Nothing is sent with it — no identifier,
-no usage, not even which version you are on, since the comparison happens on your machine. Nothing
-is downloaded or installed either: if there is a newer version, the app offers to open the release
-page in your browser and the rest is yours.
+It makes **one kind** of network request: it asks GitHub what the latest release is. That happens
+once each time you open the app, and again whenever you press **Configurações → Procurar
+atualizações**. Nothing is sent with it — no identifier, no usage, not even which version you are
+on, since the comparison happens on your machine. Nothing is downloaded or installed either: if
+there is a newer version, the app offers to open the release page in your browser and the rest is
+yours. The offer at launch has three answers — open the page, remind me next time, or never about
+this version — and only the last one is written down
+([ADR-0023](docs/adr/0023-an-update-check-at-launch.md)).
 
 **Configurações → Seus dados** names `%APPDATA%/hecaton` and the temp folder, and opens the first.
 It does not mention the machine seal — that is named on the refusal screen, which is the only place
 it matters. Beside it,
-**Apagar os dados desta conta** deletes `accounts/<id>` — that account's profiles, screens and
-cache — and **Apagar TODOS os dados** deletes `%APPDATA%/hecaton` whole, every account included, so
-another window loses its data mid-session (its confirmation says so). Both take an explicit
-confirmation, both close the app afterwards, and both need every screen in this window stopped
-first. They are the only ways the app deletes a profile that is still in use, and there is no
-command-line equivalent.
+**Apagar este perfil** deletes `accounts/<id>` — that profile's screens, logins and cache — and
+**Apagar todos os perfis** deletes `%APPDATA%/hecaton` whole, every profile included, so another
+window loses its data mid-session (its confirmation says so). Both take an explicit confirmation and
+both need every screen in this window stopped first. They differ in what happens next: the narrow
+one leaves the window open on another profile, and is **refused outright** when there is no other
+profile free to move to — nothing is deleted, and the app suggests clearing the screens' cache
+instead. The wide one closes the app. They are the only ways the app deletes a profile that is still
+in use, and there is no command-line equivalent.
 
 ## Documentation
 

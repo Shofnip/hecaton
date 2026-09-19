@@ -37,7 +37,6 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  *   show <hwnd> <cmd>               -> OK         (0 = SW_HIDE, 5 = SW_SHOW)
  *   reload <hwnd>                   -> OK
  *   close <hwnd>                    -> OK         (posts WM_CLOSE, graceful)
- *   exists <hwnd>                   -> OK 1 | OK 0
  *   exit                            -> OK  then the process exits
  * Errors reply "ERR <message>". "READY" is printed once the compile is done.
  */
@@ -56,7 +55,6 @@ public static class W {
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
-  [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
@@ -183,7 +181,6 @@ public static class W {
   // block on Chrome's shutdown.
   public static string Close(IntPtr h) { PostMessage(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); return "OK"; }
 
-  public static string Exists(IntPtr h) { return IsWindow(h) ? "OK 1" : "OK 0"; }
 }
 '@
 Add-Type -TypeDefinition $cs -Language CSharp | Out-Null
@@ -204,7 +201,6 @@ while ($true) {
       'show'      { Reply ([W]::Show([IntPtr][int64]$a[1], [int]$a[2])) }
       'reload'    { Reply ([W]::Reload([IntPtr][int64]$a[1])) }
       'close'     { Reply ([W]::Close([IntPtr][int64]$a[1])) }
-      'exists'    { Reply ([W]::Exists([IntPtr][int64]$a[1])) }
       'exit'      { Reply 'OK'; exit 0 }
       default     { Reply "ERR unknown: $($a[0])" }
     }

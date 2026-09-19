@@ -27,6 +27,7 @@ import {
   parseScreenLayout,
   parseSlotAddition,
   parseSlotId,
+  shouldOfferUpdate,
   parseSlotMuted,
   parseSlotRename,
   parseSlotUpdate,
@@ -38,6 +39,7 @@ import {
 import {
   TERMS_VERSION,
   accountDirName,
+  claimExistingAccount,
   claimInstance,
   defaultAccountName,
   ensureBrowserReadable,
@@ -61,7 +63,8 @@ import {
 import { NativeWindowManager } from '@hecaton/window-manager'
 import { MutexInstanceLock, WmiMachineIdentity } from '@hecaton/machine-lock'
 import {
-  APP_DIR_NAME,
+  appDirName,
+  accountMutexPrefix,
   ELECTRON_DIR_NAME,
   FileLogger,
   CorruptJsonError,
@@ -147,10 +150,12 @@ app.setPath('userData', panelCacheDir(process.pid))
  * someone else says" — which is the arbitrary-open surface ADR-0007 decision 3
  * refused for IPC, and the reason `logs:reveal` takes no argument either.
  *
- * The request is made only when the user presses the button. Nothing here runs
- * at launch, on a timer, or in the background: an automatic check would be a
- * request carrying the user's IP and clock that they never asked for, which is
- * telemetry whatever it is called (D7, D8).
+ * Two entrances since 2026-09-18, one address: the button in Configurações, and
+ * `offerUpdateIfAny` once per launch (ADR-0023, superseding part of ADR-0014).
+ * Nothing runs on a timer or in the background, and there is no second network
+ * surface anywhere in the app - the single `fetch` below is still the whole of
+ * it. What the launch check costs, and why the owner took it over D7/D8's
+ * refusal, is written down in the ADR rather than inferred from here.
  */
 const RELEASES_API = 'https://api.github.com/repos/Shofnip/hecaton/releases/latest'
 const RELEASES_PAGE = 'https://github.com/Shofnip/hecaton/releases/latest'
@@ -281,10 +286,15 @@ function panelHwnd(): number | undefined {
  * ever writes inside it (ADR-0021).
  */
 function openAccount(id: number): void {
-  accountId = id
+  // The directory first, and `accountId` only once it is there. The other order
+  // leaves the window claiming an account whose paths were never built when
+  // `mkdirSync` throws - holding the new lock while `storage` and `profiles`
+  // still point at the account it was leaving, which after a deletion is a
+  // directory that no longer exists.
   mkdirSync(accountDir(id), { recursive: true })
   storage = new JsonFileStorage<unknown>(accountConfigFilePath(id))
   profiles = new FileProfileArchive(accountProfilesDir(id))
+  accountId = id
 }
 
 /**
@@ -454,11 +464,23 @@ let audioTimer: ReturnType<typeof setInterval> | undefined
 // the final value.
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 function saveConfigurationSoon(): void {
-  if (saveTimer) clearTimeout(saveTimer)
+  cancelPendingSave()
   saveTimer = setTimeout(() => {
     saveTimer = undefined
     void saveConfiguration()
   }, 400)
+}
+
+/**
+ * Drops a pending debounced save.
+ *
+ * Both deletions call this before removing anything: the queued write still
+ * points at the config file inside the directory about to go, and a save landing
+ * after the removal recreates part of what the user just deleted.
+ */
+function cancelPendingSave(): void {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = undefined
 }
 
 interface PanelState {
@@ -497,6 +519,16 @@ interface PanelState {
    * again from Configurações afterwards, and "available" is not "due".
    */
   needsReleaseNotes: boolean
+  /**
+   * The update this launch found, when there is one the user has not already
+   * answered "não lembrar mais" about.
+   *
+   * Sent as the finished offer rather than as a raw check: whether to interrupt
+   * somebody's launch is the core's rule (`shouldOfferUpdate`), and the panel
+   * only draws what it is given. Absent is the normal case - offline, up to
+   * date, or dismissed.
+   */
+  updateOffer?: { version: string; notes: string }
   /** The account this window owns: what the dropdown shows as selected. */
   account: { id: number; name: string }
   /**
@@ -528,11 +560,20 @@ function currentState(): PanelState {
   if (configQuarantinedAs !== undefined) state.configQuarantinedAs = configQuarantinedAs
   const notes = releaseNotes()
   if (notes !== undefined) state.releaseNotes = notes
+  if (updateOffer !== undefined) state.updateOffer = updateOffer
   return state
 }
 
 function pushState(): void {
-  panel?.webContents.send('state', currentState())
+  const state = currentState()
+  panel?.webContents.send('state', state)
+  // The overlay too, and it was missing: the settings modal renders **there**,
+  // so without this the account dropdown showed whatever the state was when the
+  // window opened. Creating an account then looked like nothing had happened -
+  // the wall stopped its screens and the modal, reopened, still named the old
+  // account. The overlay keeps the copy and redraws nothing on its own (it would
+  // wipe a half-typed field), so this is only ever a fresher snapshot.
+  overlay?.webContents.send('state', state)
 }
 
 /**
@@ -705,25 +746,59 @@ function registerIpc(): void {
 
     'data:deleteAccount': async (payload) => {
       // The narrower of the two deletions, and the one the panel offers first:
-      // this account's profiles, config and cache, and nothing belonging to any
+      // this account's screens, config and cache, and nothing belonging to any
       // other account - which another window may be running right now
       // (ADR-0021). Guarded exactly like the wider one below.
       parseNoPayload(payload)
       requireEveryScreenStopped((orchestrator ? orchestrator.snapshot() : []).map((s) => s.state))
 
-      // The leaf is the account id, which is also the directory name: the core's
-      // allowlist is checking main against the same number it used to build the
-      // path.
-      const remaining = deleteUserData([
-        { path: accountDir(accountId), leaf: accountDirName(accountId) },
-      ])
-      // Nothing of this window's is held open inside the account: its Electron
-      // cache lives in `shell/<pid>`, outside. So **nothing** may survive, and
-      // anything that does is a browser that was still running - the failure
-      // this check exists to name.
-      verifyUserDataDeletion(remaining, [])
+      const deleted = accountId
+      // Where this window will live afterwards, decided **before** anything is
+      // removed. A window with no account has no config to write and no
+      // profiles to launch, and the app used to answer that by quitting; the
+      // owner asked for the other answer, so a deletion with nowhere to go is
+      // refused and nothing is touched. Claimed rather than counted: whether
+      // another window holds an account is only knowable by taking its lock.
+      const successor = await claimSuccessor(deleted)
+      if (!successor) {
+        logger.log({ level: 'info', event: 'accounts.delete-refused', message: 'no-successor' })
+        return { ok: false, reason: 'no-successor' }
+      }
+      // Nothing may write into the account between here and the deletion. A
+      // debounced save is the one thing that could: it fires 400ms after the
+      // last change, still pointing at the config file about to be removed, and
+      // would put the "deleted" account back on disk as an empty directory.
+      cancelPendingSave()
+      try {
+        // The leaf is the account id, which is also the directory name: the
+        // core's allowlist is checking main against the same number it used to
+        // build the path.
+        const remaining = deleteUserData([
+          { path: accountDir(deleted), leaf: accountDirName(deleted) },
+        ])
+        // Nothing of this window's is held open inside the account: its Electron
+        // cache lives in `shell/<pid>`, outside. So **nothing** may survive, and
+        // anything that does is a browser that was still running - the failure
+        // this check exists to name.
+        verifyUserDataDeletion(remaining, [])
+        logger.log({ level: 'info', event: 'accounts.deleted', message: String(deleted) })
 
-      quitAfterDeletion()
+        // And the window stays open on the account claimed above rather than
+        // closing. The wide deletion below still quits, because after it there
+        // is no account to move to and nowhere to write.
+        await adoptAccount(successor.lock, successor.id)
+      } catch (error) {
+        // The successor's lock is held from before the deletion, and a throw
+        // here would strand it: nobody would hold a reference to release it, so
+        // that account would be unopenable by every window - including this one,
+        // which would be told "already open in another window" about a lock it
+        // owns itself. The switch has carried this guard since it was written;
+        // the deletion was missing it.
+        if (instanceLock !== successor.lock) await successor.lock.release()
+        throw error
+      }
+      logger.log({ level: 'info', event: 'accounts.switched', message: String(successor.id) })
+      return { ok: true }
     },
 
     'data:deleteAll': async (payload) => {
@@ -750,7 +825,11 @@ function registerIpc(): void {
       parseNoPayload(payload)
       requireEveryScreenStopped((orchestrator ? orchestrator.snapshot() : []).map((s) => s.state))
 
-      const remaining = deleteUserData([{ path: appDataDir(), leaf: APP_DIR_NAME }])
+      // `appDirName()`, not the `APP_DIR_NAME` constant: the core refuses a path
+      // whose last segment is not the declared leaf, and a development run
+      // resolves `%APPDATA%/hecaton-dev` (ADR-0022). With the constant this
+      // action threw there - failing closed, but failing.
+      const remaining = deleteUserData([{ path: appDataDir(), leaf: appDirName() }])
       // One tolerated name, again. This window's Electron cache lives in
       // `shell/<pid>` (per launch, not per account), so what survives is the
       // `shell` directory holding it - and nothing inside `accounts/`, whatever
@@ -785,6 +864,20 @@ function registerIpc(): void {
     'update:check': async (payload) => {
       parseNoPayload(payload)
       return checkForUpdates()
+    },
+
+    'update:dismiss': async (payload) => {
+      // "Não lembrar mais", about the version this launch offered - which is
+      // main's own knowledge, so the channel carries nothing. The other two
+      // answers write nothing at all: "atualizar agora" opens the page, and
+      // "lembrar depois" is the absence of an answer, which is what brings the
+      // offer back at the next launch.
+      parseNoPayload(payload)
+      if (updateOffer === undefined) return
+      globals = { ...globals, updateDismissedFor: updateOffer.version }
+      updateOffer = undefined
+      await saveConfiguration()
+      pushState()
     },
 
     'update:openPage': async (payload) => {
@@ -901,6 +994,39 @@ function registerIpc(): void {
       parseNoPayload(payload)
       return switchAccount(nextAccountId(listAccountIds()))
     },
+
+    'accounts:createOnly': async (payload) => {
+      // The same creation without the move: the profile appears in the list and
+      // this window stays where it is, which is how somebody prepares the
+      // profile a second Hecaton will open.
+      //
+      // The lock is taken for the length of the creation and released at once.
+      // Not ceremony: two windows creating at the same instant both compute the
+      // same next id, and the lock is what makes one of them lose - the same
+      // rule a launch follows. Releasing immediately is the point of the
+      // feature; an account nobody is running is one any window may take.
+      parseNoPayload(payload)
+      const id = nextAccountId(listAccountIds())
+      const lock = new MutexInstanceLock(accountMutexPrefix())
+      const claim = await lock.claim(id)
+      if (claim !== 'free') {
+        await lock.release()
+        return { ok: false, reason: claim }
+      }
+      try {
+        // A directory is what makes an account exist - `listAccountIds` reads
+        // the disk - and it is deliberately all that is written. The config is
+        // the owning window's to create, and writing one here would be this
+        // window writing into a profile it does not hold.
+        mkdirSync(accountDir(id), { recursive: true })
+        logger.log({ level: 'info', event: 'accounts.created', message: String(id) })
+      } finally {
+        await lock.release()
+        refreshAccounts()
+        pushState()
+      }
+      return { ok: true, id, name: defaultAccountName(id) }
+    },
   }
 
   for (const channel of IPC_CHANNELS) {
@@ -957,6 +1083,41 @@ async function checkForUpdates(): Promise<UpdateCheck> {
 }
 
 /**
+ * What this launch's check found, held for the panel and for the dismissal.
+ *
+ * Main keeps it rather than the renderer, for the reason every "which version?"
+ * in this app is main's: the dismissal channel carries no payload, so the
+ * version it records has to be one the panel could not have chosen.
+ */
+let updateOffer: { version: string; notes: string } | undefined
+
+/**
+ * The check the app makes by itself, once, just after the panel appears.
+ *
+ * This is new behaviour and it reverses a decision: D7/D8 said the app's only
+ * network request would follow a click and never a launch or a timer. The owner
+ * asked for the launch check on 2026-09-18 and chose "every launch" over "once a
+ * day" knowing the cost — `api.github.com` sees an address every time a Hecaton
+ * opens, and two windows are two requests. ADR-0023 records it.
+ *
+ * Three things keep it from being more than that. It runs **after** the panel is
+ * up, so a slow or hanging request delays nothing the user is waiting for. It
+ * never throws: `checkForUpdates` answers failure as a state, and an offline
+ * launch simply says nothing. And whether an answer is worth interrupting for is
+ * `shouldOfferUpdate` in the core, which keeps quiet about a version the user
+ * has already refused.
+ */
+async function offerUpdateIfAny(): Promise<void> {
+  const check = await checkForUpdates()
+  if (!shouldOfferUpdate(check, globals.updateDismissedFor)) return
+  // Narrowed by the guard above; `status` is the only thing that says so.
+  if (check.status !== 'update-available') return
+  updateOffer = { version: check.version, notes: check.notes }
+  logger.log({ level: 'info', event: 'update.offered', message: check.version })
+  pushState()
+}
+
+/**
  * The notes for the running version, whenever the changelog has a section for it.
  *
  * Sent regardless of whether they are still owed, because the panel offers them
@@ -1006,7 +1167,7 @@ function quitAfterDeletion(): void {
   // write: `FileLogger.log` creates the directory it writes into, so one line
   // after the deletion puts `logs/` back.
   logger.silence()
-  if (saveTimer) clearTimeout(saveTimer)
+  cancelPendingSave()
   if (livenessTimer) clearInterval(livenessTimer)
   if (audioTimer) clearInterval(audioTimer)
   setTimeout(() => app.quit(), QUIT_AFTER_DELETION_MS)
@@ -1018,7 +1179,7 @@ function quitAfterDeletion(): void {
  * The mutex it owns is what makes "one window per account" true across Windows
  * logon sessions (ADR-0021, replacing ADR-0018's one-per-machine).
  */
-let instanceLock = new MutexInstanceLock()
+let instanceLock = new MutexInstanceLock(accountMutexPrefix())
 
 /** What a switch did, for the panel to turn into a toast. */
 interface AccountSwitch {
@@ -1087,7 +1248,7 @@ function startTimers(): void {
 async function switchAccount(targetId: number): Promise<AccountSwitch> {
   if (targetId === accountId) return { ok: true }
 
-  const candidate = new MutexInstanceLock()
+  const candidate = new MutexInstanceLock(accountMutexPrefix())
   const state = await candidate.claim(targetId)
   if (state !== 'free') {
     await candidate.release()
@@ -1096,44 +1257,10 @@ async function switchAccount(targetId: number): Promise<AccountSwitch> {
   }
 
   try {
-    // Only now is the current account being given up. Stopping the screens first
-    // is not politeness: their browsers hold this account's profiles open, and a
-    // profile still being written while another window claims the account is the
-    // collision the lock exists to prevent.
-    for (const slot of orchestrator?.snapshot() ?? []) {
-      if (slot.state === 'stopped' || slot.state === 'crashed') continue
-      try {
-        await orchestrator.stop(slot.id)
-      } catch {
-        // A screen that will not stop is not a reason to abandon the switch: its
-        // process is the launcher's to reap, and the account it belonged to is
-        // about to be released either way.
-      }
-    }
+    await stopEveryScreen()
     if (orchestrator) await saveConfiguration()
-    await Promise.allSettled([audioController?.dispose(), windowManager?.dispose()])
-    await instanceLock.release()
-    instanceLock = candidate
-
-    openAccount(targetId)
-    configError = undefined
-    configQuarantinedAs = undefined
-    try {
-      await loadConfiguration()
-    } catch (error) {
-      // The window is **already** on the new account here - the lock is held and
-      // the paths are switched - so it must not be left with the previous
-      // account's orchestrator, which would launch screens into profiles this
-      // window no longer owns. An empty configuration for this account is the
-      // honest state, and the panel shows why.
-      configError = error instanceof Error ? error.message : String(error)
-      logger.log({ level: 'error', event: 'config.error', message: configError })
-      buildOrchestrator(buildGameRegistry(), [])
-    }
-    startTimers()
+    await adoptAccount(candidate, targetId)
     logger.log({ level: 'info', event: 'accounts.switched', message: String(targetId) })
-    refreshAccounts()
-    pushState()
     return { ok: true }
   } catch (error) {
     // Anything unexpected between taking the new lock and finishing the switch.
@@ -1147,6 +1274,93 @@ async function switchAccount(targetId: number): Promise<AccountSwitch> {
     if (instanceLock !== candidate) await candidate.release()
     return { ok: false, reason: 'unavailable' }
   }
+}
+
+/**
+ * Stops every screen this window is running.
+ *
+ * Not politeness before a switch: the browsers hold this account's
+ * profiles open, and a profile still being written while another window claims
+ * the account - or while the directory is removed - is the collision the lock
+ * exists to prevent. A screen that will not stop is not a reason to abandon the
+ * operation: its process is the launcher's to reap.
+ */
+async function stopEveryScreen(): Promise<void> {
+  for (const slot of orchestrator?.snapshot() ?? []) {
+    if (slot.state === 'stopped' || slot.state === 'crashed') continue
+    try {
+      await orchestrator.stop(slot.id)
+    } catch {
+      // Reported on the slot's own card; the sweep carries on.
+    }
+  }
+}
+
+/**
+ * Hands this window over to an account whose lock is already held.
+ *
+ * Shared by the switch and by deleting the current account, because the second
+ * half is identical: let the old lock and the old workers go, point every path
+ * at the new account, rebuild, and say so. The caller owns the claim, which is
+ * what keeps the window from ever being between two accounts.
+ */
+async function adoptAccount(lock: MutexInstanceLock, targetId: number): Promise<void> {
+  // An offer belongs to the account whose config would record the dismissal, so
+  // it does not travel: `update:dismiss` writes into whichever account this
+  // window holds when the user answers, and an offer outliving the move would
+  // write the answer into the wrong one.
+  updateOffer = undefined
+  await Promise.allSettled([audioController?.dispose(), windowManager?.dispose()])
+  if (instanceLock !== lock) await instanceLock.release()
+  instanceLock = lock
+
+  openAccount(targetId)
+  configError = undefined
+  configQuarantinedAs = undefined
+  try {
+    await loadConfiguration()
+  } catch (error) {
+    // The window is **already** on the new account here - the lock is held and
+    // the paths are switched - so it must not be left with the previous
+    // account's orchestrator, which would launch screens into profiles this
+    // window no longer owns. An empty configuration for this account is the
+    // honest state, and the panel shows why.
+    configError = error instanceof Error ? error.message : String(error)
+    logger.log({ level: 'error', event: 'config.error', message: configError })
+    buildOrchestrator(buildGameRegistry(), [])
+  }
+  startTimers()
+  refreshAccounts()
+  pushState()
+}
+
+/**
+ * Takes the lock of an account this window could move to when the one it is on
+ * is deleted, or answers that there is none.
+ *
+ * Only accounts that already exist, which is the whole difference from a launch:
+ * a launch with every account busy makes a new one, and doing that here would
+ * turn "remove this profile" into "remove this profile and be given an empty
+ * one". The owner asked for a refusal instead, with the panel pointing at
+ * clearing the cache — the action that empties a profile without removing it.
+ *
+ * The lock is taken and **kept**: it is handed to `adoptAccount`, so between the
+ * deletion and the adoption no other window can take the account this one is
+ * about to land on.
+ */
+async function claimSuccessor(
+  deletedId: number,
+): Promise<{ lock: MutexInstanceLock; id: number } | undefined> {
+  const lock = new MutexInstanceLock(accountMutexPrefix())
+  const id = await claimExistingAccount(
+    listAccountIds().filter((existing) => existing !== deletedId),
+    async (candidateId) => (await lock.claim(candidateId)) === 'free',
+  )
+  if (id === undefined) {
+    await lock.release()
+    return undefined
+  }
+  return { lock, id }
 }
 
 /**
@@ -1267,9 +1481,15 @@ function createOverlay(parent: BrowserWindow): void {
     skipTaskbar: true,
     hasShadow: false,
     focusable: true,
-    // Above the panel AND its embedded child game windows; only ever up while a
-    // modal is open, so it does not sit over other apps in normal use.
-    alwaysOnTop: true,
+    // **Not** alwaysOnTop, since 2026-09-18: that flag put the settings modal in
+    // front of every other program on the machine, and the owner asked for it
+    // back inside the app. Being owned by the panel is enough, and the claim was
+    // measured rather than quoted (spike/overlay-z): an owned, non-topmost
+    // window still paints over a WS_CHILD window embedded in its owner - which
+    // is what every game screen is - while another application activated over it
+    // comes in front, as any other window would. The same probe reproduced the
+    // old behaviour by setting the flag back, so this is the one line that
+    // caused it.
     webPreferences: { ...panelWebPreferences(), preload: PRELOAD },
   })
   lockDownWindow(overlay)
@@ -1397,6 +1617,11 @@ function hookChildFocus(window: BrowserWindow): void {
     createPanel()
 
     startTimers()
+
+    // Last, and not awaited: the launch must not wait on the network for
+    // anything, least of all for news. The panel is already on screen when this
+    // resolves, and the offer arrives as a state push like any other.
+    void offerUpdateIfAny()
   })
 
   // The panel is the app. Closing it should not leave a tray-less process behind.

@@ -271,7 +271,7 @@ bullet names probe P5, which measured the bundled Chromium `154.0.8014.0` (revis
 hecaton/
   apps/
     shell/              # Electron: main (orchestrator) + preload + renderer
-                        #   (panel + an always-on-top overlay window for modals over the games)
+                        #   (panel + an owned overlay window for modals over the games)
   packages/
     core/               # PURE CORE - grid, state machine, registry, config, orchestrator.
                         #   No I/O, enforced by ESLint rather than by convention.
@@ -331,8 +331,8 @@ rule lives in `browser-access.ts` — and `Logger`, which is declared in `log.ts
 `ports.ts`, beside the redaction rule it enforces) with a fake for core tests. There
 is one deliberate exception, and it is narrow: **pure code that sits in an adapter package because
 of what it imports, not because it does I/O**, is tested in the fast suite, with nothing faked.
-The whole list is `chrome-args.ts`, `browser-process-query.ts`, `browser-paths.ts`, `app-paths.ts`
-and `WmiMachineIdentity.digest` — the last being a pinned sha256 whose value, if it ever changed,
+The whole list is `chrome-args.ts`, `browser-process-query.ts`, `browser-paths.ts`, `app-paths.ts`,
+`account-paths.ts` and `WmiMachineIdentity.digest` — the last being a pinned sha256 whose value, if it ever changed,
 would refuse every machine that already carries a seal, which is precisely the thing that should
 not be reachable only by a manual Windows-only run. Auto-restart-on-crash is testable against the fake
 without launching a browser.
@@ -384,35 +384,46 @@ is **declarative actions** (`{ selector, op: 'click' }`) interpreted by the core
 
 ## Data locations
 
-Everything the app **persists** goes to `%APPDATA%/hecaton`, **always, including development**:
+Everything the app **persists** goes to `%APPDATA%/hecaton` — or to `%APPDATA%/hecaton-dev` when
+`npm start` launched it ([ADR-0022](adr/0022-a-separate-data-directory-for-development.md)):
 
-|                                       |                                                                          |
-| ------------------------------------- | ------------------------------------------------------------------------ |
-| `accounts/<id>/config.json`           | that account's global config and slot overrides, with `schemaVersion`    |
-| `accounts/<id>/profiles/slot-N`       | per-slot browser profile — the isolation mechanism                       |
-| `accounts/<id>/profiles/slot-N.old-*` | an archived profile from a removed slot (see ADR-0008)                   |
-| `accounts/<id>/shell/`                | Electron's own userData/cache for the window that owns that account      |
-| `logs/`                               | rotated structured logs (one JSONL file per day), shared by every window |
+|                                       |                                                                                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `accounts/<id>/config.json`           | that account's global config and slot overrides, with `schemaVersion`                                                    |
+| `accounts/<id>/profiles/slot-N`       | per-slot browser profile — the isolation mechanism                                                                       |
+| `accounts/<id>/profiles/slot-N.old-*` | an archived profile from a removed slot (see ADR-0008)                                                                   |
+| `shell/<pid>`                         | Electron's own userData/cache, one directory per launch, outside every account (`stalePanelCaches` clears the dead ones) |
+| `logs/`                               | rotated structured logs (one JSONL file per day), shared by every window                                                 |
 
-**Everything but the logs is per account** ([ADR-0021](adr/0021-several-windows-one-account-each.md)).
+**The config and the profiles are per account; the logs and Electron's own cache are not**
+([ADR-0021](adr/0021-several-windows-one-account-each.md)). The cache is per **launch** rather than
+per account, and that was a correction: `setPath('userData', …)` cannot move after Electron resolves
+its session, so a window that switched accounts would keep holding the directory of the account it
+left.
 Several windows run at once, one per account, and the reason nothing inside an account directory is
 shared is not tidiness: two browsers on one `--user-data-dir` damage each other's session, and
 `JsonFileStorage` writes through a `<file>.tmp` beside its target, so two windows on one config
 would be writing one temporary file as well. The logs are the deliberate exception — one file a day,
 appended by whichever window is running, because a diagnosis reads better in one place than in four.
 
-Before 2026-09-18 `config.json`, `profiles/` and `shell/` sat directly in `%APPDATA%/hecaton`. The
+Before 2026-09-18 `config.json` and `profiles/` sat directly in `%APPDATA%/hecaton`. The
 first launch of a version with accounts **moves them into `accounts/1/`**, once, by renames into a
 staging directory followed by a single rename that makes the new layout real; nothing is copied and
 nothing is deleted. ADR-0021 carries why that was chosen over a layout needing no move, and
 `account-layout.ts` carries how a half-finished move is finished on the next launch.
 
+**The development directory is a name, not a branch.** `appDirName()` reads `HECATON_APP_DIR`,
+which only `npm start` sets, and falls back to `hecaton`; every path in the app is built from it,
+including the machine seal and the account lock prefix, so a development window and a real one share
+nothing and never contend for an account. What the old "same path in dev and prod" rule bought is
+kept exactly: there is no `app.isPackaged` branch, so a packaged app resolves its paths through the
+same line of code a development run uses.
+
 Writing any of it into the repo directory would make `.gitignore` the only line of defense
 against committing real state. Logs can carry page URLs with session tokens in query strings,
 and a profile does not merely _risk_ holding credentials — it **is** the logged-in session.
 An early draft of this document claimed profiles lived in `data/` inside the repository; that
-was never decided and is now explicitly rejected. Same path in dev and prod also removes a
-class of packaging bug.
+was never decided and is now explicitly rejected.
 
 **One kind of state deliberately lives elsewhere.** A clean-session slot
 (`persistProfile: false`) gets a throwaway profile under the **OS temp directory**, deleted on
@@ -437,8 +448,9 @@ directory, and `C:\ProgramData\hecaton` - and only the first two hold anything a
 
 Paths come from `@hecaton/storage` — `appDataDir`, `logsDir`, `machineSealPath`, `panelCacheDir`,
 and the per-account `accountsDir`, `accountDir`, `accountConfigFilePath`, `accountProfilesDir` — and
-are never assembled by hand. `configFilePath` and `profilesDir` name the pre-accounts layout and are
-read only by the migration.
+are never assembled by hand. The pre-accounts layout is named by `legacyConfigFilePath` and
+`legacyProfilesDir` in `account-paths.ts`, read only by the migration; the un-prefixed
+`configFilePath`/`profilesDir` that used to sit beside them were dead exports and are gone.
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration
 step on load. Nearly free now; expensive to retrofit once users have saved files.
@@ -469,17 +481,22 @@ A long-running orchestrator with child processes fails silently by default. Acti
   where they come from — a distinction worth keeping, because `slotId` does come from the user's
   `config.json`. `level` and `event` are literals in the app's own code; `pid` comes from the
   launcher; `slotId` is read from config but forced through `requirePositiveInteger`, so no string
-  can ride there. There are three emitters. `Orchestrator.emit` writes every lifecycle entry.
-  `apps/shell/src/main/main.ts` writes three more — `config.error`, whose `message` is whatever
-  `loadConfiguration` threw (usually the config parser's text, sometimes a filesystem error);
-  `config.quarantined`, whose `message` names the file a corrupt `config.json` was kept under; and
-  `instance.claim-failed`, whose `message` is whatever the machine claim threw, in practice a
-  complaint about `%ProgramData%`. And `claimInstance` in `packages/core/src/instance-claim.ts`
-  writes two — `instance.claim`, whose `message` is the verdict and is therefore one of a fixed set
-  of words, and `instance.seal-failed`, whose `message` is the filesystem error from writing the
-  seal. All of them are redacted like any other. **The machine id is in none of them**, not even
+  can ride there. There are four emitters. `Orchestrator.emit` writes every lifecycle entry.
+  `apps/shell/src/main/main.ts` writes the config, account and update entries — `config.error`,
+  whose `message` is whatever `loadConfiguration` threw (usually the config parser's text, sometimes
+  a filesystem error); `config.quarantined`, whose `message` names the file a corrupt `config.json`
+  was kept under; `instance.claim-failed`, whose `message` is whatever the machine claim threw, in
+  practice a complaint about `%ProgramData%`; the account entries `accounts.migrated`,
+  `accounts.migration-failed`, `accounts.created`, `accounts.deleted`, `accounts.delete-refused`,
+  `accounts.switched`, `accounts.switch-refused` and `accounts.switch-failed`, whose messages are an
+  account id, a migration outcome, a lock state or an error string; and `update.offered`, whose
+  `message` is the version a launch check found. `claimInstance` in
+  `packages/core/src/instance-claim.ts` writes `instance.claim` and `instance.account` (a verdict
+  and an id), `instance.account-failed` and `instance.seal-failed` (the error that stopped either).
+  `ensureBrowserReadable` in `packages/core/src/browser-access.ts` writes `browser.access`, one of
+  four fixed phrases plus an `icacls` message. All of them are redacted like any other. **The machine id is in none of them**, not even
   truncated: it is never handed to the logger at all (ADR-0018). This enumeration has now been
-  stale twice — `config.quarantined` arrived with the recovery path and the machine claim arrived
+  stale three times — `config.quarantined` arrived with the recovery path and the machine claim arrived
   with ADR-0018, and neither updated it — which is worth naming rather than quietly fixing: a
   sentence written as exhaustive is only worth anything while it still is. **`gameId` is safe by type too, since 2026-08-09**, and it is the field
   that shows why the distinction is worth stating: it used to accept any non-blank string, so a
@@ -547,7 +564,13 @@ the five decisions were taken together at the phase-1.5 security gate. In short:
   while the account lock deliberately does not: a lock that cannot answer stops the launch, because
   the alternative is two windows writing one browser profile. Electron's own
   `requestSingleInstanceLock` is gone; it fires before there is any way to know which account a
-  window will get.
+  window will get. **Four channels reach accounts**, and the shape of each is the security
+  decision: `accounts:rename` carries a name and no id, so a window writes its own config and
+  nobody else's; `accounts:switch` carries the id to move to, refused when the lock says another
+  window holds it; `accounts:create` and `accounts:createOnly` take nothing at all — which id is
+  next is worked out here from the disk, and the second differs only in that it creates the account,
+  releases its lock and leaves this window where it is, for somebody preparing the profile the next
+  Hecaton will open.
 
 - **Electron's own userData/cache** is set under `%APPDATA%/hecaton/shell`, not the shared
   `%APPDATA%/Electron` — consistent with ADR-0004, and it removes a cache-contention error.
@@ -563,9 +586,11 @@ truncated - it is never sent anywhere, and it is a digest rather than the values
 file cannot disclose them. That is the single exception to ADR-0015's "the app stores no identifier
 of any kind"; the rest of that ADR is unchanged.
 
-The app makes **exactly one** network request, and only when the user asks for it: the update check
-above. It sends nothing but the request itself — no identifier, no version, no usage — and it is the
-only line to cross the machine's edge in either direction.
+The app makes **one kind** of network request: the update check above. It runs once per launch, by
+itself, and again whenever the user presses _Procurar atualizações_
+([ADR-0023](adr/0023-an-update-check-at-launch.md), which superseded ADR-0014's "only when the user
+asks"). It sends nothing but the request itself — no identifier, no version, no usage — and it is
+the only line to cross the machine's edge in either direction.
 
 ## Phases
 
@@ -604,8 +629,8 @@ below), guarded to touch only
 archives and gated behind an in-app confirmation. See
 [ADR-0008](adr/0008-archive-a-removed-slot-profile.md); the property that still holds is that no
 live profile is ever deleted **by a lifecycle path** — only an archived one, and only by an
-explicit user action. Deleting live profiles is possible in exactly one place, the panel action
-described under Phase 3 below.
+explicit user action. Deleting live profiles is possible in exactly two places, both panel
+actions described under Phase 3 below.
 
 A separate **cache clear** frees disk without logging anyone out, and is distinct from the
 session-discarding reset above: it deletes only a profile's cache sub-directories
@@ -633,9 +658,12 @@ The load-bearing points:
   channel is gone). The window-manager fits the **game** to the viewport and clips Chrome's
   `--app` title bar and frame away with `SetWindowRgn` — which also stops the user dragging a
   screen out of place.
-- Modals and the volume popover render in a **second, always-on-top, transparent overlay window**,
-  because a child Chrome window always paints over the panel's DOM. Both windows share the same
-  locked-down `webPreferences`; the bundled Sora font and Poke favicon keep `connect-src 'none'`.
+- Modals and the volume popover render in a **second, transparent overlay window owned by the
+  panel**, because a child Chrome window always paints over the panel's DOM. It is **not**
+  always-on-top: being owned is what puts it over the embedded screens, and the flag additionally
+  put it over every other program on the machine (measured in `spike/overlay-z`, removed on
+  2026-09-18 — see ADR-0011's Correction). Both windows share the same locked-down
+  `webPreferences`; the bundled Sora font and Poke favicon keep `connect-src 'none'`.
 - The window-manager, audio and machine-lock adapters run **persistent PowerShell workers** (Win32,
   WASAPI and the `Global\` mutex), disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
   shell-outs are async so they never freeze the main thread; a screen closes gracefully by a
@@ -708,11 +736,22 @@ would have lost.
 
 ### The update check — the app's only network request
 
-Reached only when the user presses **Procurar atualizações** in Configurações. Nothing runs at
-launch, on a timer, or in the background: an automatic check would carry the user's IP, version and
-clock to a server without them asking, which is telemetry whatever it is called (D7/D8). There is no
-enforcement and no remote kill switch — declining an update simply opens the version already
-installed.
+Two entrances to one request: **Procurar atualizações** in Configurações, and — since 2026-09-18 —
+**once per launch, by itself** ([ADR-0023](adr/0023-an-update-check-at-launch.md), superseding part
+of ADR-0014). Nothing runs on a timer or in the background, and nothing else in the app reaches the
+network. The launch check is what D7/D8 refused as telemetry-shaped, taken deliberately by the owner
+against the cost ADR-0014 had written down itself: with no auto-update and no kill switch, a fix
+reaches a user only if that user thinks to press a button. There is still no enforcement and no
+remote kill switch — declining an update simply opens the version already installed.
+
+What the launch check adds over the button is the interruption and its three answers, and only one
+of them persists. **Atualizar agora** opens the release page and records nothing. **Lembrar depois**
+records nothing either — the absence of an answer is what brings the offer back. **Não lembrar
+mais** writes `updateDismissedFor: <version>` into the account's config, so the next release asks
+again; `shouldOfferUpdate` in the core owns that rule and reads an unparseable value as no answer
+rather than as silence for ever. The check runs after the panel is on screen and is never awaited,
+so the network cannot delay a launch, and it waits for the first-run gate and for release notes that
+will actually open, so two modals never stack.
 
 This reverses the premise of [ADR-0007](adr/0007-electron-security-posture.md) decision 4, and it
 does **not** touch the renderer's CSP. `connect-src 'none'` stands exactly as it was, because the
@@ -775,7 +814,8 @@ an update runs the _previous_ release's uninstaller in silent mode, so any delet
 one is frozen into every copy already handed out and can never be repaired for whoever installed it.
 A question asked in the right place is worth less than a deletion that cannot be un-shipped. So the settings modal carries a **Seus dados** section — naming both places session data can land, `%APPDATA%/hecaton` and the OS temp
 directory of a clean-session screen, with a button that opens the first — and, in the risk zone,
-**Apagar todos os meus dados**. It is the only action in the app that deletes a live profile;
+**Apagar todos os perfis**. It is one of the two actions in the app that delete a live profile —
+the other is _Apagar este perfil_, which removes only this account's;
 [ADR-0005](adr/0005-never-delete-a-persistent-profile.md)'s 2026-08-08 Correction records why it
 exists and why the property that ADR protects is unharmed.
 
@@ -795,20 +835,29 @@ names any other as a failure, and the app **quits** once the deletion is done �
 mean writing config.json straight back into the directory the user just emptied.
 
 **Since accounts, it is two actions rather than one**
-([ADR-0021](adr/0021-several-windows-one-account-each.md)). _Apagar os dados desta conta_ removes
+([ADR-0021](adr/0021-several-windows-one-account-each.md)). _Apagar este perfil_ removes
 `accounts/<id>` — this window's profiles, its config and its cache — and leaves every other account
-alone, which matters because another window may be running one of them right now. _Apagar TODOS os
-dados_ still removes `%APPDATA%/hecaton` whole, and its confirmation says in so many words that a
+alone, which matters because another window may be running one of them right now. _Apagar todos os
+perfis_ still removes `%APPDATA%/hecaton` whole, and its confirmation says in so many words that a
 second window loses its data mid-session. Splitting them was the owner's call: with one button, the
 wider meaning would have been the silent default. The narrower one is offered first, and the wider
 one reads as the deliberate extra step it is.
 
-What survived is checked at **three levels** for the wider action, because the survivor is nested
-now: `accounts` at the top (this window's cache is inside it), then only this account's id inside
-that, then only `shell` inside the account. Tolerating `accounts` alone would have excused another
-account's profiles surviving whole — the exact failure `verifyUserDataDeletion` exists to catch.
-A second name is tolerated at the top level: Electron creates a `shell/` from the pre-ready default
-before the claim can say which account this window owns, and it outlives the re-point.
+**The narrow one does not close the app, and it can be refused.** The window has to land somewhere
+afterwards, so main claims a successor **before** deleting anything: `claimExistingAccount` in the
+core walks the other accounts in order and takes the lock of the first free one, and the window
+adopts it once the directory is gone. When nothing can be claimed — this is the only account, or
+every other one is open in another window — **nothing is deleted at all**: the panel says so and
+points at _Limpar cache das telas_, which is the action somebody reaching for "apagar" usually
+means when they only want the profile empty. Creating a fresh account to land in was the other
+option and was rejected: it answers "remove this profile" with "here is a blank one". The wide
+deletion still quits, because after it there is no account to adopt and nowhere to write.
+
+What survived is judged at **one level**: `deleteUserData` lists what is left directly under
+`%APPDATA%/hecaton`, and `verifyUserDataDeletion` tolerates exactly one name — `shell`, this
+launch's Electron cache, which the running process holds open. Anything else is reported by name,
+`accounts` included, which is what keeps another account's profiles surviving whole from passing as
+success.
 
 ### The pre-release security review, 2026-08-09
 

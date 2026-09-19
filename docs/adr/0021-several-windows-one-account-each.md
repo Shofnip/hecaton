@@ -37,7 +37,7 @@ directory, its own Electron cache, and at most four screens. On disk:
 **The mutex kept its mechanism and changed its job**: `Global\Hecaton.Account.<id>`
 instead of `Global\Hecaton.Instance`. It is now a data-integrity guarantee rather
 than a usage limit — one window per account, across Windows logon sessions, with
-everything probes P6 and P6b measured about why a mutex still standing.
+everything probes P6 and P6b measured about why a mutex still standing. [see Correction (2026-09-18)]
 
 **A launch takes the first account nobody is running, and creates one when they are
 all busy.** So a second window opens on account 2; a third on account 3; and the same
@@ -105,3 +105,31 @@ mode is silent.
 whether an account is in use means taking its lock; a probe that holds one for even a
 moment can push a window that is starting up onto a different account. The dropdown
 shows every account and a switch to a busy one fails with a message instead.
+
+## Correction (2026-09-18)
+
+Two sentences here were overtaken the same week, both by the owner.
+
+**"The account name is UI text, so `Conta 1` in Portuguese" — the UI word is now _Perfil_.** What
+this ADR calls an account, the interface calls a **perfil**; what the interface used to call a
+perfil (a screen's browser profile) it now calls a **tela**. The code keeps `account`, deliberately:
+renaming it to `profile` would collide with the browser profiles an account is full of, which is the
+confusion the UI change fixes. Verify in `defaultAccountName` in `packages/core/src/accounts.ts`,
+which returns `Perfil ${id}`.
+
+**Deleting an account can now be refused, and never closes the window.** The Consequence "one
+deletes this account, one deletes every account" still holds, and what happens after the narrow one
+does not: the window claims a successor account **before** anything is removed
+(`claimExistingAccount` in the core, `claimSuccessor` in main) and adopts it afterwards. When no
+other account can be claimed — it is the only one, or every other is open in another window —
+**nothing is deleted at all** and the panel says so, pointing at clearing the screens' cache
+instead. Creating a fresh account to land in was rejected: it answers "remove this profile" with
+"here is a blank one".
+
+**The lock name gained the data directory.** It is
+`Global\Hecaton.hecaton.Account.<id>` in production and `Global\Hecaton.hecaton-dev.Account.<id>`
+under a development run, because [ADR-0022](0022-a-separate-data-directory-for-development.md) gave
+development its own profiles and a shared lock name would have had the two contending for accounts
+they do not share. Verify in `accountMutexPrefix` in `packages/storage/src/app-paths.ts`; the prefix
+is a required constructor argument of `MutexInstanceLock`, with no default, so nothing can take a
+lock in the wrong namespace by omission.

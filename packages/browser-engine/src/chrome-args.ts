@@ -95,8 +95,11 @@ export function buildChromeArgs(request: LaunchRequest, profilePath: string): st
   // They are performance flags, not security ones — they weaken no browser
   // protection — but they ARE fragile across Chrome versions (precedent:
   // --load-extension), so the version the spike measured them on is recorded:
-  // Chrome 150.0.7871.181. A per-screen toggle re-enables throttling by setting
-  // backgroundThrottling to true, for screens where saving resources matters.
+  // Chrome 150.0.7871.181. Setting `backgroundThrottling` to true in a slot's
+  // config entry re-enables throttling for that screen, for somebody who wants
+  // the resources back; there is no control for it in the UI, deliberately —
+  // full speed in the background is the product's point (measured, 1 tick/s
+  // focused, occluded, minimized and with the display off).
   if (!request.backgroundThrottling) {
     args.push(
       '--disable-background-timer-throttling',
