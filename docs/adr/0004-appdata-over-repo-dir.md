@@ -58,6 +58,7 @@ hand over an account rather than a hint of one.
 
 Paths are resolved by `@helloweb/storage` — `appDataDir()`, `configFilePath()`, `logsDir()`,
 `profilesDir()` — and never assembled by hand, so there is one place to audit.
+[see Correction (2026-09-19)]
 [see Correction (2026-07-30)]
 
 Every persisted config file carries `schemaVersion` from the first commit, with a migration step
@@ -156,3 +157,18 @@ kept rather than traded: the name comes from an environment variable with the pr
 there is still no `app.isPackaged` branch, so a packaged app resolves its path through the same line
 of code. Verify in `packages/storage/src/app-paths.ts` (`appDirName`) and
 `apps/shell/scripts/dev.mjs`.
+
+## Correction (2026-09-19)
+
+**`configFilePath()` and `profilesDir()` no longer exist.** Since
+[ADR-0021](0021-several-windows-one-account-each.md) those paths are per account
+and are resolved by `accountConfigFilePath(id)` and `accountProfilesDir(id)`; the
+pre-accounts names survive only as `legacyConfigFilePath()` and
+`legacyProfilesDir()`, read by the migration and by nothing else. The two
+un-prefixed exports stayed behind as duplicates with no caller and were removed
+on 2026-09-19.
+
+The rule this ADR states is untouched, and is the reason the removal was safe:
+paths come from the storage package and are never assembled by hand, so there is
+still one place to audit. `appDataDir()` and `logsDir()` are unchanged. Verify in
+`packages/storage/src/index.ts`.

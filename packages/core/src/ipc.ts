@@ -137,7 +137,7 @@ export const IPC_CHANNELS = [
   'overlay:open',
   'overlay:close',
   // Accounts (ADR-0021), added when the owner replaced one-Hecaton-per-machine
-  // with one-window-per-account. Three channels and no more, and the shape of
+  // with one-window-per-account. Four channels and no more, and the shape of
   // each is the security decision:
   //
   // - `rename` carries a name and **no id**: a window may write its own

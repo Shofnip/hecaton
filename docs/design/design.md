@@ -219,12 +219,12 @@ Ações destrutivas seguem **duas camadas de aviso**:
 
 Textos oficiais:
 
-| Ação                            | Título                    | Mensagem                                                                                                                                             |
-| ------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Apagar tela                     | Apagar tela               | O perfil deste slot será arquivado: o cache, os cookies e as senhas salvas nele deixam de ser usados. Use "Limpar arquivados" para apagá-los de vez. |
-| Limpar cache das telas (global) | Limpar cache das telas?   | O cache de todas as telas será apagado. Sessões salvas podem precisar de novo login.                                                                 |
-| Limpar dados arquivados         | Excluir dados arquivados? | Esta ação é permanente e não pode ser desfeita. Os dados arquivados serão perdidos para sempre.                                                      |
-| Limpar cache de uma tela        | Limpar cache da {nome}?   | O cache desta tela será apagado. A sessão salva pode exigir novo login.                                                                              |
+| Ação                            | Título                    | Mensagem                                                                                                                                                     |
+| ------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Apagar tela                     | Apagar tela               | Os dados desta tela serão arquivados: o cache, os cookies e as senhas salvas nela deixam de ser usados. Use "Limpar dados arquivados" para apagá-los de vez. |
+| Limpar cache das telas (global) | Limpar cache das telas?   | O cache de todas as telas será apagado. Sessões salvas podem precisar de novo login.                                                                         |
+| Limpar dados arquivados         | Excluir dados arquivados? | Esta ação é permanente e não pode ser desfeita. Os dados arquivados serão perdidos para sempre.                                                              |
+| Limpar cache de uma tela        | Limpar cache da {nome}?   | O cache desta tela será apagado. A sessão salva pode exigir novo login.                                                                                      |
 
 Observação de comportamento: apagar uma tela **arquiva** o perfil do slot (não exclui os dados). Ao readicionar uma tela, ela reutiliza o menor número de slot vago — a implementação deve definir se restaura o perfil arquivado daquele slot.
 
@@ -308,8 +308,8 @@ Fechar no X ou no Escape equivale a "lembrar depois": nada é gravado.
 ## 12. Feedback (toasts)
 
 Notificações transitórias (~2,6s) em pílula centralizada na base da área principal. Mensagens em
-uso, conferidas contra os quatorze `showToast` do renderer (treze textos distintos — "Abrindo no
-navegador…" aparece em duas chamadas): "Ligando todas as telas…", "Todas as telas desligadas",
+uso, conferidas contra as treze chamadas de `showToast` no renderer (doze textos distintos — "Abrindo no
+navegador…" aparece em duas): "Ligando todas as telas…", "Todas as telas desligadas",
 "Tela adicionada", "Abrindo logs…", "Cache das telas limpo", "Cache da {nome} limpo", "Dados
 arquivados excluídos", "Abrindo no navegador…", "Abrindo pasta…", "Dados apagados. Fechando o
 aplicativo…", "Agora em {perfil}" e "Perfil renomeado para {nome}". **O que não é toast**, e de

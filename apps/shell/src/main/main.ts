@@ -769,6 +769,13 @@ function registerIpc(): void {
       // last change, still pointing at the config file about to be removed, and
       // would put the "deleted" account back on disk as an empty directory.
       cancelPendingSave()
+      // A failed removal is **not** a reason to stay on the account. By the time
+      // anything here throws, `rmSync` has already taken most of the directory
+      // (probe P4: it removes what it can and then raises), so the window would
+      // be left pointing at a gutted profile - where the next volume drag would
+      // write its config.json back. The move happens either way; the failure is
+      // reported afterwards.
+      let removalError: unknown
       try {
         // The leaf is the account id, which is also the directory name: the
         // core's allowlist is checking main against the same number it used to
@@ -782,10 +789,19 @@ function registerIpc(): void {
         // this check exists to name.
         verifyUserDataDeletion(remaining, [])
         logger.log({ level: 'info', event: 'accounts.deleted', message: String(deleted) })
+      } catch (error) {
+        removalError = error
+        logger.log({
+          level: 'error',
+          event: 'accounts.delete-failed',
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
 
-        // And the window stays open on the account claimed above rather than
-        // closing. The wide deletion below still quits, because after it there
-        // is no account to move to and nowhere to write.
+      // And the window stays open on the account claimed above rather than
+      // closing. The wide deletion below still quits, because after it there
+      // is no account to move to and nowhere to write.
+      try {
         await adoptAccount(successor.lock, successor.id)
       } catch (error) {
         // The successor's lock is held from before the deletion, and a throw
@@ -798,12 +814,15 @@ function registerIpc(): void {
         throw error
       }
       logger.log({ level: 'info', event: 'accounts.switched', message: String(successor.id) })
+      // Reported only now, with the window already somewhere safe: what the user
+      // has to know is that something of the old profile is still on disk.
+      if (removalError !== undefined) throw removalError
       return { ok: true }
     },
 
     'data:deleteAll': async (payload) => {
-      // The only path in this app that deletes a live profile, and it exists
-      // because nothing else can ask the question: the artifact is a zip and there
+      // The wider of the two paths that delete a live profile, and the one that
+      // exists because nothing else can ask the question: the artifact is a zip and there
       // is no uninstaller (ADR-0020), and while there was one it deliberately did
       // not ask (ADR-0019). Three
       // things guard it, and none of them is the confirmation dialog: the panel's
@@ -813,9 +832,11 @@ function registerIpc(): void {
       //    deletion underneath a running browser half-succeeds (probe P4).
       // 2. The path is computed here, from storage's own function; the channel
       //    carries no payload at all, so nothing the renderer sends can steer it.
-      //    The leaf is the same constant the path is built from, so the core's
-      //    allowlist is checking main against itself.
-      // 3. What survived is judged by the core, three times over - see below.
+      //    The leaf comes from `appDirName()`, the same function the path is
+      //    built from, so the core's allowlist is checking main against itself -
+      //    and a development run, whose directory is `hecaton-dev`, is checked
+      //    against its own name rather than against the production constant.
+      // 3. What survived is judged by the core - see below.
       //
       // **It reaches every account, including ones another window is running.**
       // That is the difference from `data:deleteAccount` above and the reason the
@@ -1310,6 +1331,13 @@ async function adoptAccount(lock: MutexInstanceLock, targetId: number): Promise<
   // window holds when the user answers, and an offer outliving the move would
   // write the answer into the wrong one.
   updateOffer = undefined
+  // Creating the target's directory is the only step here that can fail, so it
+  // runs **before** anything is swapped: a throw then leaves this window exactly
+  // as it was, for the caller to clean up. Once the old lock is released and the
+  // new one installed there is no such thing as "as it was" - the window would
+  // hold one account's lock and another's paths. `openAccount` repeats the
+  // `mkdirSync`, which is idempotent.
+  mkdirSync(accountDir(targetId), { recursive: true })
   await Promise.allSettled([audioController?.dispose(), windowManager?.dispose()])
   if (instanceLock !== lock) await instanceLock.release()
   instanceLock = lock

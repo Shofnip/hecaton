@@ -75,3 +75,13 @@ the ordinary `npm start`.
 **Leaving it as it was and closing the real app to test.** What the owner was doing, and the reason
 this ADR exists: with accounts, testing means several windows, and the cost landed on the one person
 who tests most.
+
+## Correction (2026-09-19)
+
+**"`npm start`" names a script that exists in `apps/shell`, not at the root.** The
+command is `npm --prefix apps/shell start` (or `npm start` from inside
+`apps/shell`); there is no root-level `start`, so a session copying the shorter
+form from this ADR gets "Missing script". Everything else stands: that script,
+through `apps/shell/scripts/dev.mjs`, is still the only thing that sets
+`HECATON_APP_DIR`, and `electron .` by hand is still production. Verify in
+`apps/shell/package.json` and in the Commands block of `CLAUDE.md`.

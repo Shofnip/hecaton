@@ -24,13 +24,14 @@ prevented by accident rather than by intent.
 **An account is the unit of isolation, and the lock moved onto it.**
 
 An account is a named workspace with its own `config.json`, its own profile
-directory, its own Electron cache, and at most four screens. On disk:
+directory, its own Electron cache [see Correction (2026-09-19)], and at most four
+screens. On disk:
 
 ```
 %APPDATA%/hecaton/
   accounts/<id>/config.json     the settings, and the account's name
   accounts/<id>/profiles/       slot-N and the slot-N.old-… archives
-  accounts/<id>/shell/          Electron's own cache for that window
+  accounts/<id>/shell/          Electron's own cache [see Correction (2026-09-19)]
   logs/                         shared; one file a day, whichever window writes
 ```
 
@@ -133,3 +134,24 @@ development its own profiles and a shared lock name would have had the two conte
 they do not share. Verify in `accountMutexPrefix` in `packages/storage/src/app-paths.ts`; the prefix
 is a required constructor argument of `MutexInstanceLock`, with no default, so nothing can take a
 lock in the wrong namespace by omission.
+
+## Correction (2026-09-19)
+
+**Electron's own cache is not per account.** It is one directory per launch —
+`%APPDATA%/hecaton/shell/<pid>`, outside `accounts/` entirely — so the layout
+drawn above is wrong in its third line, and an account directory holds only
+`config.json` and `profiles/`.
+
+Per account was tried and cannot work: `app.setPath('userData', …)` has no effect
+after Electron resolves its session, so a window that switched accounts would go
+on holding the directory of the account it left — which made the wide deletion
+report failure over a directory the deleting window itself had open, and let
+another window claiming that account collide on the same cache. Per launch avoids
+both, because a pid is known before `ready` and is never shared; `stalePanelCaches`
+in the core says which leftovers may be removed.
+
+One consequence is worth naming, because a reader of the layout above would
+expect the opposite: deleting an account removes **nothing** of this window's, so
+`verifyUserDataDeletion` tolerates zero survivors there. Verify in `panelCacheDir`
+(`packages/storage/src/account-paths.ts`) and `apps/shell/src/main/main.ts`.
+ADR-0007's Correction of 2026-09-18 records the same fact from the other side.

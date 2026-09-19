@@ -819,8 +819,8 @@ the other is _Apagar este perfil_, which removes only this account's;
 [ADR-0005](adr/0005-never-delete-a-persistent-profile.md)'s 2026-08-08 Correction records why it
 exists and why the property that ADR protects is unharmed.
 
-Two channels back it, both taking no payload for the same reason `logs:reveal` does not:
-`data:reveal` and `data:deleteAll`. The rules are in the core and the I/O is not:
+Three channels back it, all taking no payload for the same reason `logs:reveal` does not:
+`data:reveal`, `data:deleteAccount` and `data:deleteAll`. The rules are in the core and the I/O is not:
 `requireEveryScreenStopped` refuses while any screen is anything but stopped, `planUserDataDeletion`
 still checks the path ends in the app's own directory name, and `verifyUserDataDeletion` judges what
 survived. The panel greying the button out while a screen is open is the UX echo of the first of

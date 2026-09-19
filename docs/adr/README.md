@@ -54,7 +54,7 @@ turned out wrong, that is a new ADR, not a correction.
 Only for factual errors. An ADR whose historical context has since changed is not wrong: it
 records what was true when the decision was taken, which is the point of the format.
 
-ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0018 and ADR-0021 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0011, ADR-0013, ADR-0014 and ADR-0018 carry
+ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0013, ADR-0014, ADR-0015, ADR-0018, ADR-0021 and ADR-0022 carry corrections and show the shape. ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0009, ADR-0011, ADR-0013, ADR-0014, ADR-0018 and ADR-0021 carry
 two or more each, which is what a dated `[see Correction (YYYY-MM-DD)]` marker is for: with more than one, an
 undated marker no longer says which.
 
@@ -82,8 +82,8 @@ undated marker no longer says which.
 | [0018](0018-one-instance-per-machine.md)                   | One instance per machine, bound to hardware   | Superseded in part by [0021](0021-several-windows-one-account-each.md) · w/ Corrections                    |
 | [0019](0019-an-assisted-installer-for-a-792-mb-app.md)     | An assisted installer for a 792 MB app        | Superseded by [0020](0020-a-zip-the-user-extracts-not-an-installer.md)                                     |
 | [0020](0020-a-zip-the-user-extracts-not-an-installer.md)   | A zip the user extracts, not an installer     | Accepted                                                                                                   |
-| [0021](0021-several-windows-one-account-each.md)           | Several windows, one account each             | Accepted · w/ Correction                                                                                   |
-| [0022](0022-a-separate-data-directory-for-development.md)  | A separate data directory for development     | Accepted                                                                                                   |
+| [0021](0021-several-windows-one-account-each.md)           | Several windows, one account each             | Accepted · w/ Corrections                                                                                  |
+| [0022](0022-a-separate-data-directory-for-development.md)  | A separate data directory for development     | Accepted · w/ Correction                                                                                   |
 | [0023](0023-an-update-check-at-launch.md)                  | An update check at launch, asked once         | Accepted, superseding part of [0014](0014-the-apps-first-network-request.md)                               |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are

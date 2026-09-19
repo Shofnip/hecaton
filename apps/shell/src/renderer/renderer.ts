@@ -398,7 +398,11 @@ let reportInModal: ((message: string) => void) | undefined
 
 /** Shows a failed action by name: the open modal's own line, or the wall's banner. */
 function showError(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error)
+  // Electron prefixes every rejected `invoke` with "Error invoking remote method
+  // 'channel':", which names our IPC contract at the user. The message after it
+  // is the one the main process wrote.
+  const raw = error instanceof Error ? error.message : String(error)
+  const message = raw.replace(/^Error invoking remote method '[^']*':\s*/, '')
   if (reportInModal) {
     reportInModal(message)
     return
@@ -1597,22 +1601,6 @@ function openTerms(): void {
  * looks.
  */
 /**
- * The account section of Configurações (ADR-0021).
- *
- * Three things, in the order somebody uses them: which account this window is
- * on, what it is called, and how to get another one. Switching stops every
- * screen — the browsers hold this account's profiles open — so it goes through
- * the confirmation pattern of design §9, in its non-destructive form: nothing is
- * deleted, so the button says "Confirmar" in `accent` rather than "Sim, apagar"
- * in `danger`.
- *
- * There is no "in use" mark beside the other accounts, and that is measured
- * rather than forgotten: finding out whether another window holds an account
- * means taking its lock, and a probe that takes one for a moment can push a
- * window that is starting onto a different account. A switch to an account
- * somebody else has open fails and says so.
- */
-/**
  * Things in the open settings modal that show the account's name.
  *
  * The modal is built once and deliberately never redrawn on a state push, so a
@@ -1629,6 +1617,23 @@ const renameListeners: ((name: string) => void)[] = []
  */
 const accountCountListeners: ((count: number) => void)[] = []
 
+/**
+ * The account section of Configurações (ADR-0021).
+ *
+ * Four controls, in the order somebody uses them: which account this window is
+ * on, what it is called, and two ways to get another one — create it and stay,
+ * or create it and go. Switching and create-and-go stop every screen — the
+ * browsers hold this account's profiles open — so both go through the
+ * confirmation pattern of design §9, in its non-destructive form: nothing is
+ * deleted, so the button says "Confirmar" in `accent` rather than "Sim, apagar"
+ * in `danger`. Creating without going stops nothing and asks nothing.
+ *
+ * There is no "in use" mark beside the other accounts, and that is measured
+ * rather than forgotten: finding out whether another window holds an account
+ * means taking its lock, and a probe that takes one for a moment can push a
+ * window that is starting onto a different account. A switch to an account
+ * somebody else has open fails and says so.
+ */
 function accountBox(closeSettings: () => void): HTMLElement {
   renameListeners.length = 0
   accountCountListeners.length = 0
@@ -1760,9 +1765,7 @@ function accountBox(closeSettings: () => void): HTMLElement {
     run(async () => {
       const result = await window.hecaton.createAccountOnly()
       if (!result.ok) {
-        // Not the switch's refusal: nothing was created, and the only way to get
-        // here is two windows reaching for the same next id at the same instant.
-        say('Outra janela acabou de criar esse perfil. Tente de novo.')
+        say(createRefusalMessage(result.reason))
         return
       }
       // No confirmation before it: nothing is stopped, nothing is deleted, and
@@ -1803,6 +1806,25 @@ function accountBox(closeSettings: () => void): HTMLElement {
   box.append(create)
   box.append(status)
   return box
+}
+
+/**
+ * Why a profile could not be created, in the words the lock answered with.
+ *
+ * Not the switch's wording: nothing was created, so "já está aberto" would be
+ * describing a profile the user has never seen. The common case really is a
+ * race - two windows computing the same next id at the same instant - but it is
+ * not the only one, and telling somebody to try again when another Windows
+ * account holds that id would send them round a loop that cannot end.
+ */
+function createRefusalMessage(reason: string | undefined): string {
+  if (reason === 'held-by-this-user') {
+    return 'Outra janela acabou de criar esse perfil. Tente de novo.'
+  }
+  if (reason === 'held-by-another-user') {
+    return 'Esse número de perfil está reservado por outra conta do Windows.'
+  }
+  return 'Não foi possível reservar um perfil novo agora.'
 }
 
 /** Why a switch did not happen, in the words the lock answered with. */
@@ -2095,16 +2117,16 @@ function openEditModal(id: number): void {
 
     // Clear this screen's cache (design §8.4).
     body.append(
-      dangerButton('Limpar cache desta tela', `Apaga somente o cache da ${slotName(s)}.`, () =>
+      dangerButton('Limpar cache desta tela', `Apaga somente o cache de "${slotName(s)}".`, () =>
         openConfirm({
-          title: `Limpar cache da ${slotName(s)}?`,
+          title: `Limpar cache de "${slotName(s)}"?`,
           message: 'O cache desta tela será apagado. A sessão salva pode exigir novo login.',
           danger: true,
           confirmLabel: 'Sim, apagar',
           onYes: () =>
             run(async () => {
               await window.hecaton.clearSlotCache(s.id)
-              showToast(`Cache da ${slotName(s)} limpo`)
+              showToast(`Cache de "${slotName(s)}" limpo`)
             }),
         }),
       ),

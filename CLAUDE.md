@@ -112,7 +112,8 @@ logged-in session, so a single ignore-rule mistake would leak a real account.
 **A development run uses `%APPDATA%/hecaton-dev` instead**
 ([ADR-0022](docs/adr/0022-a-separate-data-directory-for-development.md)), so it can be open beside
 the real app — which testing accounts requires. The name comes from `HECATON_APP_DIR`, set only by
-`npm start`, and everything hangs off it: config, logs, profiles, panel caches, the machine seal and
+`npm --prefix apps/shell start` (there is no root `start` script), and everything hangs off it:
+config, logs, profiles, panel caches, the machine seal and
 the account lock prefix. **There is deliberately no `app.isPackaged` branch** — that was the point of
 the old "same path in dev and prod" rule and it is what kills a class of packaging bug, so a packaged
 app resolves the production name through the same line of code. `electron .` by hand is production.

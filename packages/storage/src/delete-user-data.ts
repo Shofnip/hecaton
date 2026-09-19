@@ -34,8 +34,9 @@ const RETRY_DELAY_MS = 300
  * running — appears in the returned list. `verifyUserDataDeletion` in the core is
  * what decides which survivors are acceptable.
  *
- * Synchronous deliberately: its caller quits the app immediately afterwards, and
- * the removal has to be finished by then. An async version would let the rest of
+ * Synchronous deliberately: one caller quits the app immediately afterwards and
+ * the other moves the window to a different account, and the removal has to be
+ * finished by then. An async version would let the rest of
  * the process keep running — writing config, opening a log file — underneath a
  * directory being removed.
  */
