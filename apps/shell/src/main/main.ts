@@ -940,6 +940,15 @@ function registerIpc(): void {
 
     'slots:reload': (payload) => orchestrator.reload(parseSlotId(payload)),
 
+    'slots:cancelLogin': (payload) => {
+      // Closes the windows that screen opened for itself - the provider login -
+      // and leaves the screen alone. The state is pushed at once rather than
+      // waiting for the next sweep, so the control disappears with the window it
+      // closed instead of a tick later.
+      orchestrator.closeExtraWindows(parseSlotId(payload))
+      pushState()
+    },
+
     'ui:setTheme': async (payload) => {
       // Theme is a persisted global with no orchestrator behaviour — main holds
       // it and echoes it back so the renderer reflects the saved value.

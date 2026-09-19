@@ -123,6 +123,12 @@ export const IPC_CHANNELS = [
   'slots:setVolume',
   'slots:setMuted',
   'slots:reload',
+  // The way out of a provider login the user cannot finish (owner, 2026-09-19):
+  // closes the windows that screen's browser opened beside the embedded one,
+  // and nothing else. It carries a slot id like every other screen command - so
+  // it can only ever reach one screen's own windows - and the panel only shows
+  // the control while the sweep says there is something to close.
+  'slots:cancelLogin',
   'ui:setTheme',
   // The renderer-owned geometry channel (UI rework, Option 1, approved by the
   // owner): the renderer sends where each embedded screen goes, main relays it.

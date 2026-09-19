@@ -54,6 +54,7 @@ const api = {
     ipcRenderer.invoke('slots:setVolume', { id, volume }),
   setSlotMuted: (id: number, muted: boolean) => ipcRenderer.invoke('slots:setMuted', { id, muted }),
   reloadSlot: (id: number) => ipcRenderer.invoke('slots:reload', id),
+  cancelSlotLogin: (id: number) => ipcRenderer.invoke('slots:cancelLogin', id),
   setTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme),
   setScreenLayout: (placements: unknown) => ipcRenderer.invoke('screens:layout', placements),
 

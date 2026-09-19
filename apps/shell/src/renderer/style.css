@@ -1438,3 +1438,24 @@ textarea,
   flex: 1;
   min-width: 0;
 }
+
+/*
+ * The way out of a provider login (owner, 2026-09-19). It sits in the card's
+ * head, between the name and the favicon, and only exists while that screen has
+ * a login window open — so it is styled to be noticed rather than to blend in
+ * with the controls below.
+ */
+.cancel-login {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+}
+
+.cancel-login:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}

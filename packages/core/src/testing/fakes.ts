@@ -155,6 +155,22 @@ export class FakeWindowManager implements WindowManager {
     this.revealed.push(pid)
     return this.detachedToReveal.get(pid) ?? 0
   }
+
+  /** How many windows a given pid has open beside its screen; absent means none. */
+  readonly extraWindowsByPid = new Map<number, number>()
+  /** Pids the core asked to close the extra windows of, in order. */
+  readonly closedExtras: number[] = []
+
+  extraWindows(pid: number): number {
+    return this.extraWindowsByPid.get(pid) ?? 0
+  }
+
+  closeExtraWindows(pid: number): number {
+    this.closedExtras.push(pid)
+    const count = this.extraWindowsByPid.get(pid) ?? 0
+    this.extraWindowsByPid.set(pid, 0)
+    return count
+  }
 }
 
 export class FakeAudioController implements AudioController {

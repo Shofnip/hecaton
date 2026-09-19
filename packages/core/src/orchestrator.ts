@@ -54,6 +54,8 @@ interface SlotRuntime {
   pid: number | undefined
   restartAttempts: number
   lastError: string | undefined
+  /** Windows the browser has open beside the embedded screen; see the snapshot. */
+  extraWindows: number
 }
 
 /**
@@ -80,6 +82,12 @@ export interface SlotSnapshot {
   focused: boolean
   /** Why the slot is not running, when that is known. Cleared once it starts. */
   lastError?: string
+  /**
+   * Windows this screen's browser has open beside the embedded one - a provider
+   * login, in practice. Refreshed by the same sweep that rescues them, and zero
+   * for a screen that is not running.
+   */
+  extraWindows: number
 }
 
 export class Orchestrator {
@@ -139,6 +147,7 @@ export class Orchestrator {
         state: 'stopped',
         pid: undefined,
         restartAttempts: 0,
+        extraWindows: 0,
         lastError: undefined,
       })
     }
@@ -204,6 +213,7 @@ export class Orchestrator {
       state: 'stopped',
       pid: undefined,
       restartAttempts: 0,
+      extraWindows: 0,
       lastError: undefined,
     })
     // No layout change: the new slot is stopped, so it is not on the grid until
@@ -583,11 +593,37 @@ export class Orchestrator {
    */
   revealDetachedWindows(): void {
     for (const slot of this.slots.values()) {
-      if (!isLive(slot.state) || slot.pid === undefined) continue
+      if (!isLive(slot.state) || slot.pid === undefined) {
+        slot.extraWindows = 0
+        continue
+      }
       const moved = this.windows.revealDetachedWindows(slot.pid)
       if (moved > 0) {
         this.emit({ level: 'info', event: 'slot.detached-window', ...this.slotFields(slot) })
       }
+      // Counted on the same sweep, for the panel's cancel control. Rescuing and
+      // counting are two questions about the same set of windows, and asking
+      // them together is what keeps the control from lagging a tick behind the
+      // window it closes.
+      slot.extraWindows = this.windows.extraWindows(slot.pid)
+    }
+  }
+
+  /**
+   * Closes the windows a screen opened for itself, without touching the screen.
+   *
+   * The way out of a provider login the user cannot finish. Silent for a screen
+   * that is not running: the panel draws its control from a state that is up to
+   * a tick old, so "the screen stopped in between" is an ordinary race, not an
+   * error to report.
+   */
+  closeExtraWindows(id: number): void {
+    const slot = this.slots.get(id)
+    if (!slot || !isLive(slot.state) || slot.pid === undefined) return
+    const closed = this.windows.closeExtraWindows(slot.pid)
+    if (closed > 0) {
+      slot.extraWindows = 0
+      this.emit({ level: 'info', event: 'slot.login-cancelled', ...this.slotFields(slot) })
     }
   }
 
@@ -641,6 +677,11 @@ export class Orchestrator {
         muted: slot.config.muted,
         backgroundThrottling: slot.config.backgroundThrottling,
         focused: this.focusedSlotId === slot.config.id,
+        // Never reported for a screen that is not running, whatever the last
+        // sweep measured: the card draws its cancel control from this, and the
+        // two answers - "how many windows" and "is it running" - must not be
+        // able to disagree in the two seconds before the next sweep.
+        extraWindows: isLive(slot.state) ? slot.extraWindows : 0,
       }
       if (slot.config.gameId !== undefined) view.gameId = slot.config.gameId
       if (slot.config.url !== undefined) view.url = slot.config.url

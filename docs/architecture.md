@@ -166,7 +166,11 @@ was terminated` — the window opens, paints nothing, and **no page ever loads**
   `detached-window.ts`: **only** a window with no pixel on any monitor is moved, so one the user
   dragged somewhere is left alone, and **nothing happens before the screen is embedded**, because
   until then the screen itself is deliberately off-screen and rescuing it would undo the very flash
-  the offscreen birth prevents.
+  the offscreen birth prevents. **The same sweep counts them**, and the card shows a × while the
+  count is above zero: the provider's window has no way back to the game inside it, so closing it
+  from the app is the only way to abandon a login (owner, 2026-09-19). `slots:cancelLogin` posts
+  WM_CLOSE to those windows and to nothing else — the screen itself is a `WS_CHILD` after the embed
+  and is not among them — so the session the user already had is untouched.
 - **An embedded screen is reloaded and held hidden for a second before it is revealed.** On this
   browser, `SetParent` on an `--app` window throws away its rendered surface and it never comes
   back — the screen sits grey until somebody reloads it by hand. Chrome 150 does not do it, a

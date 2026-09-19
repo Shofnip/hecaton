@@ -129,6 +129,12 @@ As duas barras do card — cabeçalho e controles — têm **metade da altura** 
   - Vermelho (`danger`) = erro
   - Cinza (`border`), sem brilho = desligada
 - **Nome da tela** (12px, bold). **Clicável**: alterna o modo foco daquela tela (entra se não está em foco; sai se já está). Hover pinta o nome no `accent`.
+- **Fechar a janela de login** (20px, ícone de ×, em `warn`; hover em `danger`) — aparece entre o
+  nome e o favicon **somente enquanto aquela tela tiver uma janela de login aberta**, e some junto
+  com ela. É a saída de um "entrar com o Google" que o usuário não quer terminar: a janela do
+  provedor é um segundo navegador sem caminho de volta para o jogo por dentro (decisão do dono,
+  2026-09-19). A contagem vem da varredura de 2s que já resgata essas janelas, então o controle pode
+  atrasar até um tique em qualquer direção; clicar quando a janela já fechou não faz nada.
 - **Favicon** (14×14px, cantos 4px) alinhado à direita — o mesmo ícone da aba do navegador do endereço configurado. Fallback: ícone de globo se o favicon não carregar. Tooltip com o nome/endereço.
   - No protótipo o favicon vinha de `google.com/s2/favicons?domain=...&sz=64`. Na implementação
     real ele é **empacotado no app** (`assets/<id do jogo>.ico`; globo genérico para endereço

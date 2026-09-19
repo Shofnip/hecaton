@@ -446,6 +446,63 @@ export class NativeWindowManager implements WindowManager {
     return moved
   }
 
+  /**
+   * How many windows this browser has open beside its embedded screen.
+   *
+   * The same enumeration the rescue does, asking a different question: the
+   * screen itself is a `WS_CHILD` after the embed and `getWindows` does not list
+   * it, so every visible, titled top-level window of the process is one the page
+   * opened - a provider login, in practice. Zero before the embed, because until
+   * then the screen *is* one of those windows and would count itself.
+   */
+  extraWindows(pid: number): number {
+    if (!this.embedded.has(pid)) return 0
+    return this.extraWindowsOf(pid).length
+  }
+
+  /**
+   * Closes them, and says how many were asked.
+   *
+   * `close <hwnd>` posts WM_CLOSE, the same graceful path the screen's own stop
+   * uses: the browser gets to tear the window down itself. A kill would be the
+   * wrong tool twice over - these windows share the process with the screen the
+   * user is still using, so killing is not even available without taking the
+   * game down with it.
+   */
+  closeExtraWindows(pid: number): number {
+    if (!this.embedded.has(pid)) return 0
+    const windows = this.extraWindowsOf(pid)
+    for (const window of windows) {
+      this.fire(`close ${window.id}`)
+      // Forgotten as rescued: if the page opens another login window later, that
+      // one is new and deserves the same rescue this one got.
+      this.rescued.delete(window.id)
+    }
+    return windows.length
+  }
+
+  /**
+   * The visible, titled top-level windows of a process, never the embedded screen.
+   *
+   * The screen is excluded **by handle** rather than by trusting that a
+   * `WS_CHILD` window is absent from the enumeration. That is true of
+   * `EnumWindows`, and the rescue above already leans on it, but the cost of
+   * being wrong differs: there it would move a screen once, here it would put a
+   * "close the login" button on every running card and leave it there.
+   */
+  private extraWindowsOf(pid: number): NativeWindow[] {
+    const screen = this.embedded.get(pid)
+    return windowManager
+      .getWindows()
+      .filter(
+        (window) =>
+          window.processId === pid &&
+          window.id !== screen &&
+          window.isVisible() &&
+          window.getTitle().trim(),
+      )
+  }
+
   /** Windows already brought into view, so none is moved twice. */
   private readonly rescued = new Set<number>()
 

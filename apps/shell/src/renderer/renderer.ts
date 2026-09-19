@@ -34,6 +34,8 @@ interface SlotSnapshot {
   backgroundThrottling: boolean
   focused: boolean
   lastError?: string
+  /** Windows this screen's browser opened beside it — a provider login, in practice. */
+  extraWindows: number
 }
 
 interface GameOption {
@@ -107,6 +109,7 @@ interface HecatonApi {
   setSlotVolume(id: number, volume: number): Promise<void>
   setSlotMuted(id: number, muted: boolean): Promise<void>
   reloadSlot(id: number): Promise<boolean>
+  cancelSlotLogin(id: number): Promise<void>
   setTheme(theme: Theme): Promise<void>
   setScreenLayout(placements: unknown): Promise<void>
   renameAccount(name: string): Promise<void>
@@ -852,7 +855,12 @@ function card(s: SlotSnapshot, expanded: boolean): HTMLElement {
   name.type = 'button'
   name.title = s.focused ? 'Sair do foco' : 'Focar nesta tela'
   name.addEventListener('click', () => toggleFocus(s.id))
-  head.append(led, name, favicon(s))
+  head.append(led, name)
+  // Only while there is one to close. A login window is a second browser window
+  // with no way back to the game inside it, so this is the way out; the control
+  // appears with it and goes when it goes (owner, 2026-09-19).
+  if (s.extraWindows > 0) head.append(cancelLoginButton(s))
+  head.append(favicon(s))
   node.append(head)
 
   // ---- viewport ----
@@ -861,6 +869,25 @@ function card(s: SlotSnapshot, expanded: boolean): HTMLElement {
   // ---- controls ----
   node.append(controls(s, expanded))
   return node
+}
+
+/**
+ * Closes the window a screen opened for a provider login.
+ *
+ * In the head rather than in the control bar below, because it belongs to what
+ * is happening *now* on that screen rather than to the screen's own controls,
+ * and because the head is where the eye goes when a login window is in the way.
+ * The count comes from a sweep that runs every two seconds, so the control can
+ * lag the window by that much in either direction; pressing it when the window
+ * has already gone is harmless.
+ */
+function cancelLoginButton(s: SlotSnapshot): HTMLElement {
+  const label = s.extraWindows > 1 ? 'Fechar as janelas de login' : 'Fechar a janela de login'
+  const button = iconButton('close', 'icon-btn cancel-login', label, () => {
+    showToast(s.extraWindows > 1 ? 'Fechando as janelas de login…' : 'Fechando a janela de login…')
+    run(() => window.hecaton.cancelSlotLogin(s.id))
+  })
+  return button
 }
 
 const LED_TITLES: Record<VisualStatus, string> = {
@@ -2387,11 +2414,14 @@ function initWall(): void {
 
 /** The overlay window: modals and the volume popover, above the games. */
 function initOverlay(): void {
-  // It keeps a fresh copy of the state so a modal renders current data, but it
-  // never redraws on a push — that would wipe a half-typed field. It only draws
-  // when the wall asks it to.
+  // It keeps a fresh copy of the state so a modal renders current data, and it
+  // never redraws on a push by itself — that would wipe a half-typed field. A
+  // modal that *is* a view of the state says so by registering a listener, which
+  // is what keeps the profiles list right after a profile is created, renamed or
+  // deleted; everything else only draws when the wall asks it to.
   window.hecaton.onState((next) => {
     state = next
+    for (const listener of overlayStateListeners) listener()
   })
   window.hecaton.onOverlayOpen((request) => {
     switch (request.kind) {

@@ -56,6 +56,7 @@ describe('the channel list', () => {
       'slots:setVolume',
       'slots:setMuted',
       'slots:reload',
+      'slots:cancelLogin',
       'ui:setTheme',
       'screens:layout',
       'overlay:open',

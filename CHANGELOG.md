@@ -36,6 +36,10 @@ Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
   junto: nem quem você é, nem qual versão está usando. Nada é baixado nem instalado pelo
   aplicativo, como antes. Sem internet, ele não diz nada. _Configurações → Procurar
   atualizações_ continua onde estava, para quando você quiser perguntar na hora.
+- **Dá para desistir do login do Google.** Quando uma tela abre a janela de
+  login do provedor, aparece um × no cabeçalho dela; ele fecha essa janela e
+  deixa a tela como estava. Antes, aberta a janela, só havia o caminho de
+  frente. O botão só existe enquanto a janela existir.
 - **Tibidle.** O segundo jogo da lista, com o ícone dele nas telas. Escolha em
   _Editar tela → Jogo_, como o Poke IdleWorld.
 - **Perfis agora têm janela própria.** Um botão novo na barra da esquerda abre a

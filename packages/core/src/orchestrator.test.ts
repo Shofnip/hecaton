@@ -556,6 +556,9 @@ describe('snapshot for the panel', () => {
       muted: false,
       backgroundThrottling: false,
       focused: false,
+      // Zero until the sweep says otherwise, and the card draws no cancel
+      // control while it is zero.
+      extraWindows: 0,
     }
     expect(makeOrchestrator().snapshot()).toEqual([
       { id: 1, ...base },
@@ -1130,5 +1133,56 @@ describe('audio following the app focus mode', () => {
     await app.start(1)
     app.focus(1)
     await expect(app.applyAudio()).resolves.toBeUndefined()
+  })
+})
+
+describe('cancelling a provider login', () => {
+  it('reports how many windows a live screen has open beside its own', async () => {
+    // The panel draws a "close the login" control from this, and only while
+    // there is one to close. Counted on the same sweep that rescues them: there
+    // is no CDP and therefore no event to learn it from.
+    const app = makeOrchestrator()
+    await app.start(1)
+    windows.extraWindowsByPid.set(launcher.pidForSlot(1)!, 1)
+
+    app.revealDetachedWindows()
+
+    expect(app.snapshot().find((slot) => slot.id === 1)?.extraWindows).toBe(1)
+  })
+
+  it('is zero for a screen that opened nothing, and for a stopped one', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+
+    app.revealDetachedWindows()
+    expect(app.snapshot().find((slot) => slot.id === 1)?.extraWindows).toBe(0)
+
+    windows.extraWindowsByPid.set(launcher.pidForSlot(1)!, 2)
+    app.revealDetachedWindows()
+    await app.stop(1)
+    // A stopped screen has no process and no windows; leaving the last count
+    // behind would leave a control on the card that closes nothing.
+    expect(app.snapshot().find((slot) => slot.id === 1)?.extraWindows).toBe(0)
+  })
+
+  it('closes them on request, and only for that screen', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+
+    app.closeExtraWindows(1)
+
+    expect(windows.closedExtras).toEqual([launcher.pidForSlot(1)])
+  })
+
+  it('does nothing for a screen that is not running', async () => {
+    // No process, no windows. Asking the adapter would be a shell-out for
+    // nothing, and the panel can ask at any moment - the control it draws comes
+    // from a state that is a tick old.
+    const app = makeOrchestrator()
+
+    app.closeExtraWindows(1)
+
+    expect(windows.closedExtras).toEqual([])
   })
 })

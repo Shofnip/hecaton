@@ -93,6 +93,30 @@ export interface WindowManager {
    * login window the user dragged is never yanked back.
    */
   revealDetachedWindows(pid: number): number
+  /**
+   * How many windows this process owns that are **not** the embedded screen.
+   *
+   * In practice this is the provider-login window and nothing else: the screen
+   * itself is a `WS_CHILD` after the embed and is not a top-level window any
+   * more, so anything counted here is a window the page opened. The panel draws
+   * its "cancel the login" control from this number, and only while it is above
+   * zero — a control that closes nothing is worse than no control.
+   *
+   * Counted rather than inferred because there is no CDP: the app learns what a
+   * page did only by looking at Win32.
+   */
+  extraWindows(pid: number): number
+  /**
+   * Closes those windows, the way clicking their X does, and returns how many
+   * were asked.
+   *
+   * The escape hatch for a login the user started and cannot finish (owner,
+   * 2026-09-19): once the provider's window is up there is no way back to the
+   * game from inside it. WM_CLOSE rather than a kill, so the browser keeps the
+   * session it already has - this must never cost the user the login they
+   * already had on the screen behind.
+   */
+  closeExtraWindows(pid: number): number
 }
 
 /**
