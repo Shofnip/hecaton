@@ -72,6 +72,10 @@ latest*.yml
 # Session handoff between Claude Code sessions: ephemeral working state whose
 # durable content lives in committed docs (architecture.md, docs/adr/). Never committed.
 .claude/handoff.md
+# Locally installed ai-memory skills are tool state, not project source.
+.claude/skills/ai-memory-*/
+# Backups created while replacing Claude's instructions with the canonical import.
+CLAUDE.md.bak-*
 # Disposable probe code (Phase-0-style spikes). Findings are recorded in
 # architecture.md and the ADRs; the code itself never ships and never enters git.
 spike/
