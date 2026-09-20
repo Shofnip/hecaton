@@ -297,6 +297,39 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       expect(regionSize(childHwnd)).toEqual({ width: 420, height: 320 })
     })
 
+    it('places a whole layout frame in one command', async () => {
+      // What the video wall actually drives: the renderer computes a frame and
+      // the core hands over every screen that moved at once. Measured 2026-09-20
+      // with six screens — one command per screen placed a frame in 75 ms, one
+      // command for all six in 36 ms, because each is a Win32 call that waits on
+      // a browser that is busy drawing.
+      embedManager.setLayout([{ pid, bounds: { x: 70, y: 80, width: 380, height: 300 } }])
+      await waitForRect(childHwnd, () => regionSize(childHwnd).width === 380)
+      expect(regionSize(childHwnd)).toEqual({ width: 380, height: 300 })
+    })
+
+    it('skips the frames the user has already moved past', async () => {
+      // A divider drag emits one frame per animation frame — about 60 a second,
+      // against the 15 to 25 Win32 can serve. Executing all of them left the
+      // windows 2.2 s behind the pointer (measured 2026-09-20, six screens): when
+      // the drag stopped, the worker was still applying positions the divider had
+      // long passed. Only the newest frame is worth sending, and the newest frame
+      // must never be the one that gets dropped.
+      const before = embedManager.layoutCommandsSent
+      for (let i = 0; i < 30; i++) {
+        embedManager.setLayout([{ pid, bounds: { x: 60, y: 70, width: 300 + i * 4, height: 260 } }])
+      }
+      expect(embedManager.layoutCommandsSent - before).toBeLessThanOrEqual(2)
+      await waitForRect(childHwnd, () => regionSize(childHwnd).width === 416)
+      expect(regionSize(childHwnd)).toEqual({ width: 416, height: 260 })
+    })
+
+    it('sends nothing at all for a frame in which nothing moved', () => {
+      const before = embedManager.layoutCommandsSent
+      embedManager.setLayout([])
+      expect(embedManager.layoutCommandsSent).toBe(before)
+    })
+
     it('hides and shows the embedded window', async () => {
       expect(embedManager.hide(pid)).toBe(true)
       expect(await waitFor(() => !isVisibleWindow(childHwnd))).toBe(true)

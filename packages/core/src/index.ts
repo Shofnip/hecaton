@@ -120,4 +120,5 @@ export type {
   ProfileArchive,
   Storage,
   WindowManager,
+  WindowPlacement,
 } from './ports.js'

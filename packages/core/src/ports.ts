@@ -43,9 +43,35 @@ export interface BrowserLauncher {
   isAlive(pid: number): boolean
 }
 
+/** One screen's place in a layout frame: whose window, and where it goes. */
+export interface WindowPlacement {
+  pid: number
+  bounds: GridCell
+}
+
 export interface WindowManager {
   /** False when the window is not found yet; the browser may still be starting. */
   setBounds(pid: number, bounds: GridCell): boolean
+  /**
+   * Places every screen of **one layout frame**, in one call.
+   *
+   * Separate from `setBounds` because the frame, not the screen, is the unit the
+   * cost is paid in. Measured on 2026-09-20 with six embedded screens: one
+   * command per screen took 75 ms to place a frame and one command carrying all
+   * six took 36 ms — each command is a synchronous Win32 call against a browser
+   * that is busy drawing, and six of those queue up behind each other. Entering
+   * and leaving focus is exactly one of these frames, so that is the whole
+   * transition the user waits for.
+   *
+   * Only screens that actually moved are listed: the panel re-emits its layout
+   * on every state push, and moving a window to where it already is still costs
+   * a reflow inside the page.
+   *
+   * No return value. A frame is not an operation that can usefully fail here —
+   * a window that is not found yet is one the next frame will carry — and the
+   * adapter drives the worker fire-and-forget anyway.
+   */
+  setLayout(placements: WindowPlacement[]): void
   /**
    * Embeds the browser window into the app's panel (Win32 SetParent), so it
    * becomes one of the video-wall cells instead of a free desktop window. False

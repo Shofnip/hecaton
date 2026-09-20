@@ -17,6 +17,7 @@ import type {
   ProfileArchive,
   Storage,
   WindowManager,
+  WindowPlacement,
 } from '../ports.js'
 import type { AppContainerReadState } from '../browser-access.js'
 import type { InstanceLockState, MachineFacts } from '../instance-claim.js'
@@ -62,7 +63,8 @@ export class FakeBrowserLauncher implements BrowserLauncher {
   /** Set to make the next launch reject, simulating a browser that never started. */
   failNextLaunch: Error | undefined
 
-  private nextPid = 1000
+  /** The pid the next launch gets. Settable, so a test can make Windows reuse one. */
+  nextPid = 1000
   private readonly alive = new Set<number>()
   private readonly pidsBySlot = new Map<number, number>()
 
@@ -110,10 +112,18 @@ export class FakeWindowManager implements WindowManager {
   /** Pids whose window is "not found yet", as when the browser is still starting. */
   readonly missing = new Set<number>()
 
+  /** One entry per layout frame the core sent, in order. */
+  readonly layouts: WindowPlacement[][] = []
+
   setBounds(pid: number, bounds: GridCell): boolean {
     if (this.missing.has(pid)) return false
     this.bounds.set(pid, bounds)
     return true
+  }
+
+  setLayout(placements: WindowPlacement[]): void {
+    this.layouts.push(placements)
+    for (const placement of placements) this.bounds.set(placement.pid, placement.bounds)
   }
 
   reparent(pid: number): boolean {

@@ -670,6 +670,14 @@ The load-bearing points:
   channel is gone). The window-manager fits the **game** to the viewport and clips Chrome's
   `--app` title bar and frame away with `SetWindowRgn` — which also stops the user dragging a
   screen out of place.
+- **A layout frame is one unit, and only the newest one is applied**
+  ([ADR-0025](adr/0025-a-layout-frame-is-the-unit-of-window-movement.md)). The core sends every
+  screen that moved through `setLayout` in a single call, leaves out any screen already where the
+  frame puts it, and the adapter sends one `movechildren` command — `SetWindowPos` with `HWND_TOP`
+  and `SWP_ASYNCWINDOWPOS`, per screen, inside one command. While a command is in flight the
+  adapter holds only the **newest** frame and discards what it overtook; a frame is complete in
+  itself, so nothing is lost by dropping an older one. Measured 2026-09-20 over six screens: a
+  focus transition 75 ms → 36 ms, and the catch-up after a divider drag 2.2 s → 84 ms.
 - Modals and the volume popover render in a **second, transparent overlay window owned by the
   panel**, because a child Chrome window always paints over the panel's DOM. It is **not**
   always-on-top: being owned is what puts it over the embedded screens, and the flag additionally

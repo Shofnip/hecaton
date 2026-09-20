@@ -1,8 +1,8 @@
 /**
  * Persistent PowerShell worker for the raw Win32 window operations
  * node-window-manager does not expose: SetParent (with the style strip an embed
- * needs), MoveWindow for an embedded child, ShowWindow, and the WM_APPCOMMAND
- * browser refresh.
+ * needs), moving an embedded child, ShowWindow, and the WM_APPCOMMAND browser
+ * refresh.
  *
  * Etapa 2 shelled these out once per call (~270 ms), which is fine for an embed
  * or a reload but far too slow for positioning: a video-wall screen must follow
@@ -24,14 +24,14 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  *
  * Style constants and the SetWindowPos flags match the spike's `setchild` /
  * `movescreen`; APPCOMMAND_BROWSER_REFRESH is 3 (18, one off, launches the
- * Calculator — measured the hard way in the spike). movechild re-asserts
- * HWND_TOP after the move because Electron's own input hwnd (it is Chromium too)
- * re-raises itself on a parent resize and would otherwise sit over the embedded
- * child, swallowing clicks (finding 0.1-(2)).
+ * Calculator — measured the hard way in the spike). Every move re-asserts
+ * HWND_TOP because Electron's own input hwnd (it is Chromium too) re-raises
+ * itself on a parent resize and would otherwise sit over the embedded child,
+ * swallowing clicks (finding 0.1-(2)).
  *
  * Protocol, one command line in -> one reply line out:
  *   reparent <child> <parent>       -> OK parent=<hwnd>
- *   movechild <hwnd> <x> <y> <w> <h> -> OK        (x,y in the parent's client area)
+ *   movechildren <hwnd>,<x>,<y>,<w>,<h>;...  -> OK   (x,y in the parent's client area)
  *   movetop <hwnd> <x> <y>          -> OK        (x,y in screen px; keeps size and frame)
  *   focusat <parent> <x> <y>        -> OK <hwnd> | OK none  (x,y in the parent's client area)
  *   show <hwnd> <cmd>               -> OK         (0 = SW_HIDE, 5 = SW_SHOW)
@@ -50,7 +50,6 @@ public static class W {
   [DllImport("user32.dll", EntryPoint="SetWindowLongPtr")] static extern IntPtr SetWindowLongPtr(IntPtr h, int i, IntPtr v);
   [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
   [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, uint flag);
-  [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hh, bool repaint);
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int hh, uint flags);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
@@ -81,6 +80,7 @@ public static class W {
   const long WS_MINIMIZEBOX = 0x00020000L;
   const long WS_MAXIMIZEBOX = 0x00010000L;
   const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_FRAMECHANGED = 0x0020;
+  const uint SWP_NOACTIVATE = 0x0010, SWP_ASYNCWINDOWPOS = 0x4000;
   const uint WM_APPCOMMAND = 0x0319;
   const int APPCOMMAND_BROWSER_REFRESH = 3;
   const uint WM_CLOSE = 0x0010;
@@ -142,7 +142,28 @@ public static class W {
     return "OK";
   }
 
-  public static string MoveChild(IntPtr h, int x, int y, int w, int hh) {
+  // One whole layout frame: every screen that moved, in one command.
+  // Argument: <hwnd>,<x>,<y>,<w>,<h>;<hwnd>,<x>,<y>,<w>,<h>;...
+  //
+  // The frame is the unit because the cost is paid per command, not per pixel.
+  // Measured 2026-09-20 against six embedded screens on a busy page: a command
+  // per screen placed a frame in 75 ms, this placed it in 36 ms.
+  //
+  // DeferWindowPos is the API this looks like it wants, and it is a dead end:
+  // measured the same day, its chain fails on a window owned by another process,
+  // and a failed DeferWindowPos frees the whole chain and returns NULL — so it
+  // moved nothing at all while timing four times faster than anything that
+  // worked. A plain loop has nothing to lose.
+  public static string MoveChildren(string spec) {
+    string[] items = spec.Split(';');
+    for (int i = 0; i < items.Length; i++) {
+      string[] p = items[i].Split(',');
+      MoveOne((IntPtr)long.Parse(p[0]), int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), int.Parse(p[4]));
+    }
+    return "OK";
+  }
+
+  static void MoveOne(IntPtr h, int x, int y, int w, int hh) {
     // x,y,w,hh is where the GAME should appear (a viewport), in parent-client px.
     // Chrome draws a title bar (APP_TITLE) at the top of its client and keeps a
     // ~7px invisible frame around the window even after the style strip. We want
@@ -159,13 +180,22 @@ public static class W {
     int right = (wr.Right - wr.Left) - (cr.Right - cr.Left) - left;
     int bottom = (wr.Bottom - wr.Top) - (cr.Bottom - cr.Top) - top;
     // The client must be APP_TITLE taller and shifted up, so the game lands at x,y.
-    MoveWindow(h, x - left, y - APP_TITLE - top, w + left + right, hh + APP_TITLE + top + bottom, true);
+    //
+    // SetWindowPos with SWP_ASYNCWINDOWPOS, not MoveWindow: MoveWindow waits for
+    // the target thread to process the resize, and the target is a browser in the
+    // middle of drawing a game. Measured 2026-09-20: 11 ms per screen against
+    // 3.5 ms for the posted request, landing on the identical pixel (0px apart
+    // over six screens) with the identical z-order. HWND_TOP with no SWP_NOZORDER
+    // re-asserts the top of the sibling z-order in the same call, so Electron's
+    // own input hwnd (it is Chromium too, and it re-raises itself on a parent
+    // resize) cannot cover the screen and swallow its clicks.
+    SetWindowPos(h, IntPtr.Zero, x - left, y - APP_TITLE - top,
+                 w + left + right, hh + APP_TITLE + top + bottom,
+                 SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
     // Region = just the game, in window coords: past the frame-left, and past the
     // frame-top plus the title bar. SetWindowRgn takes ownership of the region.
+    // In window coordinates, so it does not depend on the move having landed yet.
     SetWindowRgn(h, CreateRectRgn(left, top + APP_TITLE, left + w, top + APP_TITLE + hh), true);
-    // Re-assert top of the sibling z-order so Electron's input hwnd cannot cover it.
-    SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-    return "OK";
   }
 
   public static string Show(IntPtr h, int cmd) { ShowWindow(h, cmd); return "OK"; }
@@ -195,7 +225,7 @@ while ($true) {
   try {
     switch ($a[0]) {
       'reparent'  { Reply ([W]::Reparent([IntPtr][int64]$a[1], [IntPtr][int64]$a[2])) }
-      'movechild' { Reply ([W]::MoveChild([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3], [int]$a[4], [int]$a[5])) }
+      'movechildren' { Reply ([W]::MoveChildren($a[1])) }
       'movetop'   { Reply ([W]::MoveTop([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'focusat'   { Reply ([W]::FocusAt([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'show'      { Reply ([W]::Show([IntPtr][int64]$a[1], [int]$a[2])) }

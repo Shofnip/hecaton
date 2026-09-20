@@ -520,17 +520,114 @@ describe('applyScreenLayout (the renderer-driven geometry)', () => {
   it('does not re-show or re-hide a screen already in that visibility', async () => {
     // The renderer resends the full layout on every resize frame; visibility must
     // only flip on a real transition, or a drag would spam ShowWindow at the
-    // worker. Position, by contrast, is applied every time — that is the drag.
+    // worker.
     const app = makeOrchestrator()
     await app.start(1)
     const pid = launcher.pidForSlot(1)!
     const layout = [{ id: 1, bounds: { x: 0, y: 0, width: 800, height: 600 } }]
     app.applyScreenLayout(layout)
     windows.shown.length = 0
-    windows.bounds.delete(pid)
     app.applyScreenLayout(layout)
     expect(windows.shown).not.toContain(pid) // already visible, no second show
-    expect(windows.bounds.get(pid)).toBeDefined() // but repositioned again
+  })
+
+  it('moves the whole frame in one call, so the adapter can send it as one', async () => {
+    // Measured 2026-09-20: one worker command per screen costs 75 ms for six
+    // screens against 36 ms for one command carrying all six, because each
+    // command is a separate synchronous Win32 call against a busy browser.
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    windows.layouts.length = 0
+    app.applyScreenLayout([
+      { id: 1, bounds: { x: 0, y: 0, width: 800, height: 600 } },
+      { id: 2, bounds: { x: 800, y: 0, width: 800, height: 600 } },
+    ])
+    expect(windows.layouts).toHaveLength(1)
+    expect(windows.layouts[0]).toEqual([
+      { pid: launcher.pidForSlot(1), bounds: { x: 0, y: 0, width: 800, height: 600 } },
+      { pid: launcher.pidForSlot(2), bounds: { x: 800, y: 0, width: 800, height: 600 } },
+    ])
+  })
+
+  it('leaves alone a screen already where the layout puts it', async () => {
+    // The panel redraws and re-emits the layout on every state push — every two
+    // seconds, from the liveness sweep — so without this the six screens are
+    // moved to where they already are for ever, each move costing a reflow in
+    // the page. Nothing moved means nothing sent at all.
+    const app = makeOrchestrator()
+    await app.start(1)
+    const layout = [{ id: 1, bounds: { x: 0, y: 0, width: 800, height: 600 } }]
+    app.applyScreenLayout(layout)
+    windows.layouts.length = 0
+    app.applyScreenLayout(layout)
+    expect(windows.layouts).toEqual([])
+  })
+
+  it('moves only the screens whose rectangle actually changed', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    await app.start(2)
+    const still = { id: 2, bounds: { x: 800, y: 0, width: 800, height: 600 } }
+    app.applyScreenLayout([{ id: 1, bounds: { x: 0, y: 0, width: 800, height: 600 } }, still])
+    windows.layouts.length = 0
+    app.applyScreenLayout([{ id: 1, bounds: { x: 0, y: 0, width: 400, height: 600 } }, still])
+    expect(windows.layouts).toEqual([
+      [{ pid: launcher.pidForSlot(1), bounds: { x: 0, y: 0, width: 400, height: 600 } }],
+    ])
+  })
+
+  it('places a screen again when it comes back from hidden', async () => {
+    // Hiding leaves the window where it was, so its position is still good — but
+    // only as far as this app knows. Re-placing on the way back costs one move
+    // and removes the whole question.
+    const app = makeOrchestrator()
+    await app.start(1)
+    const bounds = { x: 0, y: 0, width: 800, height: 600 }
+    app.applyScreenLayout([{ id: 1, bounds }])
+    app.applyScreenLayout([{ id: 1 }])
+    windows.layouts.length = 0
+    app.applyScreenLayout([{ id: 1, bounds }])
+    expect(windows.layouts).toEqual([[{ pid: launcher.pidForSlot(1), bounds }]])
+  })
+
+  it('forgets where a pid was, so a reused pid is placed and not skipped', async () => {
+    // Windows reuses process ids. A new browser at an old pid is a new window at
+    // whatever position it was born in, and skipping its move because the pid
+    // "is already there" would leave a screen sitting in the wrong cell.
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    const bounds = { x: 0, y: 0, width: 800, height: 600 }
+    app.applyScreenLayout([{ id: 1, bounds }])
+    await app.stop(1)
+    app.applyScreenLayout([]) // the sweep that notices the pid is gone
+    launcher.nextPid = pid
+    await app.start(1)
+    windows.layouts.length = 0
+    app.applyScreenLayout([{ id: 1, bounds }])
+    expect(windows.layouts).toEqual([[{ pid, bounds }]])
+  })
+
+  it('forgets a pid the moment the slot lets go of it, not at the next frame', async () => {
+    // The sweep above only runs when a frame arrives, and a stop and a start can
+    // both happen before one does — the renderer's layout is coalesced to an
+    // animation frame and then crosses IPC. A reused pid caught in that gap would
+    // be skipped as "already placed" and the new screen would stay off-screen,
+    // where every window is born.
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    const bounds = { x: 0, y: 0, width: 800, height: 600 }
+    app.applyScreenLayout([{ id: 1, bounds }])
+    await app.stop(1)
+    launcher.nextPid = pid
+    await app.start(1)
+    windows.layouts.length = 0
+    windows.shown.length = 0
+    app.applyScreenLayout([{ id: 1, bounds }])
+    expect(windows.layouts).toEqual([[{ pid, bounds }]])
+    expect(windows.shown).toContain(pid) // and it has to be made visible again
   })
 
   it('ignores a slot that is not running, or unknown', async () => {

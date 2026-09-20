@@ -14,7 +14,13 @@ import type { ScreenPlacement } from './ipc.js'
 import { resolveSlotConfig } from './config.js'
 import type { GlobalConfig, ResolvedSlotConfig, SlotOverrides } from './config.js'
 import type { GameDefinition } from './registry.js'
-import type { AudioController, BrowserLauncher, ProfileArchive, WindowManager } from './ports.js'
+import type {
+  AudioController,
+  BrowserLauncher,
+  ProfileArchive,
+  WindowManager,
+  WindowPlacement,
+} from './ports.js'
 import { isLive, transition } from './slot-state.js'
 import type { SlotState } from './slot-state.js'
 import type { LogEntry, Logger } from './log.js'
@@ -38,6 +44,13 @@ export interface OrchestratorDeps {
 }
 
 const DEFAULT_MAX_RESTART_ATTEMPTS = 3
+
+/** Whether a window is already exactly where a layout frame wants it. */
+function sameCell(a: GridCell | undefined, b: GridCell): boolean {
+  return (
+    a !== undefined && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  )
+}
 
 /**
  * Where a slot's window is born: far off any monitor, so it never shows on the
@@ -126,6 +139,13 @@ export class Orchestrator {
    */
   private readonly shownWindows = new Map<number, boolean>()
 
+  /**
+   * Where each running window was last put, so an unchanged frame moves nothing.
+   * Keyed by pid and cleared the same way — and cleared on a hide too, so a
+   * screen coming back is always placed again.
+   */
+  private readonly placedWindows = new Map<number, GridCell>()
+
   constructor(deps: OrchestratorDeps) {
     this.launcher = deps.launcher
     this.windows = deps.windows
@@ -151,6 +171,21 @@ export class Orchestrator {
         lastError: undefined,
       })
     }
+  }
+
+  /**
+   * Drops what we remember about a pid the instant its slot lets go of it.
+   *
+   * Both maps are also swept whenever a layout frame arrives, which is the
+   * normal path; this closes the gap where a stop and a start both land before
+   * one does. Windows reuses process ids, and a reused pid still listed here is
+   * a new window that would be skipped as "already placed" and left where every
+   * browser is born — off-screen.
+   */
+  private forgetWindow(pid: number | undefined): void {
+    if (pid === undefined) return
+    this.shownWindows.delete(pid)
+    this.placedWindows.delete(pid)
   }
 
   private slot(slotId: number): SlotRuntime {
@@ -412,6 +447,7 @@ export class Orchestrator {
       this.windows.reparent(slot.pid)
       this.emit({ level: 'info', event: 'slot.ready', ...this.slotFields(slot), pid: slot.pid })
     } catch (error) {
+      this.forgetWindow(slot.pid)
       slot.pid = undefined
       this.recordFailure(slot, error)
       throw error
@@ -441,6 +477,7 @@ export class Orchestrator {
     const slot = this.slot(slotId)
     const pid = slot.pid
     slot.state = transition(slot.state, 'stop')
+    this.forgetWindow(pid)
     slot.pid = undefined
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
@@ -494,13 +531,30 @@ export class Orchestrator {
    * screen with bounds is shown and moved there; a screen with none is hidden
    * (fullscreen, or a panel-drawn modal that actually covers it — never merely
    * because it is not the focused screen). Visibility flips
-   * only on a real transition, so a resize drag does not spam ShowWindow, while
-   * the position is re-applied every call — that IS the live drag. Slots the
-   * renderer does not mention, or that are not running, are left alone.
+   * only on a real transition, so a resize drag does not spam ShowWindow.
+   * Slots the renderer does not mention, or that are not running, are left alone.
+   *
+   * The whole frame goes to the adapter in **one** call, carrying **only the
+   * screens that moved**. Both halves were measured on 2026-09-20 against six
+   * embedded screens:
+   *
+   * - One Win32 command per screen placed a frame in 75 ms, one command for the
+   *   whole frame in 36 ms. Entering or leaving focus is one frame, so that is
+   *   the transition the user sits through.
+   * - The panel redraws and re-emits its layout on every state push — the
+   *   liveness sweep alone pushes every two seconds — so a frame that re-sends
+   *   unchanged rectangles moves every screen to where it already is, for ever,
+   *   each move costing a reflow inside the page. An unchanged frame now sends
+   *   nothing at all.
+   *
+   * A screen keeps its remembered position across a hide, but not across a stop:
+   * a pid that is no longer running is forgotten, because Windows reuses process
+   * ids and a new browser at an old pid is a new window in the wrong place.
    */
   applyScreenLayout(placements: ScreenPlacement[]): void {
     const wanted = new Map(placements.map((placement) => [placement.id, placement.bounds]))
     const runningPids = new Set<number>()
+    const moves: WindowPlacement[] = []
     for (const slot of this.slots.values()) {
       if (slot.state !== 'running' || slot.pid === undefined) continue
       const pid = slot.pid
@@ -514,11 +568,22 @@ export class Orchestrator {
         else this.windows.hide(pid)
         this.shownWindows.set(pid, wantVisible)
       }
-      if (bounds) this.windows.setBounds(pid, bounds)
+      if (!bounds) {
+        // Hidden: forget where it was, so coming back always places it again.
+        this.placedWindows.delete(pid)
+        continue
+      }
+      if (sameCell(this.placedWindows.get(pid), bounds)) continue
+      this.placedWindows.set(pid, bounds)
+      moves.push({ pid, bounds })
     }
+    if (moves.length > 0) this.windows.setLayout(moves)
     // Forget pids no longer running, so restarts do not leave stale entries.
     for (const pid of [...this.shownWindows.keys()]) {
       if (!runningPids.has(pid)) this.shownWindows.delete(pid)
+    }
+    for (const pid of [...this.placedWindows.keys()]) {
+      if (!runningPids.has(pid)) this.placedWindows.delete(pid)
     }
   }
 
@@ -636,6 +701,7 @@ export class Orchestrator {
       if (!isLive(slot.state) || slot.pid === undefined) continue
       if (this.launcher.isAlive(slot.pid)) continue
 
+      this.forgetWindow(slot.pid)
       slot.pid = undefined
       slot.state = transition(slot.state, 'crash')
       slot.lastError = 'the browser process ended unexpectedly'
