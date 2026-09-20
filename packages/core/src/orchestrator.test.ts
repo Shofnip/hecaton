@@ -1365,3 +1365,81 @@ describe('cancelling a provider login', () => {
     expect(windows.closedExtras).toEqual([])
   })
 })
+
+describe('the wall order', () => {
+  function walled(ids: number[], screen: ScreenBounds = SCREEN) {
+    return new Orchestrator({
+      launcher,
+      windows,
+      screen,
+      globals: DEFAULT_GLOBAL_CONFIG,
+      registry: REGISTRY,
+      slots: ids.map((id) => ({ id, gameId: 'poke-idleworld' })),
+      autoRestart: false,
+    })
+  }
+
+  it('keeps the configured order instead of sorting by id', () => {
+    const app = walled([3, 1, 2])
+
+    expect(app.slotConfigs().map((slot) => slot.id)).toEqual([3, 1, 2])
+    expect(app.snapshot().map((slot) => slot.id)).toEqual([3, 1, 2])
+  })
+
+  it('moves a screen further along the wall', () => {
+    const app = walled([1, 2, 3])
+
+    app.moveSlot(1, 2)
+
+    expect(app.slotConfigs().map((slot) => slot.id)).toEqual([2, 3, 1])
+  })
+
+  it('moves a screen back towards the start', () => {
+    const app = walled([1, 2, 3])
+
+    app.moveSlot(3, 0)
+
+    expect(app.slotConfigs().map((slot) => slot.id)).toEqual([3, 1, 2])
+  })
+
+  it('leaves the wall alone when a screen is dropped where it already is', () => {
+    const app = walled([1, 2, 3])
+
+    app.moveSlot(2, 1)
+
+    expect(app.slotConfigs().map((slot) => slot.id)).toEqual([1, 2, 3])
+  })
+
+  it('never renumbers ids, so a screen keeps its own profile directory', async () => {
+    const app = walled([1, 2])
+
+    app.moveSlot(1, 1)
+
+    expect(app.slotConfigs().map((slot) => slot.id)).toEqual([2, 1])
+    await app.start(1)
+    // The profile directory is the slot id. If reordering renumbered, this
+    // screen would come up on the other one's logged-in session.
+    expect(launcher.launched[0]?.profileDir).toBe('slot-1')
+  })
+
+  it('refuses to move a screen that is not configured', () => {
+    expect(() => walled([1, 2]).moveSlot(9, 0)).toThrow(/slot 9 is not configured/)
+  })
+
+  it('refuses a position outside the wall', () => {
+    expect(() => walled([1, 2]).moveSlot(1, 2)).toThrow(/position/)
+    expect(() => walled([1, 2]).moveSlot(1, -1)).toThrow(/position/)
+  })
+
+  it('sizes a launching window from its place in the wall, not from its id', async () => {
+    // An odd width so the two columns differ by a pixel: on a round screen every
+    // cell is the same size and the order would be unobservable here.
+    const app = walled([2, 1], { x: 0, y: 0, width: 1921, height: 1080 })
+
+    await app.start(2)
+    await app.start(1)
+
+    // Slot 1 sits second on the wall, so it gets the narrower right-hand cell.
+    expect(launcher.launched[1]?.bounds.width).toBe(960)
+  })
+})

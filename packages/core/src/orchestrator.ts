@@ -204,7 +204,10 @@ export class Orchestrator {
   }
 
   /**
-   * The ids that occupy the grid right now, ordered.
+   * The ids that occupy the grid right now, in wall order.
+   *
+   * Wall order, not id order: the user arranges the cards, and a launching
+   * window is sized from the cell it is about to fill, so the two have to agree.
    *
    * The grid follows the *running* count, not the configured one: a slot only
    * takes a cell while it is live (starting, running or restarting). So one
@@ -216,7 +219,6 @@ export class Orchestrator {
     return [...this.slots.values()]
       .filter((slot) => isLive(slot.state))
       .map((slot) => slot.config.id)
-      .sort((a, b) => a - b)
   }
 
   /** The cell a live slot should occupy in the current running grid. */
@@ -370,11 +372,42 @@ export class Orchestrator {
     slot.config = resolveSlotConfig(this.globals, overrides)
   }
 
-  /** The slots in their persisted shape, for the shell to save. */
+  /**
+   * Moves a screen to another position on the wall.
+   *
+   * Position, and nothing else. The id stays with the screen because the id
+   * *is* the profile directory name (`slot-N`): reordering by renumbering
+   * would swap two screens' logged-in sessions, so this rewrites the order the
+   * runtimes sit in and touches no field of any of them.
+   *
+   * The wall order is the insertion order of this map, which a Map cannot
+   * rewrite in place — hence emptying and refilling it. Persisting is the
+   * shell's job, from slotConfigs(), exactly as it is after a rename.
+   */
+  moveSlot(id: number, toIndex: number): void {
+    this.slot(id) // refuses a screen that is not configured, with that message
+    const ids = [...this.slots.keys()]
+    if (!Number.isInteger(toIndex) || toIndex < 0 || toIndex >= ids.length) {
+      throw new Error(`position ${toIndex} is outside a wall of ${ids.length} screens`)
+    }
+    const runtimes = new Map(this.slots)
+    const order = ids.filter((each) => each !== id)
+    order.splice(toIndex, 0, id)
+    this.slots.clear()
+    for (const each of order) this.slots.set(each, runtimes.get(each)!)
+    this.emit({ level: 'info', event: 'slot.move', slotId: id })
+  }
+
+  /**
+   * The slots as configured, in wall order.
+   *
+   * Not sorted by id: since the owner made the wall reorderable, the order of
+   * this array is what the user arranged, and it is what gets written back to
+   * the config file. It used to sort, which quietly undid every reorder at the
+   * next save.
+   */
   slotConfigs(): SlotOverrides[] {
-    return [...this.slots.keys()]
-      .sort((a, b) => a - b)
-      .map((id) => ({ ...this.slots.get(id)!.overrides }))
+    return [...this.slots.values()].map((slot) => ({ ...slot.overrides }))
   }
 
   /** A slot points either at a registry game or at its own url — never both. */

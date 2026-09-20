@@ -99,6 +99,11 @@ Input recovery: [0029](0029-restore-embedded-stacking-on-reactivation.md) restor
 native embedded stacking on panel reactivation, independently of geometry and
 without changing FocusChild (Accepted).
 
+Reordering: [0030](0030-reordering-the-wall-by-dragging-a-card.md) makes the wall's
+order the order of the `slots` array, dragged by a card's head, over one channel
+carrying `{id, toIndex}` — and never by renumbering, since a screen's id is its
+profile directory (Accepted).
+
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
 decision is taken.

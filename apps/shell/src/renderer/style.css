@@ -388,6 +388,41 @@ svg {
   border-bottom: 1px solid var(--border);
 }
 
+/* Reordering the wall.
+
+   Every mark lives on the head strip, and that is a measurement rather than a
+   preference: an embedded browser window paints over the card's viewport, so
+   anything drawn there is invisible on exactly the screens a user is most
+   likely to be rearranging (probe s07: 0 of 2312 sampled pixels got through).
+   The head is the panel's own, and stays visible with every screen running. */
+.card-head {
+  cursor: grab;
+}
+
+/* The name carries its own `cursor: pointer` for the focus click, and an
+   element's own rule beats an inherited one — so the widest grab target in the
+   head would show a plain pointer without this. The × that closes a login
+   window keeps its pointer, and should: a press on it never starts a drag. */
+.card-head .card-name {
+  cursor: grab;
+}
+
+body.reordering,
+body.reordering .card-head,
+body.reordering .card-name {
+  cursor: grabbing;
+}
+
+.card.dragging .card-head {
+  background: var(--accent-soft);
+  opacity: 0.65;
+}
+
+.card.drop-target .card-head {
+  background: var(--accent-soft);
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
 .led {
   width: 7px;
   height: 7px;

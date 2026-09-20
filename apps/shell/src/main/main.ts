@@ -29,6 +29,7 @@ import {
   parseSlotAddition,
   parseSlotId,
   shouldOfferUpdate,
+  parseSlotMove,
   parseSlotMuted,
   parseSlotRename,
   parseSlotUpdate,
@@ -948,6 +949,17 @@ function registerIpc(): void {
       // waiting for the next sweep, so the control disappears with the window it
       // closed instead of a tick later.
       orchestrator.closeExtraWindows(parseSlotId(payload))
+      pushState()
+    },
+
+    'slots:move': async (payload) => {
+      // Reordering is a config write like a rename, so it persists and echoes
+      // at once. The windows do not move here: the renderer redraws the cards in
+      // the new order and sends the geometry it computes from them, which is the
+      // same path every other layout change takes.
+      const { id, toIndex } = parseSlotMove(payload)
+      orchestrator.moveSlot(id, toIndex)
+      await saveConfiguration()
       pushState()
     },
 

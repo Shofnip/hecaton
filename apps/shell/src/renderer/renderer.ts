@@ -110,6 +110,7 @@ interface HecatonApi {
   setSlotMuted(id: number, muted: boolean): Promise<void>
   reloadSlot(id: number): Promise<boolean>
   cancelSlotLogin(id: number): Promise<void>
+  moveSlot(id: number, toIndex: number): Promise<void>
   setTheme(theme: Theme): Promise<void>
   setScreenLayout(placements: unknown): Promise<void>
   renameAccount(name: string): Promise<void>
@@ -471,9 +472,9 @@ let thumbHeight = 100
 let draggingVolume = false
 let draggingDivider = false
 
-/** A background push must not redraw the wall out from under a divider drag. */
+/** A background push must not redraw the wall out from under a drag. */
 function interacting(): boolean {
-  return draggingDivider
+  return draggingDivider || cardDrag?.active === true
 }
 
 function slot(id: number): SlotSnapshot | undefined {
@@ -775,7 +776,11 @@ function render(): void {
     board.append(focusLayout(focused))
   } else {
     const grid = el('div', `grid count-${state.slots.length}`)
-    for (const s of state.slots) grid.append(card(s, false))
+    for (const s of state.slots) {
+      const node = card(s, false)
+      makeDraggable(node, s.id)
+      grid.append(node)
+    }
     board.append(grid)
   }
 
@@ -844,6 +849,9 @@ function card(s: SlotSnapshot, expanded: boolean): HTMLElement {
   const status = statusOf(s.state)
   const running = status === 'on'
   const node = el('article', 'card')
+  // The handle the reorder drag hit-tests against. On every card, not just the
+  // draggable ones, so `elementFromPoint` finds a card wherever it lands.
+  node.dataset.card = String(s.id)
   if (running) node.classList.add('running')
   if (expanded) node.classList.add('expanded')
 
@@ -1209,6 +1217,204 @@ const THUMB_STATE_TEXT: Record<VisualStatus, string> = {
   loading: 'carregando…',
   error: 'erro ao carregar',
   off: 'desligada',
+}
+
+// ==================== reordering the wall (drag) ====================
+
+/**
+ * How far the pointer must travel before a press on a card's head becomes a
+ * drag rather than a click. Below it the press still reaches the name button,
+ * which is what toggles focus.
+ */
+const DRAG_THRESHOLD = 6
+
+interface CardDrag {
+  id: number
+  pointerId: number
+  from: { x: number; y: number }
+  /** False until the pointer passes DRAG_THRESHOLD; until then this is a click. */
+  active: boolean
+  /** The card the pointer is over, so the highlight and the drop cannot disagree. */
+  overId: number | undefined
+}
+
+let cardDrag: CardDrag | undefined
+/** Set when a drag ends, so the click that follows the release is not a focus toggle. */
+let swallowNextClick = false
+
+/**
+ * Makes a card's head the handle that moves it elsewhere on the wall.
+ *
+ * Only grid cards get the handle, and that is the whole of what stops a drag
+ * elsewhere: `render()` installs this listener in the grid branch alone, while
+ * every card in every mode still carries `data-card`. Fullscreen shows one card
+ * and focus mode one card plus thumbnails, so neither has anywhere to drop one.
+ *
+ * Plain pointer events, with no setPointerCapture and without hiding anything —
+ * probe s07 measured all three and found no difference. Windows gives the panel
+ * implicit mouse capture for as long as the button is down, so every move
+ * arrives here even while the pointer is over an embedded browser window that
+ * belongs to another process.
+ */
+function makeDraggable(node: HTMLElement, id: number): void {
+  const head = node.querySelector<HTMLElement>('.card-head')
+  if (!head) return
+  head.addEventListener('pointerdown', (event) => {
+    // Nothing to reorder on a wall of one, and only the primary button drags.
+    if (event.button !== 0 || state.slots.length < 2) return
+    // The head also holds the button that closes a provider-login window, and
+    // that button is the way out of a login the user cannot finish. A press
+    // that starts on it stays a press on it, however far the hand then slides —
+    // otherwise a slightly sloppy click would be eaten and the login left open.
+    if (event.target instanceof Element && event.target.closest('.icon-btn')) return
+    cardDrag = {
+      id,
+      pointerId: event.pointerId,
+      from: { x: event.clientX, y: event.clientY },
+      active: false,
+      overId: undefined,
+    }
+  })
+}
+
+/**
+ * The wall in the order the user is looking at.
+ *
+ * Read from the DOM rather than from `state`, because a drag drops every
+ * background push (see `interacting`) — so `state` can already describe a wall
+ * that is not on screen, and indexing a drop through it would land the card
+ * somewhere the user did not aim.
+ */
+function wallOrder(): number[] {
+  return [...board.querySelectorAll<HTMLElement>('[data-card]')].map((node) =>
+    Number(node.dataset.card),
+  )
+}
+
+/**
+ * The screen whose card is under a point.
+ *
+ * `elementFromPoint` rather than a search through the cards' rectangles: an
+ * embedded browser window paints over a running screen's viewport, but it is a
+ * native window and not part of this document, so the panel's own hit-testing
+ * sees straight through it. Probe s07 measured exactly that.
+ */
+function cardUnder(x: number, y: number): number | undefined {
+  const node = document.elementFromPoint(x, y)?.closest('[data-card]')
+  if (!(node instanceof HTMLElement)) return undefined
+  const id = Number(node.dataset.card)
+  return Number.isInteger(id) ? id : undefined
+}
+
+/**
+ * Shows what is being dragged and where it would land.
+ *
+ * Both marks go on the card's head, and they have to: the same probe measured
+ * that nothing this panel draws is visible over a running screen's viewport,
+ * while the head strip stays the panel's own. Feedback anywhere else would be
+ * invisible on exactly the screens the user is most likely to be rearranging.
+ */
+function paintDrag(): void {
+  const drag = cardDrag?.active === true ? cardDrag : undefined
+  for (const node of board.querySelectorAll<HTMLElement>('[data-card]')) {
+    const id = Number(node.dataset.card)
+    node.classList.toggle('dragging', drag !== undefined && id === drag.id)
+    node.classList.toggle(
+      'drop-target',
+      drag !== undefined && drag.overId === id && drag.overId !== drag.id,
+    )
+  }
+}
+
+function endDrag(): void {
+  const wasActive = cardDrag?.active === true
+  cardDrag = undefined
+  document.body.classList.remove('reordering')
+  paintDrag()
+  // Every background push was dropped while the drag was live, so the wall may
+  // be showing a state that has moved on — a screen that finished starting, say.
+  // Catch up now rather than at the next liveness tick.
+  if (wasActive) {
+    render()
+    scheduleLayout()
+  }
+}
+
+function installReorder(): void {
+  // Any press at all clears a stale suppression, which is why this is on the
+  // window and not on the card head: a drag can end without producing a click
+  // (released outside the window, or with the pressed node already replaced by
+  // a redraw), and the flag must not survive to eat someone's next click.
+  window.addEventListener(
+    'pointerdown',
+    () => {
+      swallowNextClick = false
+    },
+    true,
+  )
+
+  window.addEventListener('pointermove', (event) => {
+    if (!cardDrag || event.pointerId !== cardDrag.pointerId) return
+    // The release can be lost outright — a secure-desktop prompt, the lock
+    // screen, capture taken by another process. Nothing reports that, because
+    // the gesture deliberately takes no pointer capture, so the button state on
+    // the next move is the check. A drag left live would freeze the wall (every
+    // background push is dropped while `interacting()` holds) and then commit
+    // itself on the user's next click, reordering a card they never dragged.
+    if (event.buttons === 0) {
+      endDrag()
+      return
+    }
+    if (!cardDrag.active) {
+      const travelled =
+        Math.abs(event.clientX - cardDrag.from.x) + Math.abs(event.clientY - cardDrag.from.y)
+      if (travelled < DRAG_THRESHOLD) return
+      cardDrag.active = true
+      document.body.classList.add('reordering')
+    }
+    cardDrag.overId = cardUnder(event.clientX, event.clientY)
+    paintDrag()
+  })
+
+  window.addEventListener('pointerup', (event) => {
+    if (!cardDrag || event.pointerId !== cardDrag.pointerId) return
+    const drag = cardDrag
+    // Resolved before endDrag, which redraws: the target's place on the wall has
+    // to be read from the cards the user was actually looking at.
+    const toIndex = drag.overId === undefined ? -1 : wallOrder().indexOf(drag.overId)
+    endDrag()
+    if (!drag.active) return
+    swallowNextClick = true
+    // Released on nothing (a gutter, or off the board) or back on itself: no
+    // move. Nothing was highlighted, so nothing happening is what it looked like.
+    if (drag.overId === undefined || drag.overId === drag.id || toIndex === -1) return
+    run(() => window.hecaton.moveSlot(drag.id, toIndex))
+  })
+
+  window.addEventListener('pointercancel', (event) => {
+    if (cardDrag && event.pointerId === cardDrag.pointerId) endDrag()
+  })
+
+  // Alt-Tab, or a click into another window with the button still down: the
+  // release is delivered somewhere else and never reaches this document.
+  window.addEventListener('blur', () => {
+    if (cardDrag) endDrag()
+  })
+
+  // The release ends on the name button the drag started from, and its click
+  // would toggle focus. Exactly one click is swallowed, and only after a drag
+  // that really happened; the pointerdown listener above clears the flag, so a
+  // drag that ends over nothing cannot eat an unrelated click later on.
+  window.addEventListener(
+    'click',
+    (event) => {
+      if (!swallowNextClick) return
+      swallowNextClick = false
+      event.stopPropagation()
+      event.preventDefault()
+    },
+    true,
+  )
 }
 
 // ============================ actions ============================
@@ -2381,6 +2587,8 @@ function initWall(): void {
   profilesBtn.addEventListener('click', () =>
     run(() => window.hecaton.openOverlay({ kind: 'profiles' })),
   )
+
+  installReorder()
 
   // The window resizing moves every viewport, so the embedded windows must
   // follow. A ResizeObserver on the stage catches sidebar-independent reflow too.

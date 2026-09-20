@@ -420,6 +420,8 @@ makes strict TDD practical rather than theatre.
 - **Registry validation:** well/badly formed game definition, required fields, duplicate ids.
 - **Config merge:** global defaults + per-slot overrides, including `mute` and `persistProfile`.
 - **`userDataDir` path resolution** per slot — pure string work, no disk access.
+- **Wall order:** which screen sits where, as an order over slots that is never an order over
+  ids — see _Reordering the wall_ below.
 
 Adapters are covered against the real thing, never against fakes, and each sits behind a narrow
 interface (`BrowserLauncher` with `launch/stop/isAlive`, `WindowManager`, `AudioController`,
@@ -793,6 +795,65 @@ The load-bearing points:
 Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundThrottling`) and a
 global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,
 `ui:setTheme`, `screens:layout` and `overlay:open`/`overlay:close`.
+
+### Reordering the wall
+
+The user drags a card by its head to another place on the wall
+([ADR-0030](adr/0030-reordering-the-wall-by-dragging-a-card.md)). Three things carry it, and each
+is where it is for a reason.
+
+**The order of `slots` in the config file is the wall order, and it is the only one.** It used to be
+decorative: `parseConfig` preserved the array and the renderer drew `state.slots` in the order it
+was given, but `Orchestrator.slotConfigs()` and `layoutIds()` both sorted by id, so the order that
+came back out was the id order and any arrangement was undone at the next save. Both sorts are gone.
+The wall order is now the insertion order of the orchestrator's slot map, which `moveSlot(id,
+toIndex)` rewrites by emptying and refilling it.
+
+**An id is never renumbered, and that is a data-safety rule rather than a tidiness one.** A slot's
+id _is_ its profile directory (`slot-N`), so reordering by swapping two ids would swap two
+logged-in game sessions between cards. `moveSlot` moves positions and touches no field of any slot;
+the orchestrator test that starts a moved screen and asserts it still launches on `slot-1` is there
+to keep it that way.
+
+**One channel, `slots:move`, carrying `{id, toIndex}` and no ordering of its own.** The panel names
+the screen that moved and where it landed; the new arrangement is worked out here, from the order
+the orchestrator already holds. The alternative — a channel taking the whole arrangement — would let
+the panel assert an order, and was rejected for that. Shape is validated by `parseSlotMove`, range
+by the orchestrator, which is the only thing that knows how many screens there are.
+
+**Feedback lives in the card heads because nothing else is visible.** Probe s07 measured that a flat
+fill painted by the panel reaches 0 of 2312 sampled pixels inside a cell an embedded browser window
+covers, and all 2312 once that window is hidden — a native child HWND always paints over the host's
+DOM. The head strip is not covered, so the "being dragged" and "would land here" marks go there and
+stay visible with every screen running.
+
+**The gesture needs no pointer capture and hides nothing.** The same probe compared a plain drag,
+`setPointerCapture`, and hiding the embedded windows for the duration, twice each: identical in every
+count — every `pointermove` arrives, `pointerup` arrives, and `elementFromPoint` resolves the right
+card, even while the pointer is over a browser window owned by another process. Windows gives the
+panel implicit mouse capture for as long as the button is down. Hiding the screens would therefore
+buy nothing but the feedback above, at the price of blanking every running screen mid-gesture.
+Hit-testing is `elementFromPoint` for the same reason it works: the embedded window is not in the
+document, so the panel's own hit-testing sees through it.
+
+**Taking no pointer capture has a cost, and it is guarded rather than ignored.** A capture would
+guarantee a `pointercancel`; without one, a release the window never sees — a secure-desktop
+prompt, the lock screen, Alt-Tab with the button down — would leave the drag live forever. That is
+not merely untidy: a live drag makes `interacting()` hold, so every background push is dropped and
+the wall stops redrawing, and the next `pointerup` from anywhere would then commit a move the user
+never asked for. Three things close it: a move arriving with no button down ends the drag, so does
+the window losing focus, and `endDrag` re-renders to catch up on the pushes it ignored. The drop
+index is read from the cards in the DOM rather than from `state`, for the same reason — while the
+drag was live, `state` may have moved on from what the user was looking at.
+
+A press whose horizontal and vertical travel add up to less than six pixels stays a click, so the
+head's name button still toggles focus; the click that follows a real drag is swallowed once.
+Dragging is offered only in the grid, and the invariant is the handle rather than the markup:
+`render()` installs the head listener on grid cards alone, while every card in every mode still
+carries `data-card`. Fullscreen shows one card and focus mode one card plus thumbnails, so neither
+has anywhere to drop one. Those thumbnails stay live — a **running** screen's hosts its own
+embedded window, a stopped one shows its state as text — at 100px by default, resized by the focus
+divider. The gesture is also off while fewer than two screens are configured.
 
 **Phase 3 — distribution. Done, and released: `v0.1.0`, 2026-08-20.** `electron-builder` producing
 a **zip the user extracts** (an assisted NSIS installer was built and dropped here, built again in

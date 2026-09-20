@@ -129,6 +129,15 @@ export const IPC_CHANNELS = [
   // it can only ever reach one screen's own windows - and the panel only shows
   // the control while the sweep says there is something to close.
   'slots:cancelLogin',
+  // Reordering the wall (owner, 2026-09-20, after the s07 gesture probe): the
+  // panel says which screen moved and where it landed, and nothing more. It
+  // carries no ordering of its own - main asks the orchestrator to move that
+  // one screen, and the orchestrator works the new order out from the order it
+  // already holds. A channel that accepted the whole arrangement would let the
+  // panel assert an order, and the one thing that must never follow from a
+  // reorder is a renumbering: a screen's id is its profile directory, so two
+  // ids swapping would swap two logged-in sessions.
+  'slots:move',
   'ui:setTheme',
   // The renderer-owned geometry channel (UI rework, Option 1, approved by the
   // owner): the renderer sends where each embedded screen goes, main relays it.
@@ -255,6 +264,22 @@ export function parseSlotRename(input: unknown): { id: number; name: string } {
     throw new Error(`slot name must be at most ${MAX_SLOT_NAME_LENGTH} characters`)
   }
   return { id, name }
+}
+
+/**
+ * A card dropped somewhere else on the wall: which screen, and at what index.
+ *
+ * Only the shape is checked here. Whether the wall is long enough for that
+ * index is the orchestrator's to answer, because only it knows how many screens
+ * there are — and answering it in two places is how the two drift apart.
+ */
+export function parseSlotMove(input: unknown): { id: number; toIndex: number } {
+  const { id, rest } = requireIdObject(input, 'slot move')
+  const toIndex = rest['toIndex']
+  if (!Number.isInteger(toIndex) || (toIndex as number) < 0) {
+    throw new Error(`slot position must be a non-negative integer, got ${JSON.stringify(toIndex)}`)
+  }
+  return { id, toIndex: toIndex as number }
 }
 
 /**

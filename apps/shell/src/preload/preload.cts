@@ -55,6 +55,8 @@ const api = {
   setSlotMuted: (id: number, muted: boolean) => ipcRenderer.invoke('slots:setMuted', { id, muted }),
   reloadSlot: (id: number) => ipcRenderer.invoke('slots:reload', id),
   cancelSlotLogin: (id: number) => ipcRenderer.invoke('slots:cancelLogin', id),
+  // Reordering the wall: one screen, and where it was dropped.
+  moveSlot: (id: number, toIndex: number) => ipcRenderer.invoke('slots:move', { id, toIndex }),
   setTheme: (theme: 'dark' | 'light') => ipcRenderer.invoke('ui:setTheme', theme),
   setScreenLayout: (placements: unknown) => ipcRenderer.invoke('screens:layout', placements),
 

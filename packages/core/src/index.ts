@@ -62,6 +62,7 @@ export {
   parseScreenLayout,
   parseSlotAddition,
   parseSlotId,
+  parseSlotMove,
   parseSlotMuted,
   parseSlotRename,
   parseSlotUpdate,

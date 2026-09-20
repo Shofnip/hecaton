@@ -11,6 +11,7 @@ import {
   parseSlotAddition,
   parseScreenLayout,
   parseSlotId,
+  parseSlotMove,
   parseSlotMuted,
   parseSlotRename,
   parseSlotUpdate,
@@ -57,6 +58,7 @@ describe('the channel list', () => {
       'slots:setMuted',
       'slots:reload',
       'slots:cancelLogin',
+      'slots:move',
       'ui:setTheme',
       'screens:layout',
       'overlay:open',
@@ -423,5 +425,45 @@ describe('parseAccountEdit', () => {
     expect(() => parseAccountEdit({ id: 0, name: 'a' })).toThrow(/account id/)
     expect(() => parseAccountEdit({ id: -1, name: 'a' })).toThrow(/account id/)
     expect(() => parseAccountEdit({ id: '2', name: 'a' })).toThrow(/account id/)
+  })
+})
+
+describe('parseSlotMove', () => {
+  it('accepts a screen id and where it lands', () => {
+    expect(parseSlotMove({ id: 2, toIndex: 0 })).toEqual({ id: 2, toIndex: 0 })
+  })
+
+  it('accepts the first position', () => {
+    expect(parseSlotMove({ id: 1, toIndex: 0 }).toIndex).toBe(0)
+  })
+
+  it('refuses a negative position', () => {
+    expect(() => parseSlotMove({ id: 1, toIndex: -1 })).toThrow(/position/)
+  })
+
+  it('refuses a fractional position', () => {
+    expect(() => parseSlotMove({ id: 1, toIndex: 1.5 })).toThrow(/position/)
+  })
+
+  it('refuses a position that is not a number', () => {
+    expect(() => parseSlotMove({ id: 1, toIndex: '0' })).toThrow(/position/)
+  })
+
+  it('refuses a missing position', () => {
+    expect(() => parseSlotMove({ id: 1 })).toThrow(/position/)
+  })
+
+  it('refuses a bad slot id', () => {
+    expect(() => parseSlotMove({ id: 0, toIndex: 0 })).toThrow(/slot id/)
+  })
+
+  it('refuses a payload that is not an object', () => {
+    expect(() => parseSlotMove(3)).toThrow(/slot move/)
+  })
+
+  // How far the index may go is the orchestrator's to say, since only it knows
+  // how many screens the wall has. This parser is the shape check.
+  it('accepts an index the wall may well be too short for', () => {
+    expect(parseSlotMove({ id: 1, toIndex: 99 }).toIndex).toBe(99)
   })
 })

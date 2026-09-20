@@ -96,6 +96,7 @@ ninguém copia, e na parede arrastar é como se mira uma tela.
 
 - A barra lateral fica **grudada à borda esquerda da janela**: sem margem esquerda, cantos arredondados **apenas no lado direito** (`0 10px 10px 0`), margem vertical de 2px, sem borda no lado esquerdo.
 - Área principal com padding de 4px e grade com **gap de 1px** — as telas ficam praticamente coladas, para que a parede leia como uma superfície só e cada pixel economizado vá para os jogos. A borda própria de cada card é o que ainda marca a divisão.
+- **A ordem dos cards é do usuário** (decisão do dono, 2026-09-20). É a ordem em que as telas estão salvas na configuração, e é ela que a parede desenha — não a ordem dos números. Arrasta-se um card pelo cabeçalho (§5.1). O número da tela **não muda de lugar junto**: "Tela 2" continua sendo a Tela 2 depois de ir para o primeiro quadro, porque o número é o perfil onde aquele login mora.
 
 ---
 
@@ -129,6 +130,16 @@ As duas barras do card — cabeçalho e controles — têm **metade da altura** 
   - Vermelho (`danger`) = erro
   - Cinza (`border`), sem brilho = desligada
 - **Nome da tela** (12px, bold). **Clicável**: alterna o modo foco daquela tela (entra se não está em foco; sai se já está). Hover pinta o nome no `accent`.
+- **O cabeçalho inteiro é a alça de arrastar** — menos o × de fechar a janela de login, que
+  continua só um botão —, para mudar a tela de lugar na parede (§3). O cursor vira mãozinha em
+  cima dele, inclusive sobre o nome. Só na grade: na tela cheia há um card só e no modo foco
+  também só um (as outras viram miniaturas, §7), então não há para onde soltar. Com uma tela só
+  configurada o arraste também não começa. Enquanto se arrasta, o cabeçalho do card que está sendo movido
+  fica esmaecido em `accentSoft` e o do card onde ele cairia ganha uma faixa de `accent` em cima.
+  **O aviso fica no cabeçalho de propósito**: a janela do navegador embutida pinta por cima do
+  viewport, então qualquer marca desenhada ali seria invisível justamente nas telas que estão
+  rodando (§13). Um clique que não anda continua sendo clique — o nome segue alternando o foco.
+  Soltar fora de um card, ou no lugar onde já estava, não muda nada.
 - **Fechar a janela de login** (20px, ícone de ×, em `warn`; hover em `danger`) — aparece entre o
   nome e o favicon **somente enquanto aquela tela tiver uma janela de login aberta**, e some junto
   com ela. É a saída de um "entrar com o Google" que o usuário não quer terminar: a janela do
