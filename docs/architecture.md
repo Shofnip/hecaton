@@ -330,6 +330,22 @@ bullet names probe P5, which measured the bundled Chromium `154.0.8014.0` (revis
   because it has no such stub. Either way the browser is the process whose command line carries this
   slot's `--user-data-dir` and no `--type=` — which is correct for both, where depending on the
   spawned pid would be a bet on somebody else's packaging.
+- **Chrome's own bubbles are separable, by title.** Measured 2026-09-20 on the bundled Chromium,
+  with the owner at the keyboard for the login. The zoom bubble the adapter provokes — it applies
+  zoom by posting Chrome's `WM_COMMAND` ids — is a top-level window of the browser process,
+  `Chrome_WidgetWin_1`, 294x64, anchored top-right of the cell, **with an empty window title**; it
+  becomes visible 58-73 ms after the command and self-dismisses after ~1.31 s, with every further
+  zoom restarting that timer. The save-password bubble is the same class, 334x402, **titled**
+  ("Salvar senha?"), and waits for the user rather than dismissing. So the property that separates
+  them is the one the code already uses in the other direction — `extraWindowsOf` counts windows
+  whose title is **not** blank — and no suppressor would have to match any particular text.
+  `ShowWindow(SW_HIDE)` removes either one and the page keeps the zoom it was given; `SW_SHOWNA`
+  brings the password bubble back with the same handle and geometry. Two traps for anyone who
+  measures this again: once the zoom bubble is hidden rather than left to self-destruct, Chrome
+  **reuses the same handle**, so neither "a new window appeared" nor "a window became visible" is a
+  usable test; and synthetic input cannot stage the login, because Windows refuses
+  `SetForegroundWindow` to a process that is not already foreground. Nothing was built on this —
+  the owner left both bubbles alone on 2026-09-20.
 - **The WMI query is too slow for polling.** Resolve the PID once at launch; check liveness
   with `process.kill(pid, 0)`.
 - **Never identify a window by title.** During the spike a title filter matched the user's own
@@ -1311,6 +1327,11 @@ are untouched — the profiles are not in `config.json`.
   [ADR-0009](adr/0009-login-is-bound-to-the-tab.md). Persistent profiles stay the default not to
   avoid re-login (nothing can) but to make it faster — a persistent Cloudflare device-trust
   cookie and a password saved in Chrome survive, which a clean session loses every launch.
+- **A save-password offer lights up the "close the login window" control.** The bubble Chrome
+  shows to offer saving a password is a visible top-level window of that screen's browser process
+  with a non-blank title, which is exactly what `extraWindowsOf` counts — so while the offer is on
+  screen the card shows that control, and pressing it posts `WM_CLOSE` to the bubble. Found while
+  measuring the bubbles on 2026-09-20; not caused by that work, and not fixed.
 - **The bundled browser is the app's largest attack surface, and only a release moves it.** Since
   2026-08-20 the app ships its own Chromium instead of driving an installed Chrome
   ([ADR-0016](adr/0016-ship-our-own-chromium.md)), which removed the prerequisite and made the
