@@ -150,8 +150,50 @@ could have been an explanation.
 
 ### 4. Bump the version
 
-`apps/shell/package.json` is the one the release workflow checks the tag against, and the one
-`app.getVersion()` returns. The root `package.json` carries the same number.
+Two files carry the number and they must agree: `apps/shell/package.json`, which the release
+workflow checks the tag against and which `app.getVersion()` returns, and the root `package.json`.
+`tests/repo-consistency.test.ts` holds them together, and holds both to the changelog.
+
+**Which number to raise, from 0.3.0 on.** Until then the answer was precedent and nothing else — the
+step said where to edit and never what to write. These rules are the precedent made explicit, and
+[ADR-0024](adr/0024-what-each-version-number-means.md) carries why they are these and not
+strict SemVer's.
+
+| Number         | Raise it when                                                                                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PATCH** `.Z` | Nothing the user can name is new. Fixes, wording, performance, and **the pins on their own** — a release whose whole content is a newer Electron or a newer bundled browser is a patch. |
+| **MINOR** `.Y` | Anything the user can point at: a capability, a control, a game in the registry. **And anything that moves their data**, while the major is 0 — see below.                              |
+| **MAJOR** `X.` | Stays at 0 today. Raising it to 1 is the owner's call and means one specific promise, stated below, not "we think it is good now".                                                      |
+
+**A data migration is a MINOR while the major is 0, and a MAJOR after 1.0.0.** The migration in
+0.3.0 is the case to reason from: it moved `config.json` and `profiles/` into `accounts/1/`, and the
+consequence is not that something broke but that **the previous version cannot be gone back to** —
+0.2.0 looks in the old paths, finds nothing, and opens as if it were a first run. A zip that the
+user extracted beside the old one makes that an easy mistake to make. While the major is 0 there is
+no number to spend on it, which is exactly what a leading 0 is for; from 1.0.0 on it costs a major.
+
+**What 1.0.0 will mean here.** Not stability in general — one promise: **from 1.0.0 on, a release
+that moves, renames or reinterprets anything under `%APPDATA%/hecaton` is a major.** That is the
+only property of this app whose breakage a user cannot undo by extracting the previous zip again,
+and tying the first digit to it is what makes the digit worth reading. Everything else — signing,
+the browser pin, the game list — can change under a minor.
+
+**Three rules with no judgement in them:**
+
+1. **No suffixes.** `v0.4.0`, never `v0.4.0-rc1`. Two reasons, both in code rather than taste: the
+   app's own parser is `^v?(\d+)\.(\d+)\.(\d+)$` (`packages/core/src/update.ts`), so a suffixed tag
+   fails to parse and every installation quietly reports "up to date"; and `/releases/latest`
+   excludes prereleases by construction, so the check would not even see it.
+2. **Every released version has its `## X.Y.Z` section in `CHANGELOG.md`**, written before the tag.
+   The app selects the section by exact version, so a missing one is not a gap in a file — it is an
+   update that announces itself and then has nothing to say.
+3. **A number that never becomes a tag does not keep its section.** 0.2.1 is the precedent and the
+   reason this is written down: the version was bumped for the off-screen login fix, the tag was
+   never cut, and the fix shipped inside 0.3.0 — leaving a `## 0.2.1` section that no installation
+   will ever display, describing a fix the 0.3.0 notes do not mention. Fold it into the section that
+   ships it, before that release goes out.
+
+Numbers only ever go up, and are never reused. Skipping one is allowed and costs nothing.
 
 ## The tag
 

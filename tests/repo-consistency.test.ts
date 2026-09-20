@@ -207,3 +207,33 @@ describe('the development launcher writes to the development directory', () => {
     expect(read('apps/shell/scripts/dev.mjs')).toContain(`HECATON_APP_DIR: '${declared?.[1]}'`)
   })
 })
+
+describe('the version number is the same in every place that carries it', () => {
+  // Three places have to agree and only one pair is checked anywhere else: the
+  // release workflow compares the tag against apps/shell. The root package.json
+  // is named in docs/releasing.md as carrying the same number and nothing held
+  // it to that, so a bump that edited one file would have shipped a root
+  // manifest disagreeing with the app the tag names.
+  const root = JSON.parse(read('package.json')) as { version: string }
+  const shell = JSON.parse(read('apps/shell/package.json')) as { version: string }
+
+  it('root and apps/shell agree', () => {
+    expect(root.version).toBe(shell.version)
+  })
+
+  it('is three numbers and nothing else', () => {
+    // `app.getVersion()` returns this, and the update check parses what GitHub
+    // publishes with `^v?(\d+)\.(\d+)\.(\d+)$`. A suffix here would be a version
+    // the app cannot compare against a tag - every installation would quietly
+    // read "up to date" (docs/releasing.md, step 4).
+    expect(shell.version).toMatch(/^\d+\.\d+\.\d+$/)
+  })
+
+  it('has a changelog section of its own', () => {
+    // The app selects the section by exact version and shows it once after an
+    // update. A version with no section is an update that interrupts somebody
+    // and then has nothing to say - and this is the moment to notice, since the
+    // section is written before the tag, not after it.
+    expect(read('CHANGELOG.md')).toContain(`\n## ${shell.version}\n`)
+  })
+})

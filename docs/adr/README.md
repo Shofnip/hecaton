@@ -85,6 +85,7 @@ undated marker no longer says which.
 | [0021](0021-several-windows-one-account-each.md)           | Several windows, one account each             | Accepted · w/ Corrections                                                                                  |
 | [0022](0022-a-separate-data-directory-for-development.md)  | A separate data directory for development     | Accepted · w/ Correction                                                                                   |
 | [0023](0023-an-update-check-at-launch.md)                  | An update check at launch, asked once         | Accepted, superseding part of [0014](0014-the-apps-first-network-request.md)                               |
+| [0024](0024-what-each-version-number-means.md)             | What each version number means                | Accepted                                                                                                   |
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the

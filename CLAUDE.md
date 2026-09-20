@@ -3,6 +3,15 @@
 Decisions that are invisible in the code and that future sessions must respect.
 Full rationale lives in `docs/architecture.md` — read it before changing architecture.
 
+**Version numbers.** What each digit means is
+[ADR-0024](docs/adr/0024-what-each-version-number-means.md), and the operative rule is step 4 of
+`docs/releasing.md`: patch for a release with nothing the user can name (the browser and Electron
+pins on their own count as nothing), minor for anything they can point at **and** for anything that
+moves their data while the major is 0, and the major reserved for the one promise 1.0.0 will make —
+that a release moving anything under `%APPDATA%/hecaton` costs a major. No tool derives it from the
+commits; a person chooses it at step 4 and `tests/repo-consistency.test.ts` checks the two manifests
+and the changelog agree.
+
 **Recording new decisions.** `docs/architecture.md` always describes the present, so update it
 in the same commit that changes behaviour. On top of that, write an ADR in `docs/adr/` when the
 decision **reverses an earlier one** or when **alternatives were seriously weighed** — those
