@@ -8,6 +8,37 @@ lido sem abrir o aplicativo e antes de instalar qualquer coisa.
 Escrito para quem usa, não para quem programa. O histórico técnico completo está
 nos commits.
 
+## 0.4.0
+
+As telas agora ficam na ordem que você escolher, e o jogo cabe dentro da carta.
+
+- **Arraste para reordenar as telas.** Pegue uma tela pelo cabeçalho e solte-a em
+  cima de outra: elas trocam de lugar na parede, e a ordem fica salva. O número
+  da tela **não** vai junto — a "Tela 2" continua sendo a Tela 2 depois de ir
+  para o primeiro quadro, porque é o número que guarda o login dela. Enquanto
+  você arrasta, o cabeçalho da tela que está indo fica esmaecido e o da tela onde
+  ela cairia ganha uma faixa verde em cima. Um clique que não anda continua
+  abrindo o modo foco, como antes. Só na grade: na tela cheia e no modo foco não
+  há para onde soltar.
+- **O jogo cabe na carta.** Cada tela agora ajusta o zoom sozinha ao tamanho do
+  card, mirando um espaço de 1920×1080 dentro dele, e volta a 100% quando você
+  entra no modo foco — onde há espaço para ler. Ao sair do foco, ela volta ao
+  zoom do card sem recarregar nem derrubar a sessão do jogo.
+- **Voltou a dar para clicar depois de trocar de programa.** Clicar num campo de
+  login, ir para outro aplicativo e voltar podia deixar a tela sem responder ao
+  mouse ou ao teclado, às vezes com o cursor sumindo. A janela do jogo estava
+  ficando por baixo da camada de entrada do próprio Hecaton; agora essa ordem é
+  reposta toda vez que a janela volta a ficar ativa.
+- **As telas pararam de perder sete pixels do topo.** Todas as telas vinham com a
+  primeira faixa de sete pixels cortada — nada num jogo parece errado quando
+  falta isso, e foi o que fez o problema durar. Agora o recorte bate.
+- **As telas se movem bem mais rápido.** Entrar e sair do foco, e arrastar o
+  divisor, deixaram de arrastar um rastro: medido em seis telas, a transição de
+  foco caiu de 75 ms para 36 ms e a corrida atrás do divisor de 2,2 s para 84 ms.
+- **O divisor do modo foco ficou mais fino.** A barra de arrastar entre a tela em
+  foco e as miniaturas passou de 10 para 7 pixels. Os limites continuam os
+  mesmos, inclusive o duplo clique que devolve a altura padrão.
+
 ## 0.3.0
 
 Agora dá para abrir vários Hecatons ao mesmo tempo, cada um com as suas telas.
