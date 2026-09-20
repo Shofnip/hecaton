@@ -197,7 +197,7 @@ Popover ancorado **acima** do botão de volume, estilo player de vídeo:
   - Discretas por padrão (opacidade 0.85); hover acende a borda no `accent` e restaura a opacidade.
   - **Clicar no cabeçalho da miniatura transfere o foco para ela.** No corpo isso só vale quando a tela não está em execução: no corpo de uma tela ligada o clique chega ao jogo, porque ali está a janela do navegador.
 - **Divisor arrastável** entre a tela principal e as miniaturas:
-  - Faixa de 10px com um grip central (pílula 44×4px); cursor `ns-resize`; grip acende em `accent` no hover.
+  - Faixa de 7px com um grip central (pílula 31×3px); cursor `ns-resize`; grip acende em `accent` no hover.
   - Arrastar redimensiona a altura das miniaturas. Limites: **mínimo 56px**, **máximo 45% da altura da janela**.
   - **Duplo clique restaura os 100px padrão.**
   - A altura escolhida persiste ao trocar o foco entre telas (e deve persistir entre sessões na implementação real).

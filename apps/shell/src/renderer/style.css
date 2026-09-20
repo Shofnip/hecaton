@@ -309,7 +309,10 @@ svg {
 }
 
 .focus-divider {
-  height: 10px;
+  /* 7px, down 30% from 10 on 2026-09-20: the owner wanted it slimmer, and the
+     grip below came down with it (44x4 -> 31x3). design.md §7 carries the same
+     numbers. */
+  height: 7px;
   flex-shrink: 0;
   cursor: ns-resize;
   display: flex;
@@ -319,8 +322,8 @@ svg {
 }
 
 .focus-divider .grip {
-  width: 44px;
-  height: 4px;
+  width: 31px;
+  height: 3px;
   border-radius: 99px;
   background: var(--border);
   transition: background 0.15s ease;
