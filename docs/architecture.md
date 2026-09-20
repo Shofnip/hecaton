@@ -1022,12 +1022,20 @@ logged into the target game on 2026-09-17, from the extracted `v0.2.0` zip, on C
 ([ADR-0016](adr/0016-ship-our-own-chromium.md)), it cannot be automated — it needs a person with an
 account — and `docs/releasing.md` keeps it with whoever cuts the release.
 
-The two that go with it were checked in the same sitting and by the same person: an embedded screen
-**sits in its card to the pixel** — the frame maths in `win32-worker.ts` were fitted to a
-browser-drawn title bar, and a snapshot that moved it would have shown as drift no test would fail
-on — and **audio still follows focus**, which exercises the renderer, the GPU and the
+The two that go with it were checked in the same sitting and by the same person: **audio still
+follows focus**, which exercises the renderer, the GPU and the
 `utility:audio.mojom.AudioService` child together and is what says the seven stripped files took
-nothing load-bearing with them.
+nothing load-bearing with them — and an embedded screen **sits in its card**, which is where that
+sitting got one wrong.
+
+It was recorded as sitting there _to the pixel_, and it was not. The frame maths in
+`win32-worker.ts` are fitted to a browser-drawn title bar, the snapshot moved it from 37 pixels to
+30, and every embedded screen lost the top seven rows of its page. Measured 2026-09-20. Nothing on a
+game page looks wrong when its top seven rows are gone, so the by-eye check could not have caught it
+and a second by-eye check would not catch the next one either — which is why the drift _no test
+would fail on_ now has one: `embedded-clip.integration.test.ts` photographs a page with a band of
+known height and brackets the cell's top rows against it. `docs/releasing.md` step 3 runs it when
+the pin moves.
 
 ## Verification
 

@@ -84,8 +84,8 @@ npm run test:integration
 
 The download stays where it is until the hash matches, so this costs one download, not two.
 
-**Then re-measure the three things that have each already changed under this project once.** None of
-them is checked by any test, and all three fail quietly:
+**Then re-measure the three things that have each already changed under this project once.** Two of
+them are checked by no test and fail quietly; the third now has one, and got it the hard way:
 
 1. **Turnstile.** Launch a slot on the target game with a throwaway profile and log in. This is the
    gate the whole decision rests on, and a browser that cannot log in is not shippable.
@@ -93,7 +93,16 @@ them is checked by any test, and all three fail quietly:
    one of them. Launch a slot, confirm the window embeds, and confirm audio still follows focus —
    that exercises the renderer, GPU and audio-service children together.
 3. **The window geometry.** `win32-worker.ts` carries frame maths measured against a specific
-   browser-drawn title bar. If embedded screens sit a few pixels wrong, this is why.
+   browser-drawn title bar (`APP_TITLE`). If embedded screens sit a few pixels wrong, this is why.
+   **Run `npm run test:integration` and read `embedded-clip.integration.test.ts`**: it photographs a
+   page with a band of known height and fails when the allowance no longer matches the browser. Its
+   failure message names the number to change.
+
+   This step used to say "check it by eye", and by eye is how it was checked when the pin went to
+   `156.0.8065.0` — the note in `architecture.md` recorded screens sitting in their cards _to the
+   pixel_. They were seven pixels out, on every screen, and had been since the pin moved. Nothing on
+   a game page looks wrong when its top seven rows are missing, which is the whole argument for the
+   test: this is not a check a person can perform.
 
 ### 2. Confirm the browser is not downloading its 4 GB model again
 

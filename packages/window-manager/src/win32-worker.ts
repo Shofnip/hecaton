@@ -86,9 +86,17 @@ public static class W {
   const uint WM_CLOSE = 0x0010;
   // Height of the title bar Chrome draws inside an --app window's client area, at
   // 100% scale. Not a Win32 boundary (Chrome renders it), so it cannot be measured
-  // here — it is clipped away by window height. Tune if a sliver shows or the game
-  // is cropped; scales with display DPI.
-  const int APP_TITLE = 37;
+  // here — it is clipped away by window height. Scales with display DPI.
+  //
+  // It is a property of the browser, so it moves when the bundled revision moves:
+  // it was 37, and on Chromium 156.0.8065.0 it is 30, which means seven rows were
+  // being clipped off the top of every game until this was re-measured. Nothing
+  // about that is visible on a game page, so "tune it if a sliver shows or the
+  // game is cropped" was never going to catch it. embedded-clip.integration.test.ts
+  // photographs a page with a band of known height and now does: run it after
+  // raising the Chromium pin, and it is the number to change here when it fails.
+  // (No backticks in this comment: it lives inside a template literal.)
+  const int APP_TITLE = 30;
 
   public static string Reparent(IntPtr child, IntPtr parent) {
     long style = GetWindowLongPtr(child, GWL_STYLE).ToInt64();

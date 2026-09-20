@@ -104,7 +104,7 @@ describe('the revision pin is the same one the release ritual describes', () => 
 })
 
 describe('every integration suite that drives a browser drives the one the app ships', () => {
-  // Three of the integration suites drive a browser, and all three used to
+  // Four of the integration suites drive a browser, and three of them used to
   // reach for an installed Google Chrome. Two let `describe.skipIf` remove the
   // suite when none was found — harmless while the app required Chrome, and a
   // silent hole the moment the README said there is no browser to install: on a
@@ -133,8 +133,12 @@ describe('every integration suite that drives a browser drives the one the app s
   // `bundledBrowserPath` or, for window-manager, the spelled-out path.
   const suites = all.filter((file) => /bundledBrowserPath|chrome-win/.test(read(file)))
 
-  it('three suites drive a browser, and each names the bundled one', () => {
-    expect(suites.length).toBe(3)
+  it('four suites drive a browser, and each names the bundled one', () => {
+    // Was three until `embedded-clip.integration.test.ts` joined them on
+    // 2026-09-20. The count is spelled out rather than merely "more than one"
+    // so that adding a suite is a decision somebody records here, which is the
+    // whole reason this file exists.
+    expect(suites.length).toBe(4)
   })
 
   it.each(suites)('%s fails rather than skipping when the browser is absent', (suite) => {
