@@ -967,7 +967,9 @@ than defects:
 1. **The Electron pin was three patch releases behind** — `43.4.0` (Chromium 150.0.7871.224) against
    `43.7.1` (150.0.7871.250). Raised to `43.7.1`, which is the conservative half of the choice: the
    43 line is still supported, and moving to 44 would have been a new major under the panel and the
-   native modules. `npm run check` and the whole integration suite are green on it.
+   native modules. `npm run check` and the whole integration suite are green on it. Raised again to
+   `43.7.3` for the 0.3.0 release, two patches on the same line, with the integration suite green
+   (115 tests) — the release ritual's first step, doing what it exists to do.
 2. **The bundled browser was a month behind trunk** — revision `1682878` against a `LAST_CHANGE` of
    `1699959`. Raised, by hand and hash-first the way `docs/releasing.md` requires. This is the pin
    that only a release moves, so a release that skipped it would have shipped August's browser.

@@ -101,17 +101,28 @@ them is checked by any test, and all three fail quietly:
 `OptGuideOnDeviceClassifierModel` in every profile whether or not the feature is on; what the flag
 stops is the **download** that fills them. Measured 2026-08-18, with the flag working: both
 directories present in all four slots, **zero files, zero bytes**, whole profiles at 238–387 MB.
+Measured again for 0.3.0: same answer, zero files in both, profiles at 19–283 MB.
+
+**Both layouts, until every installed base has opened a version with accounts.** Profiles moved
+under `accounts/<id>/profiles` in 0.3.0, and a machine still on 0.2.0 keeps them at
+`hecaton/profiles` until its first launch of the new version. Cutting 0.3.0 found exactly that on
+the author's own machine: the `accounts/` command enumerated nothing and would have read as a pass —
+the same trap this step already warned about, from the other side.
 
 ```powershell
-# Per account since ADR-0021: the profiles moved under accounts/<id>/profiles, and
-# a command still pointed at the old path enumerates nothing and reads as a pass.
-Get-ChildItem "$env:APPDATA\hecaton\accounts" -Directory | ForEach-Object {
-  $account = $_.Name
-  Get-ChildItem "$($_.FullName)\profiles" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-    $slot = $_.Name
-    Get-ChildItem $_.FullName -Directory -Filter 'OptGuide*' | ForEach-Object {
-      $f = @(Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue)
-      '{0}/{1,-8} {2,-38} {3,4} files {4,10:N2} MB' -f $account, $slot, $_.Name, $f.Count, (($f | Measure-Object Length -Sum).Sum / 1MB)
+# Per account since ADR-0021, plus the pre-accounts path an installed base still
+# uses until it first opens a version with accounts. A command pointed at only one
+# of the two enumerates nothing on the other and reads as a pass.
+$roots = @()
+$roots += Get-ChildItem "$env:APPDATA\hecaton\accounts" -Directory -ErrorAction SilentlyContinue |
+  ForEach-Object { [pscustomobject]@{ Name = $_.Name; Path = Join-Path $_.FullName 'profiles' } }
+$roots += [pscustomobject]@{ Name = 'pre-accounts'; Path = "$env:APPDATA\hecaton\profiles" }
+foreach ($root in $roots) {
+  if (-not (Test-Path $root.Path)) { continue }
+  foreach ($slot in Get-ChildItem $root.Path -Directory) {
+    foreach ($d in Get-ChildItem $slot.FullName -Directory -Filter 'OptGuide*' -ErrorAction SilentlyContinue) {
+      $f = @(Get-ChildItem $d.FullName -Recurse -File -ErrorAction SilentlyContinue)
+      '{0}/{1,-8} {2,-38} {3,4} files {4,10:N2} MB' -f $root.Name, $slot.Name, $d.Name, $f.Count, (($f | Measure-Object Length -Sum).Sum / 1MB)
     }
   }
 }
