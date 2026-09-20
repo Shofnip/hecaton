@@ -39,8 +39,62 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  *   close <hwnd>                    -> OK         (posts WM_CLOSE, graceful)
  *   exit                            -> OK  then the process exits
  * Errors reply "ERR <message>". "READY" is printed once the compile is done.
+ *
+ * **Prose inside this literal is expensive; prose here is free.** The script is
+ * handed to PowerShell through `-EncodedCommand`, which is UTF-16 and then
+ * base64, so each character inside the backticks costs about 2.7 characters of
+ * command line — against a hard Windows limit of 32,767. Two ordinary comments
+ * added on 2026-09-20 took it from 29,592 to 34,216 and the adapter stopped
+ * starting, with `spawn ENAMETOOLONG` and every window operation silently doing
+ * nothing. `win32-worker-command.test.ts` now holds the budget. So explanations
+ * belong in this block, and the literal keeps one-line pointers to them.
+ *
+ * ### `APP_TITLE`
+ *
+ * The height of the title bar Chrome draws **inside** its own client area of an
+ * `--app` window, at 100% scale, which `MoveOne` shifts the window up by and
+ * then clips away. It is not a Win32 boundary — Chrome renders it — so nothing
+ * in the API reports it and it can only be measured from pixels. It scales with
+ * display DPI.
+ *
+ * It is a property of the browser, so it moves when the bundled revision moves:
+ * it was 37, and on Chromium 156.0.8065.0 it is 30. Until that was re-measured,
+ * seven rows were being clipped off the top of every game, on every screen.
+ * Nothing on a game page looks wrong when its top seven rows are gone, which is
+ * why "tune it if a sliver shows or the game is cropped" never caught it and a
+ * person never could. `embedded-clip.integration.test.ts` photographs a page
+ * with a band of known height; run it after raising the Chromium pin, and it
+ * names the number to change here.
+ *
+ * ### `FocusChild`
+ *
+ * It attaches the panel's thread to the browser's and **leaves that attach in
+ * place** for the life of the window, on the grounds that the child's thread dies
+ * with its window and detaches itself.
+ *
+ * That is a known hazard, and `Reparent` below spells it out: a panel attached to
+ * a Chrome thread is serialised with it, and the cursor freezes. Worse, because
+ * focus and **capture** belong to the queue rather than to the window, a merged
+ * queue also hands the panel whatever the browser captures.
+ *
+ * The owner lost the cursor that way on 2026-09-20 - open a screen, type into the
+ * game's login, click another application for the password, come back - and an
+ * external observer (`spike/attach`) caught the panel active and focused with its
+ * input queue reporting the embedded browser as the capturing window.
+ *
+ * **It is not fixed, and the obvious fix is not yet justified.** Making the attach
+ * transient looked free: an early probe measured a transient attach delivering 3
+ * keystrokes of 3, against 0 of 3 with no attach at all. Neither half reproduced.
+ * A later run of the same probe had *no attach* also delivering 3 of 3, and the
+ * check for whether two threads are still attached answered yes even for the case
+ * that never attached anything - so that instrument was measuring nothing. Four
+ * probes also failed to reproduce the stuck capture deliberately.
+ *
+ * What is known is the one real observation plus the hazard the code already
+ * documents; what is missing is a trustworthy way to read input-queue state.
+ * Changing this without one trades a documented hazard for an undocumented one.
  */
-const WORKER_SCRIPT = `
+export const WORKER_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 $cs = @'
 using System;
@@ -84,18 +138,7 @@ public static class W {
   const uint WM_APPCOMMAND = 0x0319;
   const int APPCOMMAND_BROWSER_REFRESH = 3;
   const uint WM_CLOSE = 0x0010;
-  // Height of the title bar Chrome draws inside an --app window's client area, at
-  // 100% scale. Not a Win32 boundary (Chrome renders it), so it cannot be measured
-  // here — it is clipped away by window height. Scales with display DPI.
-  //
-  // It is a property of the browser, so it moves when the bundled revision moves:
-  // it was 37, and on Chromium 156.0.8065.0 it is 30, which means seven rows were
-  // being clipped off the top of every game until this was re-measured. Nothing
-  // about that is visible on a game page, so "tune it if a sliver shows or the
-  // game is cropped" was never going to catch it. embedded-clip.integration.test.ts
-  // photographs a page with a band of known height and now does: run it after
-  // raising the Chromium pin, and it is the number to change here when it fails.
-  // (No backticks in this comment: it lives inside a template literal.)
+  // Chrome's in-client title bar. See APP_TITLE above this literal.
   const int APP_TITLE = 30;
 
   public static string Reparent(IntPtr child, IntPtr parent) {
@@ -112,9 +155,7 @@ public static class W {
     return "OK parent=" + GetAncestor(child, 1).ToInt64();
   }
 
-  // Merges the panel and child input queues (persistently — the child's thread
-  // dies with its window, detaching automatically) so keystrokes reach the child,
-  // then focuses it. Attaches this worker's thread briefly so its SetFocus lands.
+  // Leaves the panel/child attach in place. See FocusChild above this literal.
   static void FocusChild(IntPtr child, IntPtr parent) {
     uint ptid = GetWindowThreadProcessId(parent, IntPtr.Zero);
     uint ctid = GetWindowThreadProcessId(child, IntPtr.Zero);
