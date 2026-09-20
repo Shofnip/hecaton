@@ -16,10 +16,16 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+// The path of the Electron binary: imported from Node rather than from inside
+// Electron, the package exports exactly that. This used to be the
+// `node_modules/.bin/electron.cmd` shim, and from Node 20.12 `spawn` refuses a
+// `.cmd` without `shell: true` — so the development run died with `spawn EINVAL`
+// before Electron was ever reached. Going straight to the exe fixes it without
+// putting a shell back in the middle, which is the whole point of this file.
+import electron from 'electron'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const shell = join(here, '..')
-const electron = join(shell, '..', '..', 'node_modules', '.bin', 'electron.cmd')
 
 const child = spawn(electron, ['.'], {
   cwd: shell,
