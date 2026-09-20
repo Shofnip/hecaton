@@ -104,6 +104,14 @@ them are checked by no test and fail quietly; the third now has one, and got it 
    a game page looks wrong when its top seven rows are missing, which is the whole argument for the
    test: this is not a check a person can perform.
 
+**Also revalidate page zoom when raising the browser pin.**
+`embedded-zoom.integration.test.ts` measures native reset/preset commands in a
+real embedded browser with a non-100% profile default. The command IDs, preset
+ladder, default preference key and custom-level comparison in `zoom.ts` are
+Chromium implementation details, not a stable public automation API. The
+restricted default reader must keep returning unknown on unreadable preferences;
+do not replace it with an assumed 100% reset to make a new pin pass.
+
 ### 2. Confirm the browser is not downloading its 4 GB model again
 
 **Check the size, not the presence.** It creates `OptGuideOnDeviceModel` and

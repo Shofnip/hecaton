@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -87,6 +87,25 @@ describe.skipIf(!onWindows)('ChromeLauncher', () => {
 
     expect(pid).toBeGreaterThan(0)
     expect(launcher.isAlive(pid)).toBe(true)
+  })
+
+  it('reads default zoom only for a currently owned browser profile', async () => {
+    expect(await launcher.defaultZoomLevel(99999999)).toBeUndefined()
+    // A synthetic profile created before launch, never an existing user profile.
+    const directory = join(profilesRoot, 'slot-1', 'Default')
+    mkdirSync(directory, { recursive: true })
+    const level = Math.log(1.25) / Math.log(1.2)
+    writeFileSync(
+      join(directory, 'Preferences'),
+      JSON.stringify({
+        partition: { default_zoom_level: { x: level } },
+      }),
+    )
+    const pid = await launcher.launch(request(1))
+    started.push(pid)
+    expect(await launcher.defaultZoomLevel(pid)).toBeCloseTo(level, 8)
+    await launcher.stop(pid)
+    expect(await launcher.defaultZoomLevel(pid)).toBeUndefined()
   })
 
   it('returns a pid that is still the browser seconds later', async () => {

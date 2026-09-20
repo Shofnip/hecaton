@@ -389,10 +389,12 @@ function buildOrchestrator(
   // panelHwnd is read lazily, at reparent time, by which point it does.
   audioController = new WasapiAudioController()
   windowManager = new NativeWindowManager(panelHwnd)
+  const launcher = new ChromeLauncher(accountProfilesDir(accountId), BROWSER)
 
   orchestrator = new Orchestrator({
-    launcher: new ChromeLauncher(accountProfilesDir(accountId), BROWSER),
+    launcher,
     windows: windowManager,
+    zoom: { preferences: launcher, controller: windowManager },
     screen: screen.getPrimaryDisplay().workArea,
     globals,
     registry,
@@ -966,7 +968,9 @@ function registerIpc(): void {
       // where it is known exactly), so main relays them as-is: a reparented child
       // is a WS_CHILD, clipped to the parent's client area, so an edge rounded a
       // pixel long needs no clamp here.
-      orchestrator?.applyScreenLayout(parseScreenLayout(payload))
+      // DPI only informs the core's zoom policy; geometry stays untouched.
+      const dpiScale = panel ? screen.getDisplayMatching(panel.getBounds()).scaleFactor : 1
+      orchestrator?.applyScreenLayout(parseScreenLayout(payload), dpiScale)
     },
 
     'overlay:open': (payload) => {
@@ -1581,6 +1585,11 @@ function createPanel(): void {
   })
   lockDownWindow(panel)
   hookChildFocus(panel)
+  // Electron can raise its own input HWND during activation. Run after that
+  // callback; unchanged geometry must not leave it covering the game (ADR-0029).
+  panel.on('focus', () => {
+    setImmediate(() => windowManager?.restoreEmbeddedZOrder())
+  })
   void panel.loadFile(join(RENDERER_DIR, 'index.html'))
   panel.once('ready-to-show', () => panel?.show())
   panel.on('closed', () => {

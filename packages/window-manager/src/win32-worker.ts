@@ -34,8 +34,10 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  *   movechildren <hwnd>,<x>,<y>,<w>,<h>;...  -> OK   (x,y in the parent's client area)
  *   movetop <hwnd> <x> <y>          -> OK        (x,y in screen px; keeps size and frame)
  *   focusat <parent> <x> <y>        -> OK <hwnd> | OK none  (x,y in the parent's client area)
+ *   restack <child> <pid> <parent> -> OK | OK hidden (validated embedded child only)
  *   show <hwnd> <cmd>               -> OK         (0 = SW_HIDE, 5 = SW_SHOW)
  *   reload <hwnd>                   -> OK
+ *   zoom <hwnd> <pid> <steps>        -> OK (reset to default, signed preset steps)
  *   close <hwnd>                    -> OK         (posts WM_CLOSE, graceful)
  *   exit                            -> OK  then the process exits
  * Errors reply "ERR <message>". "READY" is printed once the compile is done.
@@ -48,6 +50,32 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * starting, with `spawn ENAMETOOLONG` and every window operation silently doing
  * nothing. `win32-worker-command.test.ts` now holds the budget. So explanations
  * belong in this block, and the literal keeps one-line pointers to them.
+ *
+ * ### `MoveChildren`
+ *
+ * One frame uses one command rather than one command per screen: measured on
+ * six busy screens, 36 ms instead of 75 ms. DeferWindowPos was measured too and
+ * rejected: its chain failed across processes and moved nothing, despite fast
+ * timings. Keep the plain SetWindowPos loop and the newest-frame scheduling.
+ * Native zoom uses Chromium IDs 38002 (default), 38003 (minus), 38001 (plus),
+ * measured by spike/scale; it neither attaches input queues nor changes focus.
+ * MoveOne's x/y/width/height describe the game viewport in parent-client pixels.
+ * It measures frame insets, offsets Chromium's in-client title strip, then sets
+ * a region excluding both. The excluded pixels neither paint nor take clicks,
+ * which also prevents dragging the game by its clipped title bar. SetWindowRgn
+ * takes ownership of the region; its coordinates are relative to the window.
+ *
+ * ### `Restack`
+ *
+ * Reactivating the panel can raise Electron's input HWND above the embedded
+ * browser without changing any rectangle. The geometry cache then correctly
+ * sends no move, but mouse input hits the wrong window. The owner's 2026-09-20
+ * reproduction also hid the cursor after typing; a small resize restored the
+ * native order, cursor and clicks. Restack repairs only sibling order: no move,
+ * size, activation, show, clip, zoom, cursor API or input-queue attachment.
+ * A live PID, WS_CHILD style and direct parent must match; hidden children stay
+ * hidden. The shell requests it after reactivation (ADR-0029). This does not
+ * establish the cause of every earlier capture/queue report below.
  *
  * ### `APP_TITLE`
  *
@@ -77,12 +105,13 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * focus and **capture** belong to the queue rather than to the window, a merged
  * queue also hands the panel whatever the browser captures.
  *
- * The owner lost the cursor that way on 2026-09-20 - open a screen, type into the
+ * The owner reported losing the cursor on 2026-09-20 - open a screen, type into the
  * game's login, click another application for the password, come back - and an
  * external observer (`spike/attach`) caught the panel active and focused with its
  * input queue reporting the embedded browser as the capturing window.
  *
- * **It is not fixed, and the obvious fix is not yet justified.** Making the attach
+ * **This input-queue hazard is not changed, and the obvious change is not yet
+ * justified.** Making the attach
  * transient looked free: an early probe measured a transient attach delivering 3
  * keystrokes of 3, against 0 of 3 with no attach at all. Neither half reproduced.
  * A later run of the same probe had *no attach* also delivering 3 of 3, and the
@@ -93,6 +122,9 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * What is known is the one real observation plus the hazard the code already
  * documents; what is missing is a trustworthy way to read input-queue state.
  * Changing this without one trades a documented hazard for an undocumented one.
+ * A later reproduction instead showed no capture and the panel input HWND above
+ * the game; resizing restored sibling order and interaction. Restack addresses
+ * that separately (ADR-0029), not this unmeasured attachment topology.
  */
 export const WORKER_SCRIPT = `
 $ErrorActionPreference = 'Stop'
@@ -110,7 +142,9 @@ public static class W {
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
   [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
   [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr ChildWindowFromPointEx(IntPtr parent, POINT pt, uint flags);
@@ -191,18 +225,7 @@ public static class W {
     return "OK";
   }
 
-  // One whole layout frame: every screen that moved, in one command.
-  // Argument: <hwnd>,<x>,<y>,<w>,<h>;<hwnd>,<x>,<y>,<w>,<h>;...
-  //
-  // The frame is the unit because the cost is paid per command, not per pixel.
-  // Measured 2026-09-20 against six embedded screens on a busy page: a command
-  // per screen placed a frame in 75 ms, this placed it in 36 ms.
-  //
-  // DeferWindowPos is the API this looks like it wants, and it is a dead end:
-  // measured the same day, its chain fails on a window owned by another process,
-  // and a failed DeferWindowPos frees the whole chain and returns NULL — so it
-  // moved nothing at all while timing four times faster than anything that
-  // worked. A plain loop has nothing to lose.
+  // See MoveChildren above. Wire format: hwnd,x,y,w,h;hwnd,x,y,w,h;...
   public static string MoveChildren(string spec) {
     string[] items = spec.Split(';');
     for (int i = 0; i < items.Length; i++) {
@@ -213,14 +236,7 @@ public static class W {
   }
 
   static void MoveOne(IntPtr h, int x, int y, int w, int hh) {
-    // x,y,w,hh is where the GAME should appear (a viewport), in parent-client px.
-    // Chrome draws a title bar (APP_TITLE) at the top of its client and keeps a
-    // ~7px invisible frame around the window even after the style strip. We want
-    // neither showing. Measure the frame (window rect vs client, via ClientToScreen)
-    // and size the window so the game — the client below the title bar — fills the
-    // target, then clip the window to just that game area with SetWindowRgn. The
-    // clipped-away title bar and frame become invisible AND stop taking clicks,
-    // which is also what stops the user dragging the screen out of place.
+    // Game viewport and frame arithmetic: see MoveChildren above the literal.
     RECT wr; GetWindowRect(h, out wr);
     RECT cr; GetClientRect(h, out cr);
     POINT origin; origin.X = 0; origin.Y = 0; ClientToScreen(h, ref origin);
@@ -247,7 +263,28 @@ public static class W {
     SetWindowRgn(h, CreateRectRgn(left, top + APP_TITLE, left + w, top + APP_TITLE + hh), true);
   }
 
+  // Native zoom IDs measured by spike/scale; no focus or input-queue changes.
+  public static string Zoom(IntPtr h, uint pid, int steps) {
+    uint actual; GetWindowThreadProcessId(h, out actual);
+    if (actual != pid || steps < -16 || steps > 16) return "ERR invalid zoom target";
+    if (!PostMessage(h, 0x0111, (IntPtr)38002, IntPtr.Zero)) return "ERR zoom reset";
+    for (int i=0; i<Math.Abs(steps); i++)
+      if (!PostMessage(h, 0x0111, (IntPtr)(steps < 0 ? 38003 : 38001), IntPtr.Zero)) return "ERR zoom step";
+    return "OK";
+  }
+
   public static string Show(IntPtr h, int cmd) { ShowWindow(h, cmd); return "OK"; }
+
+  // Identity-checked sibling order only. See Restack above this literal.
+  public static string Restack(IntPtr h, uint pid, IntPtr parent) {
+    uint actual; GetWindowThreadProcessId(h, out actual);
+    if (pid == 0 || actual != pid || parent == IntPtr.Zero || h == parent ||
+        GetAncestor(h, 1) != parent || (GetWindowLongPtr(h, GWL_STYLE).ToInt64() & WS_CHILD) == 0)
+      return "ERR invalid restack target";
+    if (!IsWindowVisible(h)) return "OK hidden";
+    return SetWindowPos(h, IntPtr.Zero, 0, 0, 0, 0,
+      SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS) ? "OK" : "ERR restack";
+  }
 
   public static string Reload(IntPtr h) {
     SendMessage(h, WM_APPCOMMAND, h, (IntPtr)(APPCOMMAND_BROWSER_REFRESH << 16));
@@ -277,8 +314,10 @@ while ($true) {
       'movechildren' { Reply ([W]::MoveChildren($a[1])) }
       'movetop'   { Reply ([W]::MoveTop([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'focusat'   { Reply ([W]::FocusAt([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
+      'restack'   { Reply ([W]::Restack([IntPtr][int64]$a[1], [uint32]$a[2], [IntPtr][int64]$a[3])) }
       'show'      { Reply ([W]::Show([IntPtr][int64]$a[1], [int]$a[2])) }
       'reload'    { Reply ([W]::Reload([IntPtr][int64]$a[1])) }
+      'zoom'      { Reply ([W]::Zoom([IntPtr][int64]$a[1], [uint32]$a[2], [int]$a[3])) }
       'close'     { Reply ([W]::Close([IntPtr][int64]$a[1])) }
       'exit'      { Reply 'OK'; exit 0 }
       default     { Reply "ERR unknown: $($a[0])" }

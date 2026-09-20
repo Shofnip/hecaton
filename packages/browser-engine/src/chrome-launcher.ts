@@ -24,6 +24,7 @@ import type { BrowserLauncher, LaunchRequest } from '@hecaton/core'
 import { buildChromeArgs } from './chrome-args.js'
 import { browserExecutableName } from './browser-paths.js'
 import { browserProcessQuery } from './browser-process-query.js'
+import { readDefaultZoomLevel } from './zoom-preferences.js'
 
 // Async, never *Sync: these shell out to PowerShell/taskkill, and PowerShell alone
 // takes a few hundred ms to start. execFileSync would block the Electron main
@@ -124,6 +125,17 @@ export class ChromeLauncher implements BrowserLauncher {
   /** Where a running slot's profile lives. Useful in logs and diagnostics. */
   profilePathOf(pid: number): string | undefined {
     return this.profiles.get(pid)?.path
+  }
+
+  /**
+   * Only the zoom default of a browser this launcher owns. Unknown/dead pids
+   * never resolve a disk path. A missing/unreadable preference is unknown, not
+   * 100%; callers must not issue a reset-relative plan without a known default.
+   */
+  async defaultZoomLevel(pid: number): Promise<number | undefined> {
+    const profile = this.profiles.get(pid)
+    if (profile === undefined || !this.isAlive(pid)) return undefined
+    return readDefaultZoomLevel(profile.path)
   }
 
   async launch(request: LaunchRequest): Promise<number> {

@@ -194,6 +194,99 @@ and focus, crash detection and auto-restart, the registry, per-slot config, mute
 What it costs: no CSS injection, no in-page actions, no screenshots, no in-page automation.
 Those depended on CDP.
 
+### Screen scaling: automatic page zoom
+
+The owner selected **page zoom**, rather than a launch-time device-scale factor,
+after measuring both in real Poke IdleWorld (2026-09-20,
+[ADR-0026](adr/0026-page-zoom-over-launch-scale.md)). Zoom can change within a live
+session and leaves Chromium's title-strip allowance unchanged; a fixed launch
+factor left the HUD tiny even when its card grew into focus mode.
+
+The probe's wheel-command counter failed to restore 100%. A follow-up local-page
+probe measured Chromium's native
+zoom commands via `WM_COMMAND`: three repeated ladders reached 90%, 80%, 75%,
+66 2/3%, 50%, 33 1/3% and 25%, with every focus reset returning to 100%, without
+focus attachment or cursor movement. This establishes control in a fresh profile
+whose default is 100%, not an unconditional reset: upstream Chromium resets to
+the profile's default zoom, which can differ. The owner subsequently chose
+**card-derived zoom, 100% in focus, and no
+configuration field initially**
+([ADR-0027](adr/0027-card-derived-zoom-and-full-scale-focus.md)). No grid or
+FocusChild change is part of this choice. The reproducible cursor/click defect was
+later isolated to native sibling stacking and fixed independently (ADR-0029).
+Input-queue topology remains deliberately unclaimed; it is a documented platform
+risk, not unfinished work required by the scaling change.
+
+The command definitions and default-reset semantics are documented by Chromium
+in [chrome_command_ids.h](https://github.com/chromium/chromium/blob/main/chrome/app/chrome_command_ids.h)
+and [page_zoom.cc](https://github.com/chromium/chromium/blob/main/components/zoom/page_zoom.cc).
+These sources guided the experiment; the bundled binary's measured log is
+`spike/scale/out/zoomcontrol-2026-09-20T09-43-49-118Z.txt`. The telemetry belongs to
+the local probe page, not the real game and not a production feedback channel.
+
+**The shell now connects the layout, pure policy and native adapter.**
+`screenZoomFactor` compares the card's logical size (physical rectangle divided
+by the panel display's DPI scale) with a 1920×1080 CSS workspace. The smaller
+width/height ratio selects the nearest supported Chromium preset, clamped to
+25–100%, with ties choosing the smaller preset. Focus mode targets 100%; leaving
+focus recalculates the card target. This approximates a workspace, not an exact
+1920×1080 viewport at every size. The shell supplies display DPI separately;
+the renderer's placement rectangles and IPC contract are unchanged.
+
+With the owner's explicit approval
+([ADR-0028](adr/0028-read-only-default-zoom-preference.md)),
+`ChromeLauncher.defaultZoomLevel(pid)` reads only a live profile it owns, through
+the bounded read-only `zoom-preferences.ts` adapter. It opens `Default/Preferences`
+and returns only `partition.default_zoom_level.x`; no session database, per-host
+values or contents in logs, and no direct profile write. `zoom.ts` in the core
+parses that one value and plans signed preset steps after reset. Missing or
+invalid files produce unknown, not a presumed 100%. `ScreenZoom` skips unknown
+defaults and retries on a later layout; it never holds up placement. It coalesces
+pending targets per pid and remembers accepted targets so unchanged layout ticks
+do not reread the profile or resend commands. Hide, reload and stop invalidate
+that state. The shell uses the same launcher instance for launch and preferences.
+
+`NativeWindowManager.applyZoom` waits out the existing one-second embed/reload
+settle interval, then asks the Win32 worker to reset and send the signed number
+of preset commands. The worker verifies that the HWND still belongs to the pid
+and bounds the command count. Waiting commands are discarded on hide, reload,
+close, disposal or replacement. There is no focus attachment, cursor movement,
+CDP, extension or game-page injection. A successful reply means commands were
+posted, **not** that the live page reported its resulting percentage.
+
+Against disposable defaults of 125%, 85% and 110.08%, those production functions
+plus the probe's native commands reached all 30 requested zoom targets, including
+100%. `spike/scale/out/zoomdefaults-2026-09-20T09-53-06-592Z.txt` records the run;
+the core and disk reader also have fast and real-I/O integration coverage.
+The production native adapter is now covered against a real embedded browser
+and disposable 125% default: card → focus → card, reload, unchanged default,
+wrong-pid rejection and cancellation of waiting commands. A local instrumented
+page reports the actual zoom for those tests; production has no such oracle.
+Persisted default is not live-page feedback: in-session default changes not yet
+flushed, policy overrides and a navigation finishing after the settle interval
+remain limitations. Manual page-zoom changes are not polled or immediately
+overridden; a later target change or hide/reload reapplies the automatic policy.
+
+### Embedded stacking after panel reactivation
+
+Geometry and native sibling order invalidate independently. Electron can raise
+its own input HWND above an embedded game when the panel is reactivated, even
+though no rectangle changed. The owner reproduced hidden cursor / lost clicks
+after leaving a focused Poke screen, returning and typing. Native hit-testing
+found the panel input HWND over the game; a small resize restored browser order
+and the owner confirmed recovery. Capture was zero in the hidden-cursor samples,
+so this observation does not justify changing FocusChild or claiming queue topology.
+
+After the panel's focus callback, the shell defers a
+`NativeWindowManager.restoreEmbeddedZOrder()` call. A private worker `restack`
+operation verifies the embedded child PID, direct parent and WS_CHILD style,
+skips hidden children, and changes sibling order without movement, sizing,
+activation, visibility, clipping or zoom. The core's unchanged-geometry cache
+stays intact. The protocol review, rejected full-layout replay and verification
+limits are [ADR-0029](adr/0029-restore-embedded-stacking-on-reactivation.md).
+After restarting the updated Hecaton-dev, the owner repeated the exact PokeIdle
+sequence and confirmed that both cursor visibility and clicks remained working.
+
 ### Audio, a second casualty of dropping CDP
 
 The plan called for muting unfocused instances, which needed CDP. Without it Chrome only

@@ -133,12 +133,12 @@ describe('every integration suite that drives a browser drives the one the app s
   // `bundledBrowserPath` or, for window-manager, the spelled-out path.
   const suites = all.filter((file) => /bundledBrowserPath|chrome-win/.test(read(file)))
 
-  it('four suites drive a browser, and each names the bundled one', () => {
-    // Was three until `embedded-clip.integration.test.ts` joined them on
-    // 2026-09-20. The count is spelled out rather than merely "more than one"
+  it('five suites drive a browser, and each names the bundled one', () => {
+    // Was three until the embedded clip and zoom suites joined on 2026-09-20.
+    // The count is spelled out rather than merely "more than one"
     // so that adding a suite is a decision somebody records here, which is the
     // whole reason this file exists.
-    expect(suites.length).toBe(4)
+    expect(suites.length).toBe(5)
   })
 
   it.each(suites)('%s fails rather than skipping when the browser is absent', (suite) => {

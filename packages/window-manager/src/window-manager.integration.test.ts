@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { windowManager } from 'node-window-manager'
 import { NativeWindowManager } from './native-window-manager.js'
+import { Win32Worker } from './win32-worker.js'
 
 const onWindows = process.platform === 'win32'
 
@@ -344,6 +345,72 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       // window stays alive and embedded.
       expect(embedManager.reload(pid)).toBe(true)
       expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+    })
+
+    it('restores an embedded screen above the host input window without changing bounds or focus', async () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      embedManager.setBounds(pid, { x: 50, y: 60, width: 420, height: 320 })
+      embedManager.show(pid)
+      expect(await waitFor(() => isVisibleWindow(childHwnd))).toBe(true)
+      await waitForRect(childHwnd, () => regionSize(childHwnd).width === 420)
+
+      // Both are real Chromium windows. Reproduce the measured native defect:
+      // the host's own input HWND covers its embedded browser despite the game
+      // still painting. No page script, injected input or mocked window API.
+      const blocker = Number(win32Query(`InputChild([IntPtr]${parentHwnd}).ToInt64()`))
+      expect(blocker).toBeGreaterThan(0)
+      expect(blocker).not.toBe(childHwnd)
+      expect(win32Query(`Raise([IntPtr]${blocker})`)).toBe('True')
+      expect(Number(win32Query(`GetTopWindow([IntPtr]${parentHwnd}).ToInt64()`))).toBe(blocker)
+      const before = windowRect(childHwnd)
+      const clip = regionSize(childHwnd)
+      const focus = win32Query(`Focus([IntPtr]${parentHwnd})`)
+
+      embedManager.restoreEmbeddedZOrder()
+
+      expect(
+        await waitFor(
+          () => Number(win32Query(`GetTopWindow([IntPtr]${parentHwnd}).ToInt64()`)) === childHwnd,
+        ),
+      ).toBe(true)
+      expect(windowRect(childHwnd)).toEqual(before)
+      expect(regionSize(childHwnd)).toEqual(clip)
+      expect(win32Query(`Focus([IntPtr]${parentHwnd})`)).toBe(focus)
+    })
+
+    it('does not reveal a screen hidden by focus mode or a modal when restoring stacking', async () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      embedManager.hide(pid)
+      expect(await waitFor(() => !isVisibleWindow(childHwnd))).toBe(true)
+      const blocker = Number(win32Query(`InputChild([IntPtr]${parentHwnd}).ToInt64()`))
+      expect(blocker).toBeGreaterThan(0)
+      expect(win32Query(`Raise([IntPtr]${blocker})`)).toBe('True')
+
+      embedManager.restoreEmbeddedZOrder()
+
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(isVisibleWindow(childHwnd)).toBe(false)
+      expect(Number(win32Query(`GetTopWindow([IntPtr]${parentHwnd}).ToInt64()`))).toBe(blocker)
+    })
+
+    it('rejects a restack command whose PID or parent does not match the real child', async () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      const worker = new Win32Worker()
+      try {
+        await expect(
+          worker.send(`restack ${childHwnd} ${parentPid} ${parentHwnd}`),
+        ).rejects.toThrow('invalid restack target')
+        await expect(worker.send(`restack ${childHwnd} ${pid} ${childHwnd}`)).rejects.toThrow(
+          'invalid restack target',
+        )
+        await expect(worker.send('restack 0 0 0')).rejects.toThrow('invalid restack target')
+        expect(parentOf(childHwnd)).toBe(parentHwnd)
+      } finally {
+        await worker.dispose()
+      }
     })
 
     /**
@@ -752,6 +819,7 @@ function win32Query(expression: string): string {
   const script = `
 Add-Type -TypeDefinition @'
 using System;
+using System.Text;
 using System.Runtime.InteropServices;
 public class ProbeUser32 {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
@@ -759,6 +827,22 @@ public class ProbeUser32 {
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern int GetWindowRgnBox(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern IntPtr GetTopWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h,uint command);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h,StringBuilder s,int n);
+  [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int w,int hh,uint flags);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h,IntPtr pid);
+  [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint tid,ref GUI value);
+  [StructLayout(LayoutKind.Sequential)] struct GUI { public uint Size,Flags; public IntPtr Active,Focus,Capture,Menu,MoveSize,Caret; public RECT CaretRect; }
+  public static long Focus(IntPtr h) { var value=new GUI();value.Size=(uint)Marshal.SizeOf(typeof(GUI)); if(!GetGUIThreadInfo(GetWindowThreadProcessId(h,IntPtr.Zero),ref value)) throw new Exception("GUI read failed");return value.Focus.ToInt64(); }
+  public static bool Raise(IntPtr h) { return SetWindowPos(h,IntPtr.Zero,0,0,0,0,0x0013); }
+  public static IntPtr InputChild(IntPtr parent) {
+    for(IntPtr h=GetTopWindow(parent);h!=IntPtr.Zero;h=GetWindow(h,2)) {
+      var name=new StringBuilder(128);GetClassName(h,name,128);
+      if(name.ToString()=="Chrome_RenderWidgetHostHWND") return h;
+    }
+    return IntPtr.Zero;
+  }
   public static string Rect(IntPtr h) { RECT r; GetWindowRect(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
   public static string RgnBox(IntPtr h) { RECT r; GetWindowRgnBox(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
 }

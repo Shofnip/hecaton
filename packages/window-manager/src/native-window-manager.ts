@@ -30,7 +30,7 @@
  */
 import { createRequire } from 'node:module'
 import { centredOver, isOffScreen } from '@hecaton/core'
-import type { GridCell, WindowManager, WindowPlacement } from '@hecaton/core'
+import type { GridCell, WindowManager, WindowPlacement, ZoomController } from '@hecaton/core'
 import { measureInsets } from './dwm-insets.js'
 import type { Insets } from './dwm-insets.js'
 import { Win32Worker } from './win32-worker.js'
@@ -90,8 +90,12 @@ const SW_SHOW = 5
  */
 const REPAINT_SETTLE_MS = 1000
 
-export class NativeWindowManager implements WindowManager {
+export class NativeWindowManager implements WindowManager, ZoomController {
   private readonly worker = new Win32Worker()
+  private disposed = false
+  private readonly zoomReadyAt = new Map<number, number>()
+  /** Cancels commands still waiting for a document when its window changes state. */
+  private readonly pendingZoom = new Map<number, symbol>()
 
   /**
    * How the adapter finds the panel to embed into.
@@ -326,6 +330,7 @@ export class NativeWindowManager implements WindowManager {
     this.fire(`reload ${hwnd}`)
     this.embedded.set(pid, hwnd)
     this.repaintDeadline.set(pid, Date.now() + REPAINT_SETTLE_MS)
+    this.zoomReadyAt.set(pid, Date.now() + REPAINT_SETTLE_MS)
     return true
   }
 
@@ -361,6 +366,7 @@ export class NativeWindowManager implements WindowManager {
    * stay live in their thumbnails.
    */
   hide(pid: number): boolean {
+    this.pendingZoom.delete(pid)
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
     // A pending reveal must die here, or a screen hidden during its first second
@@ -414,10 +420,38 @@ export class NativeWindowManager implements WindowManager {
    * tab-bound login (ADR-0009). False when the window is not found yet.
    */
   reload(pid: number): boolean {
+    this.pendingZoom.delete(pid)
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
     this.fire(`reload ${hwnd}`)
+    this.zoomReadyAt.set(pid, Date.now() + REPAINT_SETTLE_MS)
     return true
+  }
+
+  /**
+   * The core supplies signed preset steps relative to the profile default.
+   * Native commands leave the cursor, focus and title-strip geometry alone.
+   * Wait out the embed/reload repaint so a command is not lost with the old
+   * document. A posted command is accepted, not a percentage readback.
+   */
+  async applyZoom(pid: number, steps: number): Promise<boolean> {
+    if (this.disposed || !Number.isInteger(steps) || Math.abs(steps) > 16) return false
+    const hwnd = this.embedded.get(pid)
+    if (hwnd === undefined) return false
+    const operation = Symbol()
+    this.pendingZoom.set(pid, operation)
+    const remaining = (this.zoomReadyAt.get(pid) ?? 0) - Date.now()
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining))
+    if (this.disposed || this.embedded.get(pid) !== hwnd || this.pendingZoom.get(pid) !== operation)
+      return false
+    try {
+      await this.worker.send(`zoom ${hwnd} ${pid} ${steps}`)
+      return true
+    } catch {
+      return false
+    } finally {
+      if (this.pendingZoom.get(pid) === operation) this.pendingZoom.delete(pid)
+    }
   }
 
   /**
@@ -427,6 +461,7 @@ export class NativeWindowManager implements WindowManager {
    * out the launcher's grace period before force-killing. False when not found.
    */
   close(pid: number): boolean {
+    this.pendingZoom.delete(pid)
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
     this.fire(`close ${hwnd}`)
@@ -602,8 +637,26 @@ export class NativeWindowManager implements WindowManager {
     this.fire(`focusat ${parentHwnd} ${x} ${y}`)
   }
 
+  /**
+   * Panel reactivation can raise Electron's input HWND over the games while
+   * geometry stays unchanged. Repair native sibling order independently of the
+   * core's placement cache. The worker validates PID/parent and skips hidden
+   * children; it changes neither focus, geometry nor visibility (ADR-0029).
+   */
+  restoreEmbeddedZOrder(): void {
+    if (this.disposed) return
+    const parent = this.parentHwnd?.()
+    if (parent === undefined) return
+    for (const [pid, hwnd] of this.embedded) {
+      this.fire(`restack ${hwnd} ${pid} ${parent}`)
+    }
+  }
+
   /** Stops the persistent worker. Call on shutdown; the adapter is done after. */
   async dispose(): Promise<void> {
+    this.disposed = true
+    this.zoomReadyAt.clear()
+    this.pendingZoom.clear()
     // A pending reveal outliving the worker would fire into a dead pipe. The
     // timers are unref'd so they cannot hold the process open, but a shutdown
     // that leaves them armed is untidy in exactly the way `dispose` exists to fix.

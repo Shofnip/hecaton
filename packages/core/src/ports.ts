@@ -43,6 +43,17 @@ export interface BrowserLauncher {
   isAlive(pid: number): boolean
 }
 
+/** Read-only numeric default of an app-owned browser profile; unknown is not 100%. */
+export interface ZoomPreferences {
+  defaultZoomLevel(pid: number): Promise<number | undefined>
+}
+
+/** Reset to the known profile default, then apply signed single-preset steps. */
+export interface ZoomController {
+  /** True means commands were accepted, not a live-page percentage readback. */
+  applyZoom(pid: number, steps: number): Promise<boolean>
+}
+
 /** One screen's place in a layout frame: whose window, and where it goes. */
 export interface WindowPlacement {
   pid: number

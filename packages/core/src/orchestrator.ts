@@ -9,6 +9,8 @@
  * out means crash handling is testable without waiting for wall-clock time.
  */
 import { computeGrid } from './grid.js'
+import { ScreenZoom } from './screen-zoom.js'
+import { screenZoomFactor } from './zoom.js'
 import type { GridCell, ScreenBounds } from './grid.js'
 import type { ScreenPlacement } from './ipc.js'
 import { resolveSlotConfig } from './config.js'
@@ -20,6 +22,8 @@ import type {
   ProfileArchive,
   WindowManager,
   WindowPlacement,
+  ZoomController,
+  ZoomPreferences,
 } from './ports.js'
 import { isLive, transition } from './slot-state.js'
 import type { SlotState } from './slot-state.js'
@@ -41,6 +45,8 @@ export interface OrchestratorDeps {
   profiles?: ProfileArchive
   /** Optional: mutes slots by pid so audio can follow focus. Absent disables the feature. */
   audio?: AudioController
+  /** Optional in headless consumers; the shell supplies both real adapters. */
+  zoom?: { preferences: ZoomPreferences; controller: ZoomController }
 }
 
 const DEFAULT_MAX_RESTART_ATTEMPTS = 3
@@ -112,6 +118,7 @@ export class Orchestrator {
   private readonly logger: Logger | undefined
   private readonly profiles: ProfileArchive | undefined
   private readonly audio: AudioController | undefined
+  private readonly zoom: ScreenZoom | undefined
   private readonly screen: ScreenBounds
   private readonly globals: GlobalConfig
   private readonly slots = new Map<number, SlotRuntime>()
@@ -155,6 +162,7 @@ export class Orchestrator {
     this.logger = deps.logger
     this.profiles = deps.profiles
     this.audio = deps.audio
+    this.zoom = deps.zoom ? new ScreenZoom(deps.zoom.preferences, deps.zoom.controller) : undefined
     this.screen = deps.screen
     this.globals = deps.globals
     this.audioFollowsFocus = deps.globals.audioFollowsFocus
@@ -186,6 +194,7 @@ export class Orchestrator {
     if (pid === undefined) return
     this.shownWindows.delete(pid)
     this.placedWindows.delete(pid)
+    this.zoom?.forget(pid)
   }
 
   private slot(slotId: number): SlotRuntime {
@@ -518,6 +527,7 @@ export class Orchestrator {
   reload(slotId: number): boolean {
     const slot = this.slot(slotId)
     if (slot.state !== 'running' || slot.pid === undefined) return false
+    this.zoom?.forget(slot.pid)
     return this.windows.reload(slot.pid)
   }
 
@@ -551,7 +561,7 @@ export class Orchestrator {
    * a pid that is no longer running is forgotten, because Windows reuses process
    * ids and a new browser at an old pid is a new window in the wrong place.
    */
-  applyScreenLayout(placements: ScreenPlacement[]): void {
+  applyScreenLayout(placements: ScreenPlacement[], dpiScale = 1): void {
     const wanted = new Map(placements.map((placement) => [placement.id, placement.bounds]))
     const runningPids = new Set<number>()
     const moves: WindowPlacement[] = []
@@ -571,8 +581,14 @@ export class Orchestrator {
       if (!bounds) {
         // Hidden: forget where it was, so coming back always places it again.
         this.placedWindows.delete(pid)
+        this.zoom?.forget(pid)
         continue
       }
+      // Zoom and geometry have different invalidation rules: focus/DPI may
+      // change while the rectangle stays identical. Never wait on disk/native
+      // commands in the layout path; ScreenZoom coalesces each screen's target.
+      const factor = screenZoomFactor(bounds, dpiScale, slot.config.id === this.focusedSlotId)
+      if (factor !== undefined) this.zoom?.request(pid, factor)
       if (sameCell(this.placedWindows.get(pid), bounds)) continue
       this.placedWindows.set(pid, bounds)
       moves.push({ pid, bounds })

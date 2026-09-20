@@ -106,6 +106,7 @@ export {
 export type { UserDataTarget } from './user-data.js'
 
 export { slotProfileDirName } from './slot-profile.js'
+export { defaultZoomLevel, zoomStepsFromDefault, screenZoomFactor } from './zoom.js'
 
 export { Orchestrator } from './orchestrator.js'
 export type { OrchestratorDeps, SlotSnapshot } from './orchestrator.js'
@@ -121,4 +122,6 @@ export type {
   Storage,
   WindowManager,
   WindowPlacement,
+  ZoomController,
+  ZoomPreferences,
 } from './ports.js'

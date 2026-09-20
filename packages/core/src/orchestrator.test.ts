@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Orchestrator } from './orchestrator.js'
+import type { OrchestratorDeps } from './orchestrator.js'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
 import { buildRegistry } from './registry.js'
 import {
@@ -26,6 +27,7 @@ function makeOrchestrator(
     maxRestartAttempts?: number
     audio?: FakeAudioController
     audioFollowsFocus?: boolean
+    zoom?: OrchestratorDeps['zoom']
   } = {},
 ) {
   return new Orchestrator({
@@ -43,6 +45,7 @@ function makeOrchestrator(
       ? { maxRestartAttempts: options.maxRestartAttempts }
       : {}),
     ...(options.audio ? { audio: options.audio } : {}),
+    ...(options.zoom ? { zoom: options.zoom } : {}),
   })
 }
 
@@ -497,6 +500,85 @@ describe('runtime per-screen setters (the approved slots:* channels)', () => {
 })
 
 describe('applyScreenLayout (the renderer-driven geometry)', () => {
+  const settled = async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+  }
+  function zoomSetup() {
+    const steps: { pid: number; steps: number }[] = []
+    const app = makeOrchestrator({
+      zoom: {
+        preferences: { defaultZoomLevel: async () => 0 },
+        controller: {
+          applyZoom: async (pid, value) => {
+            steps.push({ pid, steps: value })
+            return true
+          },
+        },
+      },
+    })
+    return { app, steps }
+  }
+
+  it('connects card/focus/card zoom without changing the grid rectangles', async () => {
+    const { app, steps } = zoomSetup()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    const bounds = { x: 40, y: 60, width: 620, height: 350 }
+    app.applyScreenLayout([{ id: 1, bounds }])
+    await settled()
+    app.focus(1)
+    // Even identical geometry must receive a focus-policy change.
+    app.applyScreenLayout([{ id: 1, bounds }])
+    await settled()
+    app.focus(1)
+    app.applyScreenLayout([{ id: 1, bounds }])
+    await settled()
+    expect(steps).toEqual([
+      { pid, steps: -6 },
+      { pid, steps: 0 },
+      { pid, steps: -6 },
+    ])
+    expect(windows.bounds.get(pid)).toEqual(bounds)
+    expect(windows.layouts).toHaveLength(1)
+  })
+
+  it('recalculates at display DPI changes even when geometry is unchanged', async () => {
+    const { app, steps } = zoomSetup()
+    await app.start(1)
+    const bounds = { x: 0, y: 0, width: 960, height: 540 }
+    app.applyScreenLayout([{ id: 1, bounds }], 1)
+    await settled()
+    app.applyScreenLayout([{ id: 1, bounds }], 1.5)
+    await settled()
+    expect(steps.map((x) => x.steps)).toEqual([-5, -6])
+  })
+
+  it('invalidates zoom across hide, reload and restart', async () => {
+    const { app, steps } = zoomSetup()
+    await app.start(1)
+    const bounds = { x: 0, y: 0, width: 620, height: 350 }
+    const layout = [{ id: 1, bounds }]
+    app.applyScreenLayout(layout)
+    await settled()
+    app.applyScreenLayout(layout)
+    await settled()
+    expect(steps).toHaveLength(1)
+    app.applyScreenLayout([{ id: 1 }])
+    app.applyScreenLayout(layout)
+    await settled()
+    expect(steps).toHaveLength(2)
+    app.reload(1)
+    app.applyScreenLayout(layout)
+    await settled()
+    expect(steps).toHaveLength(3)
+    const pid = launcher.pidForSlot(1)!
+    await app.stop(1)
+    launcher.nextPid = pid
+    await app.start(1)
+    app.applyScreenLayout(layout)
+    await settled()
+    expect(steps).toHaveLength(4)
+  })
   it('positions a running screen at its client-area bounds and shows it', async () => {
     const app = makeOrchestrator()
     await app.start(1)

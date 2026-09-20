@@ -86,6 +86,18 @@ undated marker no longer says which.
 | [0022](0022-a-separate-data-directory-for-development.md)  | A separate data directory for development     | Accepted · w/ Correction                                                                                   |
 | [0023](0023-an-update-check-at-launch.md)                  | An update check at launch, asked once         | Accepted, superseding part of [0014](0014-the-apps-first-network-request.md)                               |
 | [0024](0024-what-each-version-number-means.md)             | What each version number means                | Accepted                                                                                                   |
+| [0026](0026-page-zoom-over-launch-scale.md)                | Page zoom over launch-time device scale       | Accepted; automatic card/focus policy implemented with 0027 and 0028                                       |
+
+Following ADR-0026:
+
+- [0027](0027-card-derived-zoom-and-full-scale-focus.md) — card-derived zoom,
+  100% in focus, no config field initially (Accepted).
+- [0028](0028-read-only-default-zoom-preference.md) — restricted read-only access
+  to the profile's default zoom preference (Accepted).
+
+Input recovery: [0029](0029-restore-embedded-stacking-on-reactivation.md) restores
+native embedded stacking on panel reactivation, independently of geometry and
+without changing FocusChild (Accepted).
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
