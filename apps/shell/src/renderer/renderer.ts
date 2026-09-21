@@ -19,6 +19,8 @@
 
 import { ClickAfterDrag } from './click-after-drag.js'
 import { HoverClose } from './hover-close.js'
+import { popoverAnchor } from './popover-anchor.js'
+import { startAllSequentially } from './power-all.js'
 import { SidebarSession } from './sidebar-session.js'
 import { powerAction, wallPowerAction } from './slot-actions.js'
 
@@ -1350,17 +1352,14 @@ function zoomPercent(factor: number | undefined): string {
 function zoomControl(s: SlotSnapshot): HTMLElement {
   const ask = (trigger: 'click' | 'hover'): void => {
     const r = btn.getBoundingClientRect()
+    const anchor = popoverAnchor(r, btn.isConnected)
+    if (anchor === undefined) return
     run(() =>
       window.hecaton.openOverlay({
         kind: 'zoom',
         id: s.id,
         trigger,
-        anchor: {
-          x: Math.round(r.left),
-          y: Math.round(r.top),
-          width: Math.round(r.width),
-          height: Math.round(r.height),
-        },
+        anchor,
       }),
     )
   }
@@ -1507,17 +1506,14 @@ function volumeControl(s: SlotSnapshot): HTMLElement {
   const silent = s.muted || s.volume === 0
   const ask = (trigger: 'click' | 'hover'): void => {
     const r = btn.getBoundingClientRect()
+    const anchor = popoverAnchor(r, btn.isConnected)
+    if (anchor === undefined) return
     run(() =>
       window.hecaton.openOverlay({
         kind: 'volume',
         id: s.id,
         trigger,
-        anchor: {
-          x: Math.round(r.left),
-          y: Math.round(r.top),
-          width: Math.round(r.width),
-          height: Math.round(r.height),
-        },
+        anchor,
       }),
     )
   }
@@ -1848,20 +1844,34 @@ function toggleFocus(id: number): void {
   run(() => window.hecaton.focusSlot(id))
 }
 
+const POWER_ON_SETTLE_MS = 1800
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+let poweringAll = false
+
 function powerAll(): void {
   const action = wallPowerAction(state.slots.map((slot) => slot.state))
-  if (action === 'disabled') return
-  // All at once: what made this freeze was the synchronous PowerShell shell-outs
-  // in the launcher blocking the main thread, and those are async now, so four
-  // browsers can start (or stop) together without stalling the cursor.
+  if (action === 'disabled' || poweringAll) return
   if (action === 'stop') {
+    // Closing is cheap and independent. Keep every request concurrent so the
+    // wall does not pay one graceful-close wait per screen.
     for (const s of state.slots)
       if (powerAction(s.state) === 'stop') run(() => window.hecaton.stopSlot(s.id))
     showToast('Todas as telas desligadas')
   } else {
-    for (const s of state.slots)
-      if (powerAction(s.state) === 'start') run(() => window.hecaton.startSlot(s.id))
-    showToast('Ligando todas as telas…')
+    // Starting is deliberately serial. Four Chromium process trees launching,
+    // embedding, repainting and applying their initial zoom together saturate
+    // the machine even though every individual shell-out is asynchronous.
+    const ids = state.slots.filter((s) => powerAction(s.state) === 'start').map((s) => s.id)
+    poweringAll = true
+    showToast('Ligando as telas, uma por vez…')
+    void startAllSequentially(
+      ids,
+      (id) => window.hecaton.startSlot(id),
+      () => sleep(POWER_ON_SETTLE_MS),
+      showError,
+    ).finally(() => {
+      poweringAll = false
+    })
   }
 }
 

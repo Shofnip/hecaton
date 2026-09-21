@@ -891,13 +891,16 @@ The load-bearing points:
   spent one-shot placement before `SetParent` and is fixed; this defect remains on every placement
   made through a scaled desktop. Any fix must first be measured against the real worker on a
   non-100% display rather than inferred from Win32 DPI documentation.
-- **A layout frame is one unit, and only the newest one is applied**
-  ([ADR-0025](adr/0025-a-layout-frame-is-the-unit-of-window-movement.md)). The core sends every
+- **A layout frame is one unit, and overtaken deltas are merged per screen**
+  ([ADR-0025](adr/0025-a-layout-frame-is-the-unit-of-window-movement.md), corrected by
+  [ADR-0034](adr/0034-merge-overtaken-layout-deltas.md)). The core sends every
   screen that moved through `setLayout` in a single call, leaves out any screen already where the
   frame puts it, and the adapter sends one `movechildren` command — `SetWindowPos` with `HWND_TOP`
   and `SWP_ASYNCWINDOWPOS`, per screen, inside one command. While a command is in flight the
-  adapter holds only the **newest** frame and discards what it overtook; a frame is complete in
-  itself, so nothing is lost by dropping an older one. Measured 2026-09-20 over six screens: a
+  adapter holds the newest **unsent rectangle per pid**: a newer partial delta overwrites the
+  screens it names and preserves the others from the overtaken command. This corrects the old
+  claim that every core call was complete — the unchanged-rectangle optimisation deliberately
+  makes them partial. Measured 2026-09-20 over six screens: a
   focus transition 75 ms → 36 ms, and the catch-up after a divider drag 2.2 s → 84 ms.
 - Modals and the volume/zoom popovers render in a **second, transparent overlay window owned by the
   panel**, because a child Chrome window always paints over the panel's DOM. It is **not**
@@ -909,6 +912,11 @@ The load-bearing points:
   WASAPI and the `Global\` mutex), disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
   shell-outs are async so they never freeze the main thread; a screen closes gracefully by a
   `WM_CLOSE` posted to the embedded child.
+- **The global power button starts screens sequentially**
+  ([ADR-0035](adr/0035-start-all-screens-sequentially.md)). Each start is awaited and followed by
+  a 1.8-second settle interval before the next browser begins; failures do not abandon later
+  screens. Four Chromium process trees starting together again caused computer-wide lag after
+  initial zoom and bubble suppression joined the launch path. Stops remain concurrent and fast.
 - **Disposal is bounded, and that is load-bearing.** `before-quit` defers the quit until all three
   workers are disposed, so an unbounded wait there is not a slow shutdown but a permanent one:
   the app stays alive with its windows already hidden, and the account it holds stays unopenable by

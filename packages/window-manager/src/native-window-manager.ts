@@ -287,7 +287,7 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    *   reach a browser in the middle of drawing, and they queue behind each
    *   other: a frame took 75 ms as six commands and 36 ms as one. Entering or
    *   leaving focus is a single frame, so that is the wait the user feels.
-   * - **The newest frame wins.** A divider drag emits about 60 frames a second
+   * - **The newest delta per screen wins.** A divider drag emits about 60 frames a second
    *   and Win32 serves 15 to 25 of them. Sending all of them does not make the
    *   screens keep up — it makes them fall behind, because the worker is still
    *   working through positions the divider has already passed: 2.2 s of
@@ -295,32 +295,32 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    *   is in flight brought that to 84 ms, and applied *more* frames (39 of 60
    *   against 22), because none of the worker's time went to superseded ones.
    *
-   * Dropping a frame is safe precisely because a frame is complete in itself: it
-   * carries every screen that moved, so the newest one is never missing anything
-   * an older one would have applied.
+   * Core calls are deltas against what it last emitted, not complete frames. A
+   * newer queued delta therefore replaces only the screens it names and retains
+   * every other screen's newest unsent rectangle (ADR-0034).
    *
    * A pid that is not embedded yet falls back to the top-level move — the same
    * thing `setBounds` does, for a window the launcher has resolved but the embed
    * has not caught up with.
    */
   setLayout(placements: WindowPlacement[]): void {
-    const parts: string[] = []
+    const parts = new Map<number, string>()
     for (const { pid, bounds } of placements) {
       const hwnd = this.embedded.get(pid)
       if (hwnd === undefined) {
         this.setBounds(pid, bounds)
         continue
       }
-      parts.push(`${hwnd},${bounds.x},${bounds.y},${bounds.width},${bounds.height}`)
+      parts.set(pid, `${hwnd},${bounds.x},${bounds.y},${bounds.width},${bounds.height}`)
     }
-    if (parts.length === 0) return
-    this.queueLayout(`movechildren ${parts.join(';')}`)
+    if (parts.size === 0) return
+    this.queueLayout(parts)
   }
 
   /** Whether a layout command is still waiting on its reply. */
   private layoutInFlight = false
-  /** The frame to send when it is not, if a newer one arrived meanwhile. */
-  private queuedLayout: string | undefined
+  /** Latest unsent delta for each screen while another layout command is in flight. */
+  private queuedLayout: Map<number, string> | undefined
 
   /**
    * How many layout commands the worker was actually given. Diagnostics and
@@ -329,13 +329,16 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    */
   layoutCommandsSent = 0
 
-  private queueLayout(command: string): void {
+  private queueLayout(parts: Map<number, string>): void {
     if (this.layoutInFlight) {
-      this.queuedLayout = command
+      const queued = this.queuedLayout ?? new Map<number, string>()
+      for (const [pid, part] of parts) queued.set(pid, part)
+      this.queuedLayout = queued
       return
     }
     this.layoutInFlight = true
     this.layoutCommandsSent++
+    const command = `movechildren ${[...parts.values()].join(';')}`
     void this.worker
       .send(command)
       .catch(() => {

@@ -103,6 +103,15 @@ Overlay intent: [0033](0033-distinguish-click-and-hover-in-the-overlay-request.m
 validated `click | hover` discriminator to the existing volume/zoom request instead of
 adding channels or inferring a gesture across renderer processes (Accepted).
 
+Layout scheduling: [0034](0034-merge-overtaken-layout-deltas.md) corrects ADR-0025's
+false complete-frame premise: while one native command is in flight, the adapter merges
+the newest unsent rectangle per pid instead of replacing another screen's pending move
+(Accepted, superseding that part of 0025).
+
+Power-all scheduling: [0035](0035-start-all-screens-sequentially.md) starts browsers
+strictly one at a time with a measured settle interval, while keeping shutdown concurrent
+(Accepted).
+
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
 decision is taken.

@@ -261,6 +261,9 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
     let parentProfile: string
     let parentHwnd: number
     let childHwnd: number
+    let secondPid: number
+    let secondProfile: string
+    let secondHwnd: number
     let embedManager: NativeWindowManager
 
     beforeAll(async () => {
@@ -300,11 +303,43 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       expect(parentHwnd).toBeGreaterThan(0)
       expect(childHwnd).toBeGreaterThan(0)
       embedManager = new NativeWindowManager(() => parentHwnd)
+
+      // A second embedded child makes a partial newest frame observable. With
+      // one child, replacing a queued frame can never discard another screen's
+      // last position, which is the live four-screen resize regression.
+      secondProfile = mkdtempSync(join(tmpdir(), 'hecaton-wm-second-'))
+      const second = spawn(
+        CHROME!,
+        [
+          `--user-data-dir=${secondProfile}`,
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--window-position=300,300',
+          '--window-size=800,600',
+          '--new-window',
+          'about:blank',
+        ],
+        { detached: true, stdio: 'ignore' },
+      )
+      second.unref()
+      for (let attempt = 0; attempt < 60; attempt++) {
+        const found = browserPidFor(secondProfile)
+        if (found !== undefined) {
+          secondPid = found
+          break
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+      expect(secondPid).toBeGreaterThan(0)
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      secondHwnd = new NativeWindowManager().windowIdOf(secondPid)!
+      expect(secondHwnd).toBeGreaterThan(0)
     }, 90_000)
 
     afterAll(async () => {
       await embedManager?.dispose()
       await removeBrowserProfile(parentProfile, 'hecaton-panel-')
+      await removeBrowserProfile(secondProfile, 'hecaton-wm-second-')
     })
 
     it('embeds a spawned window into the panel window', async () => {
@@ -371,6 +406,39 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       expect(embedManager.layoutCommandsSent - before).toBeLessThanOrEqual(2)
       await waitForRect(childHwnd, () => regionSize(childHwnd).width === 416)
       expect(regionSize(childHwnd)).toEqual({ width: 416, height: 260 })
+    })
+
+    it('keeps every screen from an overtaken frame when the newest delta is partial', async () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      expect(embedManager.reparent(secondPid)).toBe(true)
+      expect(await waitFor(() => parentOf(secondHwnd) === parentHwnd)).toBe(true)
+      embedManager.setLayout([
+        { pid: secondPid, bounds: { x: 400, y: 20, width: 320, height: 230 } },
+      ])
+      await waitForRect(secondHwnd, () => regionSize(secondHwnd).width === 320)
+      expect(regionSize(secondHwnd)).toEqual({ width: 320, height: 230 })
+      await new Promise((resolve) => setTimeout(resolve, 100))
+
+      // The first frame is already in flight. The second has the latest place
+      // for both screens; the third changes only the first because the core
+      // correctly sends deltas. Replacing rather than merging the queued frame
+      // strands the second screen at the first frame's rectangle.
+      embedManager.setLayout([
+        { pid, bounds: { x: 20, y: 20, width: 360, height: 250 } },
+        { pid: secondPid, bounds: { x: 400, y: 20, width: 340, height: 250 } },
+      ])
+      embedManager.setLayout([
+        { pid, bounds: { x: 20, y: 20, width: 380, height: 270 } },
+        { pid: secondPid, bounds: { x: 420, y: 20, width: 380, height: 270 } },
+      ])
+      embedManager.setLayout([{ pid, bounds: { x: 20, y: 20, width: 400, height: 290 } }])
+
+      await waitForRect(childHwnd, () => regionSize(childHwnd).width === 400)
+      await waitForRect(secondHwnd, () => regionSize(secondHwnd).width === 380)
+      expect(regionSize(secondHwnd)).toEqual({ width: 380, height: 270 })
+      expect(embedManager.hide(secondPid)).toBe(true)
+      expect(await waitFor(() => !isVisibleWindow(secondHwnd))).toBe(true)
     })
 
     it('sends nothing at all for a frame in which nothing moved', () => {
