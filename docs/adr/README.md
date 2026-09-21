@@ -112,6 +112,10 @@ Power-all scheduling: [0035](0035-start-all-screens-sequentially.md) starts brow
 strictly one at a time with a measured settle interval, while keeping shutdown concurrent
 (Accepted).
 
+DPI coordinates: [0036](0036-make-the-win32-worker-per-monitor-dpi-aware.md) makes the
+persistent PowerShell worker Per-Monitor aware before its first user32 call, preserving the
+renderer-to-adapter physical-pixel contract on scaled and mixed-DPI displays (Accepted).
+
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
 decision is taken.

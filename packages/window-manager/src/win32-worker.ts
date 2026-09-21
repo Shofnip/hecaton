@@ -125,6 +125,15 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * A later reproduction instead showed no capture and the panel input HWND above
  * the game; resizing restored sibling order and interaction. Restack addresses
  * that separately (ADR-0029), not this unmeasured attachment topology.
+ *
+ * ### DPI awareness
+ *
+ * Layout coordinates arrive here as physical pixels. A default PowerShell
+ * process is DPI-unaware, so Windows virtualises its user32 calls and scales
+ * those already-scaled coordinates again. The worker opts into Per-Monitor
+ * immediately after compiling its native surface and before making any user32
+ * call. The integration suite queries the real powershell.exe by pid; before
+ * this call it measured PROCESS_DPI_UNAWARE (0), not an assumed default.
  */
 export const WORKER_SCRIPT = `
 $ErrorActionPreference = 'Stop'
@@ -132,6 +141,7 @@ $cs = @'
 using System;
 using System.Runtime.InteropServices;
 public static class W {
+  [DllImport("shcore.dll",EntryPoint="SetProcessDpiAwareness")] public static extern int D(int v);
   [DllImport("user32.dll", EntryPoint="GetWindowLongPtr")] static extern IntPtr GetWindowLongPtr(IntPtr h, int i);
   [DllImport("user32.dll", EntryPoint="SetWindowLongPtr")] static extern IntPtr SetWindowLongPtr(IntPtr h, int i, IntPtr v);
   [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
@@ -300,6 +310,7 @@ public static class W {
 }
 '@
 Add-Type -TypeDefinition $cs -Language CSharp | Out-Null
+if ([W]::D(2) -ne 0) { throw 'DPI awareness' }
 
 function Reply([string]$s) { [Console]::Out.WriteLine($s); [Console]::Out.Flush() }
 Reply 'READY'

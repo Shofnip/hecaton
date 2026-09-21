@@ -16,6 +16,7 @@
  * ignores its stdin forever — which is exactly what the broken case looked like,
  * and something no fake could demonstrate.
  */
+import { execFileSync } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Win32Worker } from './win32-worker.js'
 
@@ -76,6 +77,14 @@ describe('Win32Worker.dispose', () => {
   }, 20000)
 })
 
+describe('Win32Worker DPI coordinate space', () => {
+  it('is per-monitor aware, so Windows does not virtualise physical layout pixels', async () => {
+    worker = new Win32Worker()
+    await worker.start()
+    expect(processDpiAwareness(worker.pid!)).toBe(2)
+  }, 20000)
+})
+
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -83,4 +92,38 @@ function isAlive(pid: number): boolean {
   } catch {
     return false
   }
+}
+
+/** PROCESS_DPI_AWARENESS from the real worker process: 0 unaware, 1 system, 2 per-monitor. */
+function processDpiAwareness(pid: number): number {
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class DpiProbe {
+  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  [DllImport("shcore.dll")] static extern int GetProcessDpiAwareness(IntPtr process, out int awareness);
+  public static int Read(uint pid) {
+    IntPtr process=OpenProcess(0x1000, false, pid);
+    if(process==IntPtr.Zero) throw new Exception("OpenProcess failed");
+    try { int awareness; int hr=GetProcessDpiAwareness(process,out awareness); if(hr!=0) throw new Exception("GetProcessDpiAwareness failed: "+hr); return awareness; }
+    finally { CloseHandle(process); }
+  }
+}
+'@
+[DpiProbe]::Read(${pid})
+`
+  return Number(
+    execFileSync(
+      'powershell',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-EncodedCommand',
+        Buffer.from(script, 'utf16le').toString('base64'),
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim(),
+  )
 }

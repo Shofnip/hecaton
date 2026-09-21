@@ -881,16 +881,16 @@ The load-bearing points:
   channel is gone). The window-manager fits the **game** to the viewport and clips Chrome's
   `--app` title bar and frame away with `SetWindowRgn` — which also stops the user dragging a
   screen out of place.
-- **Known, measured DPI defect (not fixed): the Win32 PowerShell worker is DPI-unaware.** The
-  renderer correctly converts CSS rectangles to physical pixels before `screens:layout`, but
-  Windows then virtualises those coordinates for the worker and scales them a second time. On
-  2026-09-20 the displacement was confirmed from pixels on two machines at 125% scaling:
-  `position × (scale − 1)`, so a cell is progressively farther out of line the farther it is from
-  the parent-client origin. At 100% the virtualisation is a no-op, which is why the development
-  machine cannot reproduce it. This is distinct from the 2026-09-21 pre-embed race below: that race
-  spent one-shot placement before `SetParent` and is fixed; this defect remains on every placement
-  made through a scaled desktop. Any fix must first be measured against the real worker on a
-  non-100% display rather than inferred from Win32 DPI documentation.
+- **The Win32 PowerShell worker is Per-Monitor DPI-aware**
+  ([ADR-0036](adr/0036-make-the-win32-worker-per-monitor-dpi-aware.md)). The renderer converts CSS
+  rectangles to physical pixels before `screens:layout`, and the worker opts out of Windows
+  coordinate virtualisation before its first user32 call, so `SetWindowPos` receives those same
+  pixels. The former defect was measured on 2026-09-20 from pixels on two machines at 125%:
+  displacement was `position × (scale − 1)` because the unaware worker scaled the positions a
+  second time. The real worker integration test measured `PROCESS_DPI_UNAWARE` (`0`) before the
+  fix and `PROCESS_PER_MONITOR_DPI_AWARE` (`2`) after it. This is distinct from the 2026-09-21
+  pre-embed race below: that race spent one-shot placement before `SetParent`; DPI virtualisation
+  affected every later placement too.
 - **A layout frame is one unit, and overtaken deltas are merged per screen**
   ([ADR-0025](adr/0025-a-layout-frame-is-the-unit-of-window-movement.md), corrected by
   [ADR-0034](adr/0034-merge-overtaken-layout-deltas.md)). The core sends every
