@@ -178,6 +178,56 @@ was terminated` — the window opens, paints nothing, and **no page ever loads**
   therefore reloads on embed and defers the reveal, and the panel says `Iniciando a tela…` for that
   beat. The measurements, the four cheaper repaints that failed, and why pinning an older revision
   was rejected are [ADR-0017](adr/0017-repaint-an-embedded-screen.md).
+- **What the core asks for before the embed is remembered, not spent.** Both halves of a layout
+  frame are **one-shot**: the core calls `show` when a screen's wanted visibility _changes_ and
+  never again while it stays the same, and it sends a rectangle only when it differs from the one
+  it believes that screen already has. So each screen gets exactly one of each, and whoever gets
+  there first keeps it.
+
+  `Orchestrator.start` calls `reparent` the moment the launcher returns a pid, and on a cold launch
+  the browser's window does not exist yet, so the adapter starts polling for it. Meanwhile the
+  screen is already `running`, the panel redraws, and its layout frame arrives - into that gap.
+  Honouring it there spends both halves on the window as it still is, **top-level and off-screen**:
+  the reveal is undone a moment later by the embed, which hides the window to reparent it, and the
+  rectangle is applied as _desktop_ coordinates that `SetParent` then translates into the panel.
+  Neither is ever sent again.
+
+  That is one bug with two faces, and the owner saw both on 2026-09-21 after starting every screen
+  at once: screens small and in the wrong corners, and a screen still sitting at the launch offset,
+  invisible - a black card on a screen the adapter reports as embedded and visible. Starting them
+  again cured it, which is the tell: a warm window is up before `reparent` is called, so the embed
+  goes first and the frame lands on an embedded screen.
+
+  The adapter now records a pre-embed reveal and a pre-embed rectangle, and honours them at the end
+  of `embed` - the rectangle first, so the deferred reveal uncovers a screen already in its cell.
+  Both are narrowed to a **pending embed**, so a pid the adapter knows nothing about still reports
+  failure, which is the contract the orchestrator relies on while a browser is starting.
+  `window-manager.integration.test.ts` stages that state with `ShowWindow` rather than racing a
+  cold start for it, and measures the clipped region, since the window itself is `APP_TITLE` taller
+  than its cell.
+
+- **The graceful close goes out before the pid is forgotten.** A reparented screen is a
+  `WS_CHILD`, which the launcher's own `CloseMainWindow` cannot reach, so the app posts WM_CLOSE
+  itself through the handle the adapter remembers - and `forget` below throws that handle away.
+  Doing it in the wrong order costs nothing visible in the code and turns every shutdown into the
+  launcher's five-second grace followed by a force-kill, which is what "turning them all off takes
+  a while" was (owner, 2026-09-21). `stop` and `removeSlot` both close first, and
+  `orchestrator.test.ts` pins the order rather than the two calls.
+- **A stopping screen goes dark before its browser is gone.** `stop` moves the slot to `stopped`
+  and only then awaits the exit, so the shell pushes state once right after the call and again when
+  the process has finished. Without the first push the card stays lit for the whole shutdown, which
+  reads as the app having ignored the click.
+- **A pid is on loan, so the adapter is told when one is finished.** Everything the window adapter
+  remembers is keyed by pid - the embedded handle above all - and Windows hands process ids back
+  out, most eagerly right after a burst of exits. "Stop every screen, start them all again" is that
+  burst, and it left some screens black (owner, 2026-09-21): a fresh browser given a recycled id
+  looked already embedded, so `reparent` answered "already done" without embedding anything and the
+  new window stayed off-screen where it was born, while every later command went to a dead handle.
+  The core already had the one place that means a pid is finished - `forgetWindow`, called on a
+  stop, a crash and a failed spawn, which clears its own maps for exactly this reason and says so -
+  and it now tells the adapter too, through `WindowManager.forget`. `rescued` is the one thing not
+  cleared there, because it is keyed by window handle rather than by pid.
+
 - **The process is still found by PID**, never by window title, and the WMI filter's executable name
   is now derived from the resolved path rather than hardcoded — both names are `chrome.exe` today,
   so this changed no behaviour and removed a way for the two to drift apart in silence.

@@ -662,7 +662,15 @@ function registerIpc(): void {
     },
 
     'slot:stop': async (payload) => {
-      await orchestrator.stop(parseSlotId(payload))
+      // Pushed twice, and the first one is the point. `stop` moves the slot to
+      // `stopped` synchronously and only then waits for the browser to exit, so
+      // pushing here darkens the card at once instead of when the process is
+      // finally gone - which, with four screens closing together, is the wait
+      // the owner asked to be rid of (2026-09-21). The second push carries
+      // whatever the shutdown itself changed.
+      const stopping = orchestrator.stop(parseSlotId(payload))
+      pushState()
+      await stopping
       pushState()
     },
 

@@ -214,6 +214,9 @@ export class Orchestrator {
     this.shownWindows.delete(pid)
     this.placedWindows.delete(pid)
     this.zoom?.forget(pid)
+    // And the adapter's own memory of that pid, for the same reason this
+    // method exists: the next browser may be handed the same id.
+    this.windows.forget(pid)
   }
 
   private slot(slotId: number): SlotRuntime {
@@ -304,6 +307,10 @@ export class Orchestrator {
     const pid = slot.pid
     if (pid !== undefined) {
       this.windows.close(pid) // graceful close before the launcher stops it (see stop)
+      // And the same handover `stop` makes, in the same order: the adapter
+      // keeps everything by pid, and this one is about to be handed back to
+      // Windows for the next browser to be given.
+      this.forgetWindow(pid)
       await this.launcher.stop(pid)
     }
     await this.profiles?.archive(slot.config.profileDir)
@@ -599,18 +606,25 @@ export class Orchestrator {
     const slot = this.slot(slotId)
     const pid = slot.pid
     slot.state = transition(slot.state, 'stop')
+    // Ask the embedded window to close gracefully first (WM_CLOSE); the launcher
+    // then waits for that clean exit and force-kills only as a fallback. Without
+    // it the launcher's own graceful ask cannot reach the reparented child and
+    // the browser lingers seconds before the force-kill.
+    //
+    // **Before `forgetWindow`, and that order is the whole point.** The handle
+    // this needs is the one the adapter is about to be told to throw away, so
+    // forgetting first silently turns every shutdown into the five-second
+    // fallback - which is what the owner felt as "turning them all off takes a
+    // while" on 2026-09-21.
+    if (pid !== undefined) this.windows.close(pid)
     this.forgetWindow(pid)
     slot.pid = undefined
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
-    if (pid !== undefined) {
-      // Ask the embedded window to close gracefully first (WM_CLOSE); the launcher
-      // then waits for that clean exit and force-kills only as a fallback. Without
-      // it the launcher's own graceful ask cannot reach the reparented child and
-      // the browser lingers seconds before the force-kill.
-      this.windows.close(pid)
-      await this.launcher.stop(pid)
-    }
+    // Everything above is synchronous on purpose: the shell pushes its state
+    // right after calling this, so the card goes dark now rather than when the
+    // browser has finished exiting.
+    if (pid !== undefined) await this.launcher.stop(pid)
   }
 
   /**

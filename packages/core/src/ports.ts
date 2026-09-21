@@ -91,6 +91,18 @@ export interface WindowManager {
    */
   reparent(pid: number): boolean
   /**
+   * Lets go of everything remembered about a pid, because that browser is gone.
+   *
+   * Windows reuses process ids, so an adapter that remembers an embedded window
+   * by pid will hand a **new** browser the dead handle of an old one - and,
+   * worse, treat its `reparent` as already done, leaving the new window where
+   * it was born, off-screen and invisible. The core calls this from the one
+   * place that means "this pid is finished": a stop, a crash, or a spawn that
+   * failed. It is not a request to close anything; `close` does that, and by
+   * the time this is called there is nothing left to close.
+   */
+  forget(pid: number): void
+  /**
    * Hides an embedded window (SW_HIDE) — fullscreen, a stopped screen, or a
    * panel-drawn modal that actually covers it. **Not focus mode:** a running,
    * non-focused screen keeps its bounds and stays live in its thumbnail, which is

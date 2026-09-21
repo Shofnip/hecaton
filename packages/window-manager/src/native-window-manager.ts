@@ -145,6 +145,37 @@ export class NativeWindowManager implements WindowManager, ZoomController {
   /** Reveals the core asked for early, waiting out the repaint. One per pid. */
   private readonly deferredShows = new Map<number, NodeJS.Timeout>()
 
+  /**
+   * Screens the core asked to reveal **before** they were embedded.
+   *
+   * The core asks once: it calls `show` when a screen's wanted visibility
+   * changes and never again while it stays the same. So a reveal that arrives
+   * during the gap between `reparent` and the poll that embeds is the only one
+   * there will ever be, and honouring it on the window as it stands - still
+   * top-level, still off-screen - spends it on nothing, because `embed` hides
+   * the window a moment later to reparent it. That left screens black for good
+   * (owner, 2026-09-21), and it is why the bug needed every screen started at
+   * once on a cold launch: only then is the window slow enough to lose the race.
+   *
+   * Recorded here instead, and honoured by `embed`.
+   */
+  private readonly revealAfterEmbed = new Set<number>()
+
+  /**
+   * The same one-shot problem, for where a screen goes rather than whether it
+   * shows.
+   *
+   * The core sends a screen's rectangle only when it differs from the one it
+   * believes that screen already has, so a frame that arrives before the embed
+   * is the only one that rectangle will get. Spent on the window as it stands,
+   * it is worse than wasted: the window is still **top-level**, so the cell's
+   * client coordinates are applied as desktop ones, and `SetParent` then
+   * translates whatever that produced into the panel. The owner's four screens
+   * on 2026-09-21 came up three small and in the wrong corners and one still at
+   * the launch offset, invisible - one bug wearing two faces.
+   */
+  private readonly placeAfterEmbed = new Map<number, GridCell>()
+
   /** Queues one worker command without waiting; the port is synchronous. */
   private fire(command: string): void {
     void this.worker.send(command).catch(() => {
@@ -212,6 +243,13 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    * False when the window is not found yet (the browser may still be starting).
    */
   setBounds(pid: number, bounds: GridCell): boolean {
+    // An embed is on its way: keep the rectangle for it. Narrowed to a pending
+    // embed for the reason `show` is - a manager with no panel, and a pid this
+    // adapter knows nothing about, must behave exactly as they always have.
+    if (!this.embedded.has(pid) && this.pendingEmbeds.has(pid)) {
+      this.placeAfterEmbed.set(pid, bounds)
+      return true
+    }
     if (this.embedded.has(pid)) {
       // A frame of one. The embedded path has a single implementation, so a
       // lone move cannot drift from what the video wall actually drives.
@@ -323,6 +361,30 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     return false
   }
 
+  /**
+   * Lets go of a pid whose browser is gone. See the port for why this exists.
+   *
+   * Everything here is keyed by pid, and a pid is only on loan: Windows hands
+   * ids back out, most eagerly right after a burst of exits - which is what
+   * "stop every screen, start them all again" is. Without this, the next
+   * browser to be given a recycled id inherited a dead window handle and, worse,
+   * a `reparent` that answered "already done", so it was never embedded at all
+   * and stayed off-screen where it was born (owner, 2026-09-21).
+   *
+   * `rescued` is deliberately not cleared: it is keyed by **window** handle, not
+   * by pid, and those handles belong to windows the browser opened for itself.
+   */
+  forget(pid: number): void {
+    this.cancelDeferredShow(pid)
+    this.embedded.delete(pid)
+    this.pendingEmbeds.delete(pid)
+    this.zoomReadyAt.delete(pid)
+    this.pendingZoom.delete(pid)
+    this.revealAfterEmbed.delete(pid)
+    this.placeAfterEmbed.delete(pid)
+    this.bubbleDeadlines.delete(pid)
+  }
+
   /** SetParent the child into the panel and remember its handle. */
   private embed(pid: number, hwnd: number, parent: number): boolean {
     this.fire(`reparent ${hwnd} ${parent}`)
@@ -353,6 +415,16 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     this.embedded.set(pid, hwnd)
     this.repaintDeadline.set(pid, Date.now() + REPAINT_SETTLE_MS)
     this.zoomReadyAt.set(pid, Date.now() + REPAINT_SETTLE_MS)
+    // What the core asked for while this window was still on its way: where it
+    // goes, then whether it shows. Placing first so that the reveal - which
+    // `show` defers until the repaint settles - uncovers a screen already in
+    // its cell rather than one that jumps into place afterwards.
+    const cell = this.placeAfterEmbed.get(pid)
+    if (cell !== undefined) {
+      this.placeAfterEmbed.delete(pid)
+      this.setLayout([{ pid, bounds: cell }])
+    }
+    if (this.revealAfterEmbed.delete(pid)) this.show(pid)
     return true
   }
 
@@ -389,6 +461,9 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    */
   hide(pid: number): boolean {
     this.pendingZoom.delete(pid)
+    // A reveal that has not happened yet is cancelled by a hide, exactly as a
+    // deferred one is below.
+    this.revealAfterEmbed.delete(pid)
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
     // A pending reveal must die here, or a screen hidden during its first second
@@ -414,6 +489,20 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    * deferred reveal is the adapter's own timing, like `pollEmbed` above.
    */
   show(pid: number): boolean {
+    // An embed is on its way for this screen: remember the reveal rather than
+    // spending it on a window that is about to be reparented and hidden. True
+    // because the intent is recorded and will be honoured - the core reads this
+    // as "it is visible", and it will be.
+    //
+    // Narrowed to a *pending* embed on purpose. A pid this adapter knows
+    // nothing about still answers false, which is the contract the orchestrator
+    // relies on while a browser is starting; and a manager with no panel to
+    // embed into keeps showing plain top-level windows, which is what the
+    // non-embedding cases do.
+    if (!this.embedded.has(pid) && this.pendingEmbeds.has(pid)) {
+      this.revealAfterEmbed.add(pid)
+      return true
+    }
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
 
@@ -543,6 +632,8 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    */
   close(pid: number): boolean {
     this.pendingZoom.delete(pid)
+    this.revealAfterEmbed.delete(pid)
+    this.placeAfterEmbed.delete(pid)
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
     this.fire(`close ${hwnd}`)
@@ -742,6 +833,13 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     // timers are unref'd so they cannot hold the process open, but a shutdown
     // that leaves them armed is untidy in exactly the way `dispose` exists to fix.
     for (const pid of [...this.deferredShows.keys()]) this.cancelDeferredShow(pid)
+    // Same reasoning for the bubble sweep: it enumerates the whole desktop on a
+    // timer, and nothing it finds after shutdown is this app's to hide.
+    this.revealAfterEmbed.clear()
+    this.placeAfterEmbed.clear()
+    this.bubbleDeadlines.clear()
+    if (this.bubbleSweep !== undefined) clearInterval(this.bubbleSweep)
+    this.bubbleSweep = undefined
     await this.worker.dispose()
   }
 }

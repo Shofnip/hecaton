@@ -506,6 +506,7 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
    */
   let root: string
   let parent: number | undefined
+  let parentPid: number | undefined
   let screenPid: number | undefined
   let embedManager: NativeWindowManager
 
@@ -541,7 +542,6 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
       { detached: true, stdio: 'ignore' },
     ).unref()
 
-    let parentPid: number | undefined
     for (let attempt = 0; attempt < 60 && !(parentPid && screenPid); attempt++) {
       parentPid ??= browserPidFor(parentProfile)
       screenPid ??= browserPidFor(screenProfile)
@@ -573,11 +573,17 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
   }, 120_000)
 
   afterAll(async () => {
-    if (screenPid !== undefined) {
-      try {
-        execFileSync('taskkill', ['/PID', String(screenPid), '/F', '/T'], { stdio: 'ignore' })
-      } catch {
-        // already gone
+    // Both profiles launch a real browser. The screen used to be the only one
+    // killed here, leaving the visible parent `about:blank` on the desktop. A
+    // later run's real-screen pixel assertion then photographed that orphan
+    // instead of its own embedded page.
+    for (const pid of [screenPid, parentPid]) {
+      if (pid !== undefined) {
+        try {
+          execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
+        } catch {
+          // already gone
+        }
       }
     }
     // Retried, like the suite's other teardown: a browser that has just been
@@ -836,6 +842,7 @@ public class ProbeUser32 {
   [StructLayout(LayoutKind.Sequential)] struct GUI { public uint Size,Flags; public IntPtr Active,Focus,Capture,Menu,MoveSize,Caret; public RECT CaretRect; }
   public static long Focus(IntPtr h) { var value=new GUI();value.Size=(uint)Marshal.SizeOf(typeof(GUI)); if(!GetGUIThreadInfo(GetWindowThreadProcessId(h,IntPtr.Zero),ref value)) throw new Exception("GUI read failed");return value.Focus.ToInt64(); }
   public static bool Raise(IntPtr h) { return SetWindowPos(h,IntPtr.Zero,0,0,0,0,0x0013); }
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   public static IntPtr InputChild(IntPtr parent) {
     for(IntPtr h=GetTopWindow(parent);h!=IntPtr.Zero;h=GetWindow(h,2)) {
       var name=new StringBuilder(128);GetClassName(h,name,128);
@@ -898,3 +905,159 @@ public class ProbeFrame {
   const [left, top, right, bottom] = out.trim().split(',').map(Number)
   return { x: left!, y: top!, width: right! - left!, height: bottom! - top! }
 }
+
+describe.skipIf(!onWindows)('a reveal asked for before the window is embedded', () => {
+  /**
+   * The bug this covers, reported by the owner on 2026-09-21: turning on every
+   * screen at once, the first time the app is opened, leaves some of them
+   * black for good - and starting them again fixes it.
+   *
+   * The sequence that does it is a race between two things the shell does
+   * independently. `Orchestrator.start` calls `reparent` the instant the
+   * launcher returns a pid, and on a cold first launch the browser's window
+   * does not exist yet, so the adapter starts polling for it instead. Meanwhile
+   * the screen is already `running`, so the panel redraws, computes a layout
+   * and sends it, and the core asks for a `show`. That reveal lands on the
+   * window as it still is - top-level and off-screen - and the core records the
+   * screen as shown. `embed` then arrives, hides the window to reparent it, and
+   * **nobody asks for it to be shown again**: the core only calls `show` when
+   * the wanted visibility changes, and as far as it knows the screen is already
+   * visible.
+   *
+   * `embed`'s own comment states the assumption this breaks - "the core's first
+   * screens:layout shows it again already positioned" - which holds only while
+   * that first layout arrives after the embed. On a warm restart the window is
+   * up before `reparent` is called, the embed happens first, and the screen is
+   * fine; that is why starting the screens a second time cures it.
+   *
+   * No pixels here: a black card is not a painting failure but a hidden window,
+   * which `IsWindowVisible` answers directly.
+   */
+  let root: string
+  let parentPid: number | undefined
+  let screenPid: number | undefined
+  let manager: NativeWindowManager
+
+  beforeAll(async () => {
+    root = mkdtempSync(join(tmpdir(), 'hecaton-early-show-'))
+    const parentProfile = join(root, 'panel')
+    spawn(
+      CHROME,
+      [
+        `--user-data-dir=${parentProfile}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--window-position=200,200',
+        '--window-size=1000,800',
+        '--new-window',
+        'about:blank',
+      ],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
+    for (let attempt = 0; attempt < 60 && parentPid === undefined; attempt++) {
+      parentPid = browserPidFor(parentProfile)
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    expect(parentPid).toBeGreaterThan(0)
+    await new Promise((r) => setTimeout(r, 2000))
+    const parent = new NativeWindowManager().windowIdOf(parentPid!)
+    manager = new NativeWindowManager(() => parent)
+  }, 120_000)
+
+  afterAll(async () => {
+    await manager?.dispose()
+    for (const each of [screenPid, parentPid]) {
+      if (each === undefined) continue
+      try {
+        execFileSync('taskkill', ['/PID', String(each), '/F', '/T'], { stdio: 'ignore' })
+      } catch {
+        // already gone
+      }
+    }
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        rmSync(root, { recursive: true, force: true })
+        return
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    }
+  })
+
+  /** The cell the staged layout frame asks for, in the panel's client area. */
+  const CELL = { x: 30, y: 30, width: 660, height: 420 }
+
+  it('still ends with the screen visible and in its cell, not hidden or adrift', async () => {
+    const screenProfile = join(root, 'screen')
+    spawn(
+      CHROME,
+      [
+        `--user-data-dir=${screenProfile}`,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--window-position=-32000,-32000',
+        '--window-size=700,480',
+        '--app=about:blank',
+      ],
+      { detached: true, stdio: 'ignore' },
+    ).unref()
+
+    for (let attempt = 0; attempt < 60 && screenPid === undefined; attempt++) {
+      screenPid = browserPidFor(screenProfile)
+      if (screenPid === undefined) await new Promise((r) => setTimeout(r, 100))
+    }
+    expect(screenPid).toBeGreaterThan(0)
+    let hwnd: number | undefined
+    expect(
+      await waitFor(
+        () => (hwnd = new NativeWindowManager().windowIdOf(screenPid!)) !== undefined,
+        25_000,
+      ),
+    ).toBe(true)
+
+    // Staged, not raced for. On this machine the window is up within the time
+    // it takes to read the pid, so a real cold start cannot be waited for
+    // reliably - and a test that only sometimes reaches the bug is not a test.
+    // Hiding the window is how "it has not appeared yet" is staged: `reparent`
+    // looks for a **visible, titled** window, finds nothing, and starts the
+    // same poll a cold start puts it in.
+    win32Query(`ShowWindow([IntPtr]${hwnd!}, 0)`)
+    expect(manager.reparent(screenPid!)).toBe(false)
+
+    // The layout frame, arriving in that gap. It carries **both** halves, and
+    // both are one-shot: the core calls `show` only when wanted visibility
+    // changes, and sends a rectangle only when it differs from the one it
+    // believes the screen already has. Spend either on the pre-embed window and
+    // the screen never gets it again.
+    manager.show(screenPid!)
+    manager.setLayout([{ pid: screenPid!, bounds: CELL }])
+
+    // The window turns up, and the poll embeds it - hiding it to reparent it.
+    win32Query(`ShowWindow([IntPtr]${hwnd!}, 5)`)
+    expect(await waitFor(() => parentOf(hwnd!) !== 0, 25_000)).toBe(true)
+    // Past the repaint settle that holds a reveal back, so a screen still
+    // hidden here is hidden for good - the black card the owner reported.
+    await new Promise((r) => setTimeout(r, 2500))
+
+    expect(isVisibleWindow(hwnd!)).toBe(true)
+    // And in its cell, not at the corner it was born in. A screen placed while
+    // it was still top-level is placed in **screen** coordinates and then
+    // reparented, which is how three of the owner's four came up small and in
+    // the wrong corners while the fourth sat at the launch offset, invisible.
+    // Letting go of the pid stops the adapter claiming that screen is embedded.
+    // The real hazard is a **recycled** id, which a test cannot ask Windows
+    // for; what it can pin is the contract the core depends on - that after
+    // `forget`, a pid is as unknown as it was before it ever embedded, so the
+    // next browser handed that id is embedded rather than waved through.
+    expect(manager.reparent(screenPid!)).toBe(true)
+    manager.forget(screenPid!)
+    expect(manager.windowIdOf(screenPid!)).toBeUndefined()
+    expect(manager.reparent(screenPid!)).toBe(false)
+
+    // The clipped region, which is what the user sees - the window itself is
+    // `APP_TITLE` taller, because `MoveOne` offsets Chrome's in-client title
+    // strip and then excludes it. Every other embedding test measures it this
+    // way for the same reason.
+    expect(regionSize(hwnd!)).toEqual({ width: CELL.width, height: CELL.height })
+  }, 60_000)
+})

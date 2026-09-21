@@ -108,6 +108,17 @@ export class FakeWindowManager implements WindowManager {
   readonly shown: number[] = []
   readonly reloaded: number[] = []
   readonly closed: number[] = []
+  /** Pids the core has told this adapter to let go of, in order. */
+  readonly forgotten: number[] = []
+
+  /**
+   * Every call that matters to shutdown, in the order it arrived.
+   *
+   * The two arrays above answer "was it called"; this answers "in what order",
+   * which is the whole question for `close` and `forget`: closing a screen
+   * gracefully needs the handle that forgetting throws away.
+   */
+  readonly calls: string[] = []
 
   /** Pids whose window is "not found yet", as when the browser is still starting. */
   readonly missing = new Set<number>()
@@ -132,6 +143,11 @@ export class FakeWindowManager implements WindowManager {
     return true
   }
 
+  forget(pid: number): void {
+    this.forgotten.push(pid)
+    this.calls.push(`forget:${pid}`)
+  }
+
   hide(pid: number): boolean {
     if (this.missing.has(pid)) return false
     this.hidden.push(pid)
@@ -153,6 +169,7 @@ export class FakeWindowManager implements WindowManager {
   close(pid: number): boolean {
     if (this.missing.has(pid)) return false
     this.closed.push(pid)
+    this.calls.push(`close:${pid}`)
     return true
   }
 

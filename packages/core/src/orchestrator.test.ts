@@ -1555,3 +1555,91 @@ describe('manual zoom (the slider behind the magnifier)', () => {
     expect(() => app.setSlotZoomRung(1, MANUAL_ZOOM_PRESETS.length)).toThrow()
   })
 })
+describe('letting go of a pid the adapter still remembers', () => {
+  /**
+   * The bug this covers, reported by the owner on 2026-09-21: closing every
+   * screen and opening them all again right away leaves some black.
+   *
+   * Windows reuses process ids, and it reuses them most eagerly right after a
+   * burst of exits - which is exactly what "stop all, start all" is. The
+   * adapter remembers each embedded screen by pid, and nothing ever told it to
+   * forget one, so a fresh browser handed a recycled pid looked already
+   * embedded: `reparent` returned true without embedding anything, the new
+   * window was never reparented, and it stayed where every browser is born,
+   * off-screen. The card shows nothing, because for a running screen the panel
+   * deliberately draws nothing behind the window.
+   *
+   * The core already knows the moment a pid is done with - `forgetWindow`, on a
+   * stop, a crash and a failed spawn alike - and it already clears its own maps
+   * there for this very reason. It now tells the adapter too.
+   */
+  it('tells the window manager to forget a stopped screen', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    await app.stop(1)
+    expect(windows.forgotten).toContain(pid)
+  })
+
+  it('tells it to forget a crashed one, before any restart reuses the id', async () => {
+    const app = makeOrchestrator({ autoRestart: false })
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    launcher.killSilently(pid)
+    await app.checkLiveness()
+    expect(windows.forgotten).toContain(pid)
+  })
+
+  it('forgets the old pid on a restart, not only the new one', async () => {
+    const app = makeOrchestrator({ autoRestart: true })
+    await app.start(1)
+    const first = launcher.pidForSlot(1)!
+    launcher.killSilently(first)
+    await app.checkLiveness()
+    expect(windows.forgotten).toContain(first)
+  })
+})
+
+describe('how long a screen takes to go dark', () => {
+  /**
+   * Two things the owner felt as "turning them all off takes a while", both on
+   * 2026-09-21.
+   *
+   * **The graceful close has to go out before the pid is forgotten.** A
+   * reparented screen is a `WS_CHILD`, which the launcher's own
+   * `CloseMainWindow` cannot reach - so the app posts WM_CLOSE itself, through
+   * the handle the adapter remembers. Forgetting that handle first throws the
+   * graceful path away: nothing asks the browser to close, its five-second
+   * grace elapses in full, and only then is it force-killed.
+   *
+   * **And the panel must not wait for any of that to redraw.** `stop` moves the
+   * slot to `stopped` before it awaits the browser, so a snapshot taken right
+   * after the call already shows a dark card. The shell pushes there, not only
+   * when the process is finally gone.
+   */
+  it('closes the window before letting go of the pid', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    await app.stop(1)
+    expect(windows.calls).toEqual([`close:${pid}`, `forget:${pid}`])
+  })
+
+  it('does the same when a screen is removed for good', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    await app.removeSlot(1)
+    expect(windows.calls).toEqual([`close:${pid}`, `forget:${pid}`])
+  })
+
+  it('reports the screen as stopped before the browser has finished exiting', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    // Deliberately not awaited: everything up to the launcher call is
+    // synchronous, and that is what lets the panel go dark at once.
+    const stopping = app.stop(1)
+    expect(app.snapshot()[0]).toMatchObject({ state: 'stopped' })
+    await stopping
+  })
+})
