@@ -18,10 +18,13 @@
  */
 
 import { ClickAfterDrag } from './click-after-drag.js'
+import { HoverClose } from './hover-close.js'
+import { SidebarSession } from './sidebar-session.js'
+import { powerAction, wallPowerAction } from './slot-actions.js'
 
 // ---- the shape of what main sends and what the bridge exposes ----
 
-type SlotState = 'stopped' | 'starting' | 'running' | 'crashed' | 'restarting'
+type SlotState = 'stopped' | 'starting' | 'running' | 'crashed' | 'restarting' | 'stopping'
 
 interface SlotSnapshot {
   id: number
@@ -138,8 +141,8 @@ interface HecatonApi {
 /** What the wall asks the overlay window to show (mirrors the core's validator). */
 type OverlayRequest =
   | { kind: 'edit'; id: number }
-  | { kind: 'volume'; id: number; anchor: Anchor }
-  | { kind: 'zoom'; id: number; anchor: Anchor }
+  | { kind: 'volume'; id: number; anchor: Anchor; trigger: 'click' | 'hover' }
+  | { kind: 'zoom'; id: number; anchor: Anchor; trigger: 'click' | 'hover' }
   | { kind: 'settings' }
   | { kind: 'profiles' }
   | { kind: 'confirmRemove'; id: number }
@@ -152,9 +155,9 @@ declare global {
 
 const MAX_NAME_LENGTH = 24
 
-// ---- visual status: the design's four screen states over the five slot states ----
+// ---- visual status: five panel states over the core's six lifecycle states ----
 
-type VisualStatus = 'off' | 'loading' | 'on' | 'error'
+type VisualStatus = 'off' | 'loading' | 'on' | 'error' | 'stopping'
 
 /**
  * How long a screen shows "Iniciando a tela…" after it starts running.
@@ -217,6 +220,8 @@ function statusOf(state: SlotState): VisualStatus {
       return 'loading'
     case 'crashed':
       return 'error'
+    case 'stopping':
+      return 'stopping'
     default:
       return 'off'
   }
@@ -507,12 +512,11 @@ let draggingDivider = false
  * that opens the data panel, and the gap between the groups is what says so.
  */
 const SIDEBAR_ACTIONS = ['power-all', 'add-screen', 'open-profiles'] as const
-let sidebarOrder: string[] = [...SIDEBAR_ACTIONS]
-let sidebarCollapsed = false
+const sidebarSession = new SidebarSession(SIDEBAR_ACTIONS)
 
 /** A background push must not redraw the wall out from under a drag. */
 function interacting(): boolean {
-  return draggingDivider || cardDrag?.active === true || sidebarDrag?.active === true
+  return draggingDivider || cardDrag?.active === true || sidebarSession.dragging
 }
 
 function slot(id: number): SlotSnapshot | undefined {
@@ -525,16 +529,6 @@ function slotName(s: SlotSnapshot): string {
 
 // ============================ the sidebar (design §4) ============================
 
-interface SidebarDrag {
-  id: string
-  pointerId: number
-  from: { x: number; y: number }
-  /** False until the pointer passes DRAG_THRESHOLD; until then this is a click. */
-  active: boolean
-  overId: string | undefined
-}
-
-let sidebarDrag: SidebarDrag | undefined
 /** Swallows only the click a drag release itself may synthesize. */
 const sidebarClickAfterDrag = new ClickAfterDrag()
 
@@ -553,32 +547,24 @@ const sidebarClickAfterDrag = new ClickAfterDrag()
  */
 function applySidebar(focused: boolean): void {
   if (!sidebarEl) return
-  const hidden = focused
-  sidebarEl.hidden = hidden
-  sidebarEl.classList.toggle('collapsed', sidebarCollapsed)
-  if (!hidden) {
+  const view = sidebarSession.view(focused)
+  sidebarEl.hidden = view.hidden
+  sidebarEl.classList.toggle('collapsed', view.collapsed)
+  if (!view.hidden) {
     // The order is applied by moving the buttons themselves, before the
-    // spacer - so the bar reads top to bottom exactly as `sidebarOrder` does,
+    // spacer - so the bar reads top to bottom exactly as the session order does,
     // and Configurações and the arrow keep their anchored places below it.
     const spacer = sidebarEl.querySelector('.spacer')
-    for (const id of sidebarOrder) {
+    for (const id of view.order) {
       const node = document.getElementById(id)
       if (node && spacer) sidebarEl.insertBefore(node, spacer)
     }
   }
   if (toggleSidebarBtn) {
-    toggleSidebarBtn.replaceChildren(icon(sidebarCollapsed ? 'chevronRight' : 'chevronLeft', 16))
-    toggleSidebarBtn.title = sidebarCollapsed ? 'Mostrar o menu' : 'Esconder o menu'
+    toggleSidebarBtn.replaceChildren(icon(view.collapsed ? 'chevronRight' : 'chevronLeft', 16))
+    toggleSidebarBtn.title = view.collapsed ? 'Mostrar o menu' : 'Esconder o menu'
   }
   paintSidebarDrag()
-}
-
-/** The bar in the order the user is looking at, read from the DOM like `wallOrder`. */
-function sidebarDomOrder(): string[] {
-  if (!sidebarEl) return [...sidebarOrder]
-  return [...sidebarEl.querySelectorAll<HTMLElement>('[data-sidebar-action]')].map(
-    (node) => node.id,
-  )
 }
 
 /** Which draggable sidebar button is under a point, if any. */
@@ -588,7 +574,7 @@ function sidebarActionUnder(x: number, y: number): string | undefined {
 }
 
 function paintSidebarDrag(): void {
-  const drag = sidebarDrag?.active === true ? sidebarDrag : undefined
+  const drag = sidebarSession.dragView
   for (const id of SIDEBAR_ACTIONS) {
     const node = document.getElementById(id)
     if (!node) continue
@@ -600,9 +586,8 @@ function paintSidebarDrag(): void {
   }
 }
 
-function endSidebarDrag(): void {
-  const wasActive = sidebarDrag?.active === true
-  sidebarDrag = undefined
+function cancelSidebarDrag(): void {
+  const wasActive = sidebarSession.cancelDrag()
   paintSidebarDrag()
   if (wasActive) {
     render()
@@ -633,13 +618,7 @@ function installSidebarDrag(): void {
       // all. In that case this is a new, deliberate press and must not inherit
       // the old drag's suppression.
       sidebarClickAfterDrag.pointerStarted()
-      sidebarDrag = {
-        id,
-        pointerId: event.pointerId,
-        from: { x: event.clientX, y: event.clientY },
-        active: false,
-        overId: undefined,
-      }
+      sidebarSession.beginDrag(id, event.pointerId, event.clientX, event.clientY)
     })
     // Capture phase, so it runs before the button's own handler and can stop it.
     node.addEventListener(
@@ -654,37 +633,36 @@ function installSidebarDrag(): void {
   }
 
   window.addEventListener('pointermove', (event) => {
-    if (!sidebarDrag || event.pointerId !== sidebarDrag.pointerId) return
-    if (event.buttons === 0) {
-      endSidebarDrag()
-      return
-    }
-    if (!sidebarDrag.active) {
-      const travelled =
-        Math.abs(event.clientX - sidebarDrag.from.x) + Math.abs(event.clientY - sidebarDrag.from.y)
-      if (travelled < DRAG_THRESHOLD) return
-      sidebarDrag.active = true
-    }
-    sidebarDrag.overId = sidebarActionUnder(event.clientX, event.clientY)
+    const wasActive = sidebarSession.dragging
+    const overId = sidebarSession.tracking
+      ? sidebarActionUnder(event.clientX, event.clientY)
+      : undefined
+    const result = sidebarSession.movePointer(
+      event.pointerId,
+      event.clientX,
+      event.clientY,
+      event.buttons,
+      overId,
+    )
+    if (result === 'ignored') return
     paintSidebarDrag()
+    if (result === 'ended' && wasActive) {
+      render()
+      scheduleLayout()
+    }
   })
 
   window.addEventListener('pointerup', (event) => {
-    if (!sidebarDrag || event.pointerId !== sidebarDrag.pointerId) return
-    const drag = sidebarDrag
-    const order = sidebarDomOrder()
-    endSidebarDrag()
-    if (!drag.active) return
+    const result = sidebarSession.endDrag(event.pointerId)
+    paintSidebarDrag()
+    if (!result.dragged) return
     sidebarClickAfterDrag.dragEnded()
-    if (drag.overId === undefined || drag.overId === drag.id) return
-    const toIndex = order.indexOf(drag.overId)
-    if (toIndex < 0) return
-    const rest = order.filter((each) => each !== drag.id)
-    rest.splice(toIndex, 0, drag.id)
-    sidebarOrder = rest
     render()
     scheduleLayout()
   })
+
+  window.addEventListener('pointercancel', cancelSidebarDrag)
+  window.addEventListener('blur', cancelSidebarDrag)
 }
 
 // ============================ toasts (design §12) ============================
@@ -949,7 +927,8 @@ function render(): void {
 
   // Sidebar reflects the running set.
   const anyScreens = state.slots.length > 0
-  const allOn = anyScreens && state.slots.every((s) => s.state !== 'stopped')
+  const wallAction = wallPowerAction(state.slots.map((slot) => slot.state))
+  const allOn = wallAction === 'stop'
   // Three states, not two (owner, 2026-09-21). With every screen off the button
   // carries **no** tint and only greens on hover, because a wall that is
   // entirely off is the resting state and should not look like a pending
@@ -959,7 +938,13 @@ function render(): void {
   powerAllBtn.classList.toggle('all-on', allOn)
   powerAllBtn.classList.toggle('some-off', !allOn && !allOff)
   powerAllBtn.classList.toggle('all-off', allOff)
-  powerAllBtn.title = allOn ? 'Desligar todas as telas' : 'Ligar todas as telas'
+  powerAllBtn.disabled = wallAction === 'disabled'
+  powerAllBtn.title =
+    wallAction === 'disabled'
+      ? 'Aguarde as telas terminarem de desligar'
+      : allOn
+        ? 'Desligar todas as telas'
+        : 'Ligar todas as telas'
   const canAdd = state.slots.length < state.maxSlots
   addBtn.disabled = !canAdd
   addBtn.title = canAdd ? 'Adicionar tela' : 'Limite de 4 telas atingido'
@@ -1114,6 +1099,7 @@ function cancelLoginButton(s: SlotSnapshot): HTMLElement {
 const LED_TITLES: Record<VisualStatus, string> = {
   on: 'Ligada',
   loading: 'Carregando',
+  stopping: 'Desligando',
   error: 'Erro',
   off: 'Desligada',
 }
@@ -1179,6 +1165,10 @@ function viewport(s: SlotSnapshot): HTMLElement {
     b.append(icon('power', 30), el('span', undefined, 'Ligar'))
     b.addEventListener('click', () => run(() => window.hecaton.startSlot(s.id)))
     vp.append(b)
+  } else if (status === 'stopping') {
+    const box = el('span', 'viewport-loading')
+    box.append(icon('loader', 26), el('span', undefined, 'Desligando…'))
+    vp.append(box)
   } else if (status === 'loading') {
     const box = el('span', 'viewport-loading')
     const starting = s.state === 'running'
@@ -1208,7 +1198,8 @@ function viewport(s: SlotSnapshot): HTMLElement {
 
 function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
   const status = statusOf(s.state)
-  const active = status !== 'off'
+  const action = powerAction(s.state)
+  const active = action === 'stop'
   const bar = el('div', 'controls')
 
   // Power (on/off).
@@ -1219,9 +1210,13 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
     'power',
     'icon-btn ctrl' + (active ? ' on' : ''),
     active ? 'Desligar' : 'Ligar',
-    () => run(() => (active ? window.hecaton.stopSlot(s.id) : window.hecaton.startSlot(s.id))),
+    () =>
+      run(() =>
+        action === 'stop' ? window.hecaton.stopSlot(s.id) : window.hecaton.startSlot(s.id),
+      ),
     CTRL_ICON,
   )
+  power.disabled = action === 'disabled'
   bar.append(power)
 
   // Reload (disabled while off; icon spins while loading).
@@ -1232,7 +1227,7 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
     () => run(() => window.hecaton.reloadSlot(s.id)),
     CTRL_ICON,
   )
-  reload.disabled = status === 'off'
+  reload.disabled = status === 'off' || status === 'stopping'
   if (status === 'loading') reload.firstElementChild?.classList.add('spin')
   bar.append(reload)
 
@@ -1242,7 +1237,7 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
   // Zoom (owner, 2026-09-21): a magnifier that opens a slider, beside the
   // speaker that opens the volume one.
   const zoom = zoomControl(s)
-  ;(zoom as HTMLButtonElement).disabled = status === 'off'
+  ;(zoom as HTMLButtonElement).disabled = status === 'off' || status === 'stopping'
   bar.append(zoom)
 
   bar.append(el('div', 'flex-gap'))
@@ -1315,7 +1310,7 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
 const HOVER_OPEN_MS = 220
 let hoverOpenFor: HTMLElement | undefined
 
-function openOnHover(button: HTMLElement, open: () => void): void {
+function openOnHover(button: HTMLElement, open: (trigger: 'hover') => void): void {
   let timer: ReturnType<typeof setTimeout> | undefined
   button.addEventListener('mouseenter', () => {
     if (hoverOpenFor === button || (button as HTMLButtonElement).disabled) return
@@ -1323,7 +1318,7 @@ function openOnHover(button: HTMLElement, open: () => void): void {
       timer = undefined
       if ((button as HTMLButtonElement).disabled) return
       hoverOpenFor = button
-      open()
+      open('hover')
     }, HOVER_OPEN_MS)
   })
   button.addEventListener('mouseleave', () => {
@@ -1353,12 +1348,13 @@ function zoomPercent(factor: number | undefined): string {
  * windows, which only the overlay does.
  */
 function zoomControl(s: SlotSnapshot): HTMLElement {
-  const ask = (): void => {
+  const ask = (trigger: 'click' | 'hover'): void => {
     const r = btn.getBoundingClientRect()
     run(() =>
       window.hecaton.openOverlay({
         kind: 'zoom',
         id: s.id,
+        trigger,
         anchor: {
           x: Math.round(r.left),
           y: Math.round(r.top),
@@ -1372,7 +1368,7 @@ function zoomControl(s: SlotSnapshot): HTMLElement {
     'zoom',
     'icon-btn ctrl' + (s.zoomAuto ? '' : ' on'),
     s.zoomAuto ? `Zoom automático (${zoomPercent(s.zoom)})` : `Zoom ${zoomPercent(s.zoom)}`,
-    ask,
+    () => ask('click'),
     CTRL_ICON,
   )
   openOnHover(btn, ask)
@@ -1509,12 +1505,13 @@ function volumeControl(s: SlotSnapshot): HTMLElement {
   // it. Both windows share the panel's client coordinates, so the rect carries
   // over unchanged.
   const silent = s.muted || s.volume === 0
-  const ask = (): void => {
+  const ask = (trigger: 'click' | 'hover'): void => {
     const r = btn.getBoundingClientRect()
     run(() =>
       window.hecaton.openOverlay({
         kind: 'volume',
         id: s.id,
+        trigger,
         anchor: {
           x: Math.round(r.left),
           y: Math.round(r.top),
@@ -1528,7 +1525,7 @@ function volumeControl(s: SlotSnapshot): HTMLElement {
     silent ? 'volumeOff' : 'volume',
     'icon-btn ctrl' + (silent ? ' muted' : ''),
     'Volume',
-    ask,
+    () => ask('click'),
     CTRL_ICON,
   )
   openOnHover(btn, ask)
@@ -1639,6 +1636,7 @@ function thumb(s: SlotSnapshot): HTMLElement {
 const THUMB_STATE_TEXT: Record<VisualStatus, string> = {
   on: '▶ em execução',
   loading: 'carregando…',
+  stopping: 'desligando…',
   error: 'erro ao carregar',
   off: 'desligada',
 }
@@ -1851,17 +1849,18 @@ function toggleFocus(id: number): void {
 }
 
 function powerAll(): void {
-  const anyScreens = state.slots.length > 0
-  const allOn = anyScreens && state.slots.every((s) => s.state !== 'stopped')
+  const action = wallPowerAction(state.slots.map((slot) => slot.state))
+  if (action === 'disabled') return
   // All at once: what made this freeze was the synchronous PowerShell shell-outs
   // in the launcher blocking the main thread, and those are async now, so four
   // browsers can start (or stop) together without stalling the cursor.
-  if (allOn) {
-    for (const s of state.slots) if (s.state !== 'stopped') run(() => window.hecaton.stopSlot(s.id))
+  if (action === 'stop') {
+    for (const s of state.slots)
+      if (powerAction(s.state) === 'stop') run(() => window.hecaton.stopSlot(s.id))
     showToast('Todas as telas desligadas')
   } else {
     for (const s of state.slots)
-      if (s.state === 'stopped') run(() => window.hecaton.startSlot(s.id))
+      if (powerAction(s.state) === 'start') run(() => window.hecaton.startSlot(s.id))
     showToast('Ligando todas as telas…')
   }
 }
@@ -1900,7 +1899,7 @@ interface ModalOptions {
 }
 
 /**
- * How many overlay surfaces (modals, the volume popover) are open. The overlay
+ * How many overlay surfaces (modals and the volume/zoom popovers) are open. The overlay
  * window is hidden again only when the last one closes — a confirm opened over
  * settings must not tear the whole overlay down when it alone is dismissed.
  */
@@ -2886,7 +2885,7 @@ interface Anchor {
   height: number
 }
 
-function openVolume(id: number, anchor: Anchor): void {
+function openVolume(id: number, anchor: Anchor, trigger: 'click' | 'hover'): void {
   const s = slot(id)
   if (!s) {
     void window.hecaton.closeOverlay()
@@ -2906,6 +2905,7 @@ function openVolume(id: number, anchor: Anchor): void {
   const close = (): void => {
     if (closed) return
     closed = true
+    hoverClose?.dispose()
     catcher.remove()
     pop.remove()
     document.removeEventListener('keydown', onKey)
@@ -2916,9 +2916,17 @@ function openVolume(id: number, anchor: Anchor): void {
   }
   // A click anywhere but the popover closes it (the popover stops its own clicks).
   catcher.addEventListener('click', close)
-  closeOnLeave(pop, close, () => draggingVolume)
   document.addEventListener('keydown', onKey)
   document.body.append(catcher, pop)
+  const hoverClose = closeOnLeave(
+    pop,
+    close,
+    () => draggingVolume,
+    trigger,
+    () => {
+      draggingVolume = false
+    },
+  )
 }
 
 /**
@@ -2934,19 +2942,19 @@ function openVolume(id: number, anchor: Anchor): void {
  */
 const HOVER_CLOSE_MS = 260
 
-function closeOnLeave(pop: HTMLElement, close: () => void, dragging: () => boolean): void {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  pop.addEventListener('mouseleave', () => {
-    if (timer !== undefined) clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = undefined
-      if (!dragging()) close()
-    }, HOVER_CLOSE_MS)
-  })
-  pop.addEventListener('mouseenter', () => {
-    if (timer !== undefined) clearTimeout(timer)
-    timer = undefined
-  })
+function closeOnLeave(
+  pop: HTMLElement,
+  close: () => void,
+  dragging: () => boolean,
+  trigger: 'click' | 'hover',
+  cancelDrag: () => void,
+): HoverClose {
+  const lifetime = new HoverClose(close, dragging, HOVER_CLOSE_MS, cancelDrag)
+  if (trigger === 'click') return lifetime
+  pop.addEventListener('mouseleave', () => lifetime.left())
+  pop.addEventListener('mouseenter', () => lifetime.entered())
+  lifetime.opened()
+  return lifetime
 }
 
 /**
@@ -2956,7 +2964,7 @@ function closeOnLeave(pop: HTMLElement, close: () => void, dragging: () => boole
  * two popovers share only their geometry; what they hold, and what dragging
  * them means, is different.
  */
-function openZoom(id: number, anchor: Anchor): void {
+function openZoom(id: number, anchor: Anchor, trigger: 'click' | 'hover'): void {
   const s = slot(id)
   if (!s) {
     void window.hecaton.closeOverlay()
@@ -2974,6 +2982,7 @@ function openZoom(id: number, anchor: Anchor): void {
   const close = (): void => {
     if (closed) return
     closed = true
+    hoverClose?.dispose()
     catcher.remove()
     pop.remove()
     document.removeEventListener('keydown', onKey)
@@ -2986,9 +2995,17 @@ function openZoom(id: number, anchor: Anchor): void {
     if (e.key === 'Escape') close()
   }
   catcher.addEventListener('click', close)
-  closeOnLeave(pop, close, () => draggingZoom)
   document.addEventListener('keydown', onKey)
   document.body.append(catcher, pop)
+  const hoverClose = closeOnLeave(
+    pop,
+    close,
+    () => draggingZoom,
+    trigger,
+    () => {
+      draggingZoom = false
+    },
+  )
 }
 
 // ============================ live embed layout (design §5.2, §13) ============================
@@ -3002,13 +3019,13 @@ interface ScreenPlacement {
  * The single source of embedded-window geometry (Option 1). Every region with a
  * data-slot — a card viewport, or a running thumbnail's body in focus mode — is
  * where that slot's real Chrome window sits; the renderer measures those and tells
- * main where to put the windows. A slot with no such region, or one covered by an
- * open modal or volume popover, is sent without bounds, which hides its window.
+ * main where to put the windows. A slot with no such region, or one covered by a
+ * panel-drawn modal, is sent without bounds, which hides its window.
  *
  * Only the region an occluder actually overlaps is hidden, not every screen: the
  * native window paints over the DOM, so a screen under the modal must go, but the
- * others keep showing (the owner's call — the games stay watchable while a volume
- * popover or an edit modal is open).
+ * others keep showing. Interactive modals and both popovers live in the separate
+ * overlay renderer, so they do not participate in this wall layout at all.
  *
  * Rectangles are physical pixels in the panel's client area: getBoundingClientRect
  * gives CSS pixels from the client origin (the web content fills the window's
@@ -3020,7 +3037,8 @@ interface ScreenPlacement {
  * architecture.md; unresolved here.
  */
 function emitLayout(): void {
-  // Open modal dialogs and the volume popover occlude whatever they cover.
+  // Only panel-drawn modal dialogs can occlude a wall viewport. The popover
+  // selector is inert here because those elements exist only in the overlay.
   const occluders = [...document.querySelectorAll('.modal, .volume-popover')].map((e) =>
     e.getBoundingClientRect(),
   )
@@ -3087,7 +3105,7 @@ function initWall(): void {
   )
 
   toggleSidebarBtn?.addEventListener('click', () => {
-    sidebarCollapsed = !sidebarCollapsed
+    sidebarSession.toggleCollapsed()
     // No transition on the bar's width, deliberately: the embedded windows are
     // placed from measured DOM rectangles, and animating the stage would have
     // them chasing a width that is still moving. It snaps, and the games are in
@@ -3129,7 +3147,7 @@ function initWall(): void {
   })
 }
 
-/** The overlay window: modals and the volume popover, above the games. */
+/** The overlay window: modals and the volume/zoom popovers, above the games. */
 function initOverlay(): void {
   // It keeps a fresh copy of the state so a modal renders current data, and it
   // never redraws on a push by itself — that would wipe a half-typed field. A
@@ -3155,10 +3173,10 @@ function initOverlay(): void {
         openConfirmRemove(request.id)
         break
       case 'volume':
-        openVolume(request.id, request.anchor)
+        openVolume(request.id, request.anchor, request.trigger)
         break
       case 'zoom':
-        openZoom(request.id, request.anchor)
+        openZoom(request.id, request.anchor, request.trigger)
         break
     }
   })

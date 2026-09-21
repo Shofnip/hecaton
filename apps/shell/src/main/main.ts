@@ -247,8 +247,8 @@ let globals: GlobalConfig = DEFAULT_GLOBAL_CONFIG
 let slots: SlotOverrides[]
 let panel: BrowserWindow | undefined
 /**
- * The always-on-top window that hosts the modals and the volume popover, so they
- * paint above the embedded game windows instead of being hidden under them. It
+ * The owned window that hosts modals and the volume/zoom popovers, so they paint
+ * above the embedded game windows without covering unrelated applications. It
  * mirrors the panel's content area and is click-through except while open.
  */
 let overlay: BrowserWindow | undefined
@@ -663,7 +663,7 @@ function registerIpc(): void {
 
     'slot:stop': async (payload) => {
       // Pushed twice, and the first one is the point. `stop` moves the slot to
-      // `stopped` synchronously and only then waits for the browser to exit, so
+      // `stopping` synchronously and only then waits for the browser to exit, so
       // pushing here darkens the card at once instead of when the process is
       // finally gone - which, with four screens closing together, is the wait
       // the owner asked to be rid of (2026-09-21). The second push carries
@@ -966,7 +966,7 @@ function registerIpc(): void {
 
     'slots:setZoomAuto': async (payload) => {
       // A discrete toggle, like setMuted: persist and echo at once, because the
-      // card's `A±` button and the percentage beside it both read from the
+      // magnifier's `Auto` button and the percentage above it both read from the
       // state that comes back.
       const { id, auto } = parseSlotZoomAuto(payload)
       orchestrator.setSlotZoomAuto(id, auto)
@@ -1028,7 +1028,7 @@ function registerIpc(): void {
     },
 
     'overlay:open': (payload) => {
-      // The wall asks to show a modal or the volume popover. Validate the request,
+      // The wall asks to show a modal or one of the anchored popovers. Validate the request,
       // then show the overlay (above the games), make it interactive, and hand it
       // the request. The overlay renders it and calls overlay:close when done.
       const request = parseOverlayRequest(payload)
@@ -1655,7 +1655,7 @@ function createPanel(): void {
 
 /**
  * The overlay window: a frameless, transparent, owned window that sits above the
- * panel and its embedded game windows, so modals and the volume popover render
+ * panel and its embedded game windows, so modals and both anchored popovers render
  * over the games instead of being hidden under them. It mirrors the panel's
  * content rectangle exactly, so the wall and the overlay share one coordinate
  * system — a client rectangle means the same thing in both. Same locked-down

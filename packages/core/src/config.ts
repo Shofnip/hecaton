@@ -109,7 +109,7 @@ export interface SlotOverrides {
    *
    * Absent means yes, which is what every screen that predates the manual
    * controls says, so an old config file needs no migration. Turning it off is
-   * the `A±` button on the card: from then on the factor below is the whole
+   * the magnifier's `Auto` button on the card: from then on the factor below is the whole
    * answer, in the card, in focus and in fullscreen alike (ADR-0031).
    */
   zoomAuto?: boolean

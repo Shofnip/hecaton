@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { windowManager } from 'node-window-manager'
@@ -34,6 +34,17 @@ let profileRoot: string
 let pid: number
 
 /** Finds the browser process for a profile, the same way the launcher does. */
+function commandUsesProfile(commandLine: string, profilePath: string): boolean {
+  const command = commandLine.toLowerCase()
+  const profile = profilePath.toLowerCase()
+  return [`--user-data-dir=${profile}`, `--user-data-dir="${profile}"`].some((argument) => {
+    const index = command.indexOf(argument)
+    if (index < 0) return false
+    const next = command[index + argument.length]
+    return next === undefined || next === '"' || /\s/.test(next)
+  })
+}
+
 function browserPidFor(profilePath: string): number | undefined {
   const script =
     "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' } " +
@@ -43,12 +54,73 @@ function browserPidFor(profilePath: string): number | undefined {
     maxBuffer: 16 * 1024 * 1024,
   })
   if (!stdout.trim()) return undefined
-  const rows = JSON.parse(stdout) as { ProcessId: number; CommandLine: string | null }[]
+  const parsed = JSON.parse(stdout) as
+    | { ProcessId: number; CommandLine: string | null }
+    | { ProcessId: number; CommandLine: string | null }[]
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
   return rows.find(
     (row) =>
-      (row.CommandLine ?? '').includes(`--user-data-dir=${profilePath}`) &&
+      commandUsesProfile(row.CommandLine ?? '', profilePath) &&
       !(row.CommandLine ?? '').includes('--type='),
   )?.ProcessId
+}
+
+function temporaryProfile(profilePath: string, prefix: string): string {
+  const resolved = resolve(profilePath)
+  if (dirname(resolved) !== resolve(tmpdir()) || !basename(resolved).startsWith(prefix)) {
+    throw new Error(`refusing to remove unexpected profile path ${JSON.stringify(resolved)}`)
+  }
+  return resolved
+}
+
+async function removeBrowserProfile(profilePath: string, prefix: string): Promise<void> {
+  await removeBrowserProfiles(profilePath, prefix, [profilePath])
+}
+
+async function removeBrowserProfiles(
+  rootPath: string,
+  prefix: string,
+  profilePaths: readonly string[],
+): Promise<void> {
+  const safeProfile = temporaryProfile(rootPath, prefix)
+  const safeChildren = profilePaths.map((profilePath) => {
+    const child = resolve(profilePath)
+    if (child !== safeProfile && !child.startsWith(`${safeProfile}${sep}`)) {
+      throw new Error(`refusing to inspect profile outside temporary root ${JSON.stringify(child)}`)
+    }
+    return child
+  })
+
+  // Resolve every kill from the current command line rather than trusting the
+  // launch-time pid: Windows can reuse that pid for an unrelated process.
+  for (const browserProfile of safeChildren) {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const remainingPid = browserPidFor(browserProfile)
+      if (remainingPid === undefined) break
+      try {
+        execFileSync('taskkill', ['/PID', String(remainingPid), '/F', '/T'], { stdio: 'ignore' })
+      } catch {
+        // The next profile query decides whether it is really gone.
+      }
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
+    }
+    const remainingPid = browserPidFor(browserProfile)
+    if (remainingPid !== undefined) {
+      throw new Error(`browser ${remainingPid} still holds temporary profile ${browserProfile}`)
+    }
+  }
+
+  let lastError: unknown
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      rmSync(safeProfile, { recursive: true, force: true })
+      if (!existsSync(safeProfile)) return
+    } catch (error) {
+      lastError = error
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
+  }
+  throw new Error(`could not remove temporary profile ${safeProfile}: ${String(lastError)}`)
 }
 
 describe.skipIf(!onWindows)('NativeWindowManager', () => {
@@ -92,19 +164,7 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
     // The adapter now holds a persistent worker; without closing it the test
     // process would not exit.
     await manager?.dispose()
-    try {
-      execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
-    } catch {
-      // already gone
-    }
-    for (let attempt = 0; attempt < 20; attempt++) {
-      try {
-        rmSync(profileRoot, { recursive: true, force: true })
-        return
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 250))
-      }
-    }
+    await removeBrowserProfile(profileRoot, 'hecaton-wm-')
   })
 
   it('moves a window the app did not create', () => {
@@ -244,19 +304,7 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
 
     afterAll(async () => {
       await embedManager?.dispose()
-      try {
-        execFileSync('taskkill', ['/PID', String(parentPid), '/F', '/T'], { stdio: 'ignore' })
-      } catch {
-        // already gone
-      }
-      for (let attempt = 0; attempt < 20; attempt++) {
-        try {
-          rmSync(parentProfile, { recursive: true, force: true })
-          return
-        } catch {
-          await new Promise((resolve) => setTimeout(resolve, 250))
-        }
-      }
+      await removeBrowserProfile(parentProfile, 'hecaton-panel-')
     })
 
     it('embeds a spawned window into the panel window', async () => {
@@ -454,13 +502,12 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       painted.unref()
 
       let paintedPid: number | undefined
-      for (let attempt = 0; attempt < 60 && paintedPid === undefined; attempt++) {
-        paintedPid = browserPidFor(profile)
-        if (paintedPid === undefined) await new Promise((r) => setTimeout(r, 250))
-      }
-      expect(paintedPid).toBeDefined()
-
       try {
+        for (let attempt = 0; attempt < 60 && paintedPid === undefined; attempt++) {
+          paintedPid = browserPidFor(profile)
+          if (paintedPid === undefined) await new Promise((r) => setTimeout(r, 250))
+        }
+        expect(paintedPid).toBeDefined()
         for (let attempt = 0; attempt < 60 && !embedManager.reparent(paintedPid!); attempt++) {
           await new Promise((r) => setTimeout(r, 250))
         }
@@ -480,11 +527,7 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       } finally {
         releaseTopmost(parentHwnd)
         server.close()
-        try {
-          execFileSync('taskkill', ['/PID', String(paintedPid), '/F', '/T'], { stdio: 'ignore' })
-        } catch {
-          // already gone
-        }
+        await removeBrowserProfile(profile, 'hecaton-paint-')
       }
     }, 120_000)
   })
@@ -577,27 +620,11 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
     // killed here, leaving the visible parent `about:blank` on the desktop. A
     // later run's real-screen pixel assertion then photographed that orphan
     // instead of its own embedded page.
-    for (const pid of [screenPid, parentPid]) {
-      if (pid !== undefined) {
-        try {
-          execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
-        } catch {
-          // already gone
-        }
-      }
-    }
-    // Retried, like the suite's other teardown: a browser that has just been
-    // killed is still letting go of its profile, and `rmSync` answers EPERM for
-    // a second or two afterwards - probe P4's finding, and not worth failing a
-    // green run over.
-    for (let attempt = 0; attempt < 20; attempt++) {
-      try {
-        rmSync(root, { recursive: true, force: true })
-        return
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 250))
-      }
-    }
+    await embedManager?.dispose()
+    await removeBrowserProfiles(root, 'hecaton-detached-', [
+      join(root, 'screen'),
+      join(root, 'panel'),
+    ])
   })
 
   it('moves the out-of-view window onto the desktop', async () => {
@@ -935,6 +962,7 @@ describe.skipIf(!onWindows)('a reveal asked for before the window is embedded', 
    */
   let root: string
   let parentPid: number | undefined
+  let parentHwnd: number | undefined
   let screenPid: number | undefined
   let manager: NativeWindowManager
 
@@ -960,34 +988,22 @@ describe.skipIf(!onWindows)('a reveal asked for before the window is embedded', 
     }
     expect(parentPid).toBeGreaterThan(0)
     await new Promise((r) => setTimeout(r, 2000))
-    const parent = new NativeWindowManager().windowIdOf(parentPid!)
-    manager = new NativeWindowManager(() => parent)
+    parentHwnd = new NativeWindowManager().windowIdOf(parentPid!)
+    manager = new NativeWindowManager(() => parentHwnd)
   }, 120_000)
 
   afterAll(async () => {
     await manager?.dispose()
-    for (const each of [screenPid, parentPid]) {
-      if (each === undefined) continue
-      try {
-        execFileSync('taskkill', ['/PID', String(each), '/F', '/T'], { stdio: 'ignore' })
-      } catch {
-        // already gone
-      }
-    }
-    for (let attempt = 0; attempt < 20; attempt++) {
-      try {
-        rmSync(root, { recursive: true, force: true })
-        return
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 250))
-      }
-    }
+    await removeBrowserProfiles(root, 'hecaton-early-show-', [
+      join(root, 'screen'),
+      join(root, 'panel'),
+    ])
   })
 
   /** The cell the staged layout frame asks for, in the panel's client area. */
   const CELL = { x: 30, y: 30, width: 660, height: 420 }
 
-  it('still ends with the screen visible and in its cell, not hidden or adrift', async () => {
+  it('cancels a forgotten poll, then still embeds a fresh request visibly in its cell', async () => {
     const screenProfile = join(root, 'screen')
     spawn(
       CHROME,
@@ -1024,6 +1040,21 @@ describe.skipIf(!onWindows)('a reveal asked for before the window is embedded', 
     win32Query(`ShowWindow([IntPtr]${hwnd!}, 0)`)
     expect(manager.reparent(screenPid!)).toBe(false)
 
+    // Forgetting while that poll is pending must cancel the poll itself, not
+    // merely remove a marker. Otherwise its already-armed timer still runs,
+    // sees the window when it appears, and repopulates the adapter with the pid
+    // it was explicitly told to release.
+    manager.forget(screenPid!)
+    win32Query(`ShowWindow([IntPtr]${hwnd!}, 5)`)
+    await new Promise((r) => setTimeout(r, 750))
+    expect(parentOf(hwnd!)).not.toBe(parentHwnd)
+
+    // Stage the real early-layout sequence after proving cancellation. This is
+    // a fresh poll for the same pid; cancelling the old one must not prevent a
+    // later explicit reparent request from working.
+    win32Query(`ShowWindow([IntPtr]${hwnd!}, 0)`)
+    expect(manager.reparent(screenPid!)).toBe(false)
+
     // The layout frame, arriving in that gap. It carries **both** halves, and
     // both are one-shot: the core calls `show` only when wanted visibility
     // changes, and sends a rectangle only when it differs from the one it
@@ -1034,7 +1065,7 @@ describe.skipIf(!onWindows)('a reveal asked for before the window is embedded', 
 
     // The window turns up, and the poll embeds it - hiding it to reparent it.
     win32Query(`ShowWindow([IntPtr]${hwnd!}, 5)`)
-    expect(await waitFor(() => parentOf(hwnd!) !== 0, 25_000)).toBe(true)
+    expect(await waitFor(() => parentOf(hwnd!) === parentHwnd, 25_000)).toBe(true)
     // Past the repaint settle that holds a reveal back, so a screen still
     // hidden here is hidden for good - the black card the owner reported.
     await new Promise((r) => setTimeout(r, 2500))

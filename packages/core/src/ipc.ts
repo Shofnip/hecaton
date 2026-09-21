@@ -27,14 +27,13 @@ import { manualZoomAtRung } from './zoom.js'
 /**
  * One screen's place in the video wall, as the renderer computes it.
  *
- * `bounds` is the screen's rectangle in the panel's client area (the coordinates
- * MoveWindow wants for an embedded child). Absent bounds means the screen is
+ * `bounds` is the screen's rectangle in the panel's client area (the child
+ * coordinates the worker gives `SetWindowPos`). Absent bounds means the screen is
  * hidden, which happens in three cases: every screen but one while a screen is
  * fullscreen, a screen that is not running (its thumbnail shows text, not a
- * window), and a screen an open panel-drawn modal actually covers — today that
- * is only the release-notes modal, which the wall draws in its own DOM. The
- * volume popover and every other modal live in the overlay window and hide
- * nothing.
+ * window), and a screen an open panel-drawn modal actually covers — the terms
+ * gate, release notes and update offer live in that DOM. Interactive modals and
+ * the volume/zoom popovers live in the overlay window and hide nothing.
  *
  * **Focus mode is not one of them.** A running, non-focused screen keeps its
  * bounds — its window moves into the thumbnail and stays live, which is the
@@ -152,12 +151,11 @@ export const IPC_CHANNELS = [
   // owner): the renderer sends where each embedded screen goes, main relays it.
   'screens:layout',
   // The overlay window (UI rework, approved by the owner): modals and the volume
-  // popover render in a separate window owned by the panel (not always-on-top -
+  // and zoom popovers render in a separate window owned by the panel (not always-on-top -
   // see ADR-0011's Correction) so they paint above the
   // embedded game windows without hiding any screen. `open` asks main to show it
-  // with a request; `close` asks main to hide it. The one modal the wall still
-  // draws itself is the release-notes one, which opens before anything is
-  // embedded, on the first launch after an update.
+  // with a request; `close` asks main to hide it. The wall itself draws the
+  // terms gate, release notes and update offer before or above its own layout.
   'overlay:open',
   'overlay:close',
   // Accounts (ADR-0021), added when the owner replaced one-Hecaton-per-machine
@@ -348,7 +346,7 @@ export function parseSlotMuted(input: unknown): { id: number; muted: boolean } {
   return { id, muted }
 }
 
-/** The `A±` button: whether the app still chooses this screen's zoom. */
+/** The `Auto` button: whether the app still chooses this screen's zoom. */
 export function parseSlotZoomAuto(input: unknown): { id: number; auto: boolean } {
   const { id, rest } = requireIdObject(input, 'zoom mode')
   const auto = rest['auto']
@@ -442,14 +440,16 @@ export function parseScreenLayout(input: unknown): ScreenPlacement[] {
 /**
  * What the wall asks the overlay to show. A discriminated union, validated as
  * one: the overlay is a second renderer, so what arrives is `unknown` and a
- * stray kind must be refused, not guessed. `volume` carries the anchor — the
- * volume button's rectangle in the wall's client area — because the overlay
- * covers the same client area, so the same coordinates place the popover.
+ * stray kind must be refused, not guessed. `volume` and `zoom` carry the button
+ * anchor in the wall's client area because the overlay covers that same area.
+ * Their trigger says whether pointer-leave lifetime applies: a click-opened
+ * popover stays until an explicit close, while a hover-opened one follows the
+ * hover grace period.
  */
 export type OverlayRequest =
   | { kind: 'edit'; id: number }
-  | { kind: 'volume'; id: number; anchor: GridCell }
-  | { kind: 'zoom'; id: number; anchor: GridCell }
+  | { kind: 'volume'; id: number; anchor: GridCell; trigger: 'click' | 'hover' }
+  | { kind: 'zoom'; id: number; anchor: GridCell; trigger: 'click' | 'hover' }
   | { kind: 'settings' }
   | { kind: 'profiles' }
   | { kind: 'confirmRemove'; id: number }
@@ -473,12 +473,19 @@ export function parseOverlayRequest(input: unknown): OverlayRequest {
     case 'volume': {
       const raw = rest['anchor']
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        throw new Error(`volume anchor must be an object, got ${JSON.stringify(raw)}`)
+        throw new Error(`${kind} anchor must be an object, got ${JSON.stringify(raw)}`)
       }
       const a = raw as Record<string, unknown>
+      const trigger = rest['trigger']
+      if (trigger !== 'click' && trigger !== 'hover') {
+        throw new Error(
+          `overlay trigger must be "click" or "hover", got ${JSON.stringify(trigger)}`,
+        )
+      }
       return {
         kind,
         id: parseSlotId(rest['id']),
+        trigger,
         anchor: {
           x: requireBoundsInteger(a['x'], 'x', 0),
           y: requireBoundsInteger(a['y'], 'y', 0),

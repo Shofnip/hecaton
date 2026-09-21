@@ -1294,6 +1294,29 @@ describe('audio following the app focus mode', () => {
     expect(audio.volumeCalls.length).toBe(volumes)
   })
 
+  it('reapplies mute and volume when Windows reuses a finished pid', async () => {
+    const audio = new FakeAudioController()
+    const app = audioApp(audio, {
+      slots: [
+        { id: 1, gameId: 'poke-idleworld', muted: true, volume: 40 },
+        { id: 2, gameId: 'poke-idleworld' },
+      ],
+    })
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+    await app.applyAudio()
+    await app.stop(1)
+
+    launcher.nextPid = pid
+    await app.start(1)
+    audio.muteCalls.length = 0
+    audio.volumeCalls.length = 0
+    await app.applyAudio()
+
+    expect(audio.muteCalls).toContainEqual({ pid, muted: true })
+    expect(audio.volumeCalls).toContainEqual({ pid, volume: 40 })
+  })
+
   it('never mutes a stopped slot', async () => {
     const audio = new FakeAudioController()
     const app = await twoRunning(audio)
@@ -1555,6 +1578,7 @@ describe('manual zoom (the slider behind the magnifier)', () => {
     expect(() => app.setSlotZoomRung(1, MANUAL_ZOOM_PRESETS.length)).toThrow()
   })
 })
+
 describe('letting go of a pid the adapter still remembers', () => {
   /**
    * The bug this covers, reported by the owner on 2026-09-21: closing every
@@ -1613,9 +1637,9 @@ describe('how long a screen takes to go dark', () => {
    * grace elapses in full, and only then is it force-killed.
    *
    * **And the panel must not wait for any of that to redraw.** `stop` moves the
-   * slot to `stopped` before it awaits the browser, so a snapshot taken right
-   * after the call already shows a dark card. The shell pushes there, not only
-   * when the process is finally gone.
+   * slot to `stopping` before it awaits the browser, so a snapshot taken right
+   * after the call already shows a dark card without falsely freeing its
+   * profile. The shell pushes there, not only when the process is finally gone.
    */
   it('closes the window before letting go of the pid', async () => {
     const app = makeOrchestrator()
@@ -1633,13 +1657,120 @@ describe('how long a screen takes to go dark', () => {
     expect(windows.calls).toEqual([`close:${pid}`, `forget:${pid}`])
   })
 
-  it('reports the screen as stopped before the browser has finished exiting', async () => {
+  it('reports the screen as stopping before the browser has finished exiting', async () => {
     const app = makeOrchestrator()
     await app.start(1)
-    // Deliberately not awaited: everything up to the launcher call is
-    // synchronous, and that is what lets the panel go dark at once.
+    let finishStop: (() => void) | undefined
+    const realStop = launcher.stop.bind(launcher)
+    launcher.stop = (pid) =>
+      new Promise<void>((resolve) => {
+        finishStop = () => void realStop(pid).then(resolve)
+      })
+
     const stopping = app.stop(1)
-    expect(app.snapshot()[0]).toMatchObject({ state: 'stopped' })
+    expect(app.snapshot()[0]).toMatchObject({ state: 'stopping' })
+    await expect(app.start(1)).rejects.toThrow(/stopping/i)
+    await expect(app.clearSlotCache(1)).rejects.toThrow(/stop/i)
+
+    finishStop!()
     await stopping
+    expect(app.snapshot()[0]).toMatchObject({ state: 'stopped' })
+  })
+
+  it('finishes a launch already in flight before stopping that browser', async () => {
+    const app = makeOrchestrator()
+    const realLaunch = launcher.launch.bind(launcher)
+    let finishLaunch: (() => void) | undefined
+    launcher.launch = (request) =>
+      new Promise<number>((resolve) => {
+        finishLaunch = () => void realLaunch(request).then(resolve)
+      })
+
+    const starting = app.start(1)
+    expect(app.stateOf(1)).toBe('starting')
+    const stopping = app.stop(1)
+    expect(app.stateOf(1)).toBe('stopping')
+
+    finishLaunch!()
+    await Promise.all([starting, stopping])
+    expect(app.stateOf(1)).toBe('stopped')
+    expect(launcher.stopped).toHaveLength(1)
+  })
+
+  it('tracks an automatic relaunch so stop cannot leave its browser orphaned', async () => {
+    const app = makeOrchestrator({ autoRestart: true })
+    await app.start(1)
+    launcher.killSilently(launcher.pidForSlot(1)!)
+    const realLaunch = launcher.launch.bind(launcher)
+    let finishLaunch: (() => void) | undefined
+    launcher.launch = (request) =>
+      new Promise<number>((resolve) => {
+        finishLaunch = () => void realLaunch(request).then(resolve)
+      })
+
+    const checking = app.checkLiveness()
+    expect(app.stateOf(1)).toBe('restarting')
+    const stopping = app.stop(1)
+    expect(app.stateOf(1)).toBe('stopping')
+
+    finishLaunch!()
+    await Promise.all([checking, stopping])
+    const restartedPid = launcher.pidForSlot(1)!
+    expect(app.stateOf(1)).toBe('stopped')
+    expect(launcher.stopped).toContain(restartedPid)
+    expect(launcher.isAlive(restartedPid)).toBe(false)
+  })
+
+  it('can retry a failed stop while the browser is still alive', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    const realStop = launcher.stop.bind(launcher)
+    let attempts = 0
+    launcher.stop = (pid) => {
+      attempts++
+      if (attempts === 1) return Promise.reject(new Error('temporary stop failure'))
+      return realStop(pid)
+    }
+
+    await expect(app.stop(1)).rejects.toThrow('temporary stop failure')
+    expect(app.stateOf(1)).toBe('stopping')
+
+    await app.stop(1)
+    expect(app.stateOf(1)).toBe('stopped')
+    expect(attempts).toBe(2)
+  })
+
+  it('deduplicates concurrent stop requests for one browser', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    const realStop = launcher.stop.bind(launcher)
+    let finishStop: (() => void) | undefined
+    let attempts = 0
+    launcher.stop = (pid) => {
+      attempts++
+      return new Promise<void>((resolve) => {
+        finishStop = () => void realStop(pid).then(resolve)
+      })
+    }
+
+    const first = app.stop(1)
+    const second = app.stop(1)
+    expect(attempts).toBe(1)
+
+    finishStop!()
+    await Promise.all([first, second])
+    expect(app.stateOf(1)).toBe('stopped')
+  })
+
+  it('records the process as stopped when cleanup rejects after it exited', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    launcher.stop = (pid) => {
+      launcher.killSilently(pid)
+      return Promise.reject(new Error('profile cleanup failed'))
+    }
+
+    await expect(app.stop(1)).rejects.toThrow('profile cleanup failed')
+    expect(app.stateOf(1)).toBe('stopped')
   })
 })

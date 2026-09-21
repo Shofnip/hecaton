@@ -78,7 +78,7 @@ const api = {
     ipcRenderer.invoke('accounts:renameAt', { id, name }),
   deleteAccountAt: (id: number) => ipcRenderer.invoke('accounts:deleteAt', { id }),
 
-  // The overlay window (modals + volume popover, above the games). The wall asks
+  // The overlay window (modals + volume/zoom popovers, above the games). The wall asks
   // to open one; the overlay renders it and asks to close when done.
   openOverlay: (request: unknown) => ipcRenderer.invoke('overlay:open', request),
   closeOverlay: () => ipcRenderer.invoke('overlay:close'),

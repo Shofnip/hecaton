@@ -33,11 +33,39 @@ export function browserProcessQuery(executableName: string): string {
   // hand the remainder to the parser as code.
   const quoted = executableName.replace(/'/g, "''")
   // No double quote anywhere: PowerShell eats those out of a -Command string,
-  // which docs/troubleshooting.md records the hard way. The @() keeps the shape
-  // constant — ConvertTo-Json emits a bare object for a single row, and the
-  // caller parses an array.
+  // which docs/troubleshooting.md records the hard way. Windows PowerShell still
+  // emits a bare object for one row despite @(); the parser below normalizes it.
   return (
     `@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq '${quoted}' } ` +
     '| Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress'
   )
+}
+
+export interface BrowserProcess {
+  pid: number
+  commandLine: string
+}
+
+interface ProcessRow {
+  ProcessId: number
+  CommandLine: string | null
+}
+
+/** Normalizes Windows PowerShell's one-object/many-array JSON shape. */
+export function parseBrowserProcessRows(stdout: string): BrowserProcess[] {
+  const parsed = JSON.parse(stdout) as ProcessRow | ProcessRow[]
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
+  return rows.map((entry) => ({ pid: entry.ProcessId, commandLine: entry.CommandLine ?? '' }))
+}
+
+/** Matches one complete --user-data-dir argument, not another path sharing its prefix. */
+export function commandLineUsesProfile(commandLine: string, profilePath: string): boolean {
+  const command = commandLine.toLowerCase()
+  const profile = profilePath.toLowerCase()
+  return [`--user-data-dir=${profile}`, `--user-data-dir="${profile}"`].some((argument) => {
+    const index = command.indexOf(argument)
+    if (index < 0) return false
+    const next = command[index + argument.length]
+    return next === undefined || next === '"' || /\s/.test(next)
+  })
 }

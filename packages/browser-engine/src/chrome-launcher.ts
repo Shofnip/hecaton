@@ -23,7 +23,12 @@ import { promisify } from 'node:util'
 import type { BrowserLauncher, LaunchRequest } from '@hecaton/core'
 import { buildChromeArgs } from './chrome-args.js'
 import { browserExecutableName } from './browser-paths.js'
-import { browserProcessQuery } from './browser-process-query.js'
+import {
+  browserProcessQuery,
+  commandLineUsesProfile,
+  parseBrowserProcessRows,
+} from './browser-process-query.js'
+import type { BrowserProcess } from './browser-process-query.js'
 import { readDefaultZoomLevel } from './zoom-preferences.js'
 
 // Async, never *Sync: these shell out to PowerShell/taskkill, and PowerShell alone
@@ -34,12 +39,7 @@ import { readDefaultZoomLevel } from './zoom-preferences.js'
 // CLIXML noise PowerShell prints never reaches the app's console.
 const execFileAsync = promisify(execFile)
 
-interface ChromeProcess {
-  pid: number
-  commandLine: string
-}
-
-async function listBrowserProcesses(executableName: string): Promise<ChromeProcess[]> {
+async function listBrowserProcesses(executableName: string): Promise<BrowserProcess[]> {
   const script = browserProcessQuery(executableName)
   let stdout: string
   try {
@@ -55,8 +55,7 @@ async function listBrowserProcesses(executableName: string): Promise<ChromeProce
   if (!stdout.trim()) return []
 
   try {
-    const parsed = JSON.parse(stdout) as { ProcessId: number; CommandLine: string | null }[]
-    return parsed.map((entry) => ({ pid: entry.ProcessId, commandLine: entry.CommandLine ?? '' }))
+    return parseBrowserProcessRows(stdout)
   } catch {
     return []
   }
@@ -74,9 +73,10 @@ async function findBrowserPid(
   executableName: string,
   profilePath: string,
 ): Promise<number | undefined> {
-  const needle = `--user-data-dir=${profilePath}`
   return (await listBrowserProcesses(executableName)).find(
-    (proc) => proc.commandLine.includes(needle) && !proc.commandLine.includes('--type='),
+    (proc) =>
+      commandLineUsesProfile(proc.commandLine, profilePath) &&
+      !proc.commandLine.includes('--type='),
   )?.pid
 }
 

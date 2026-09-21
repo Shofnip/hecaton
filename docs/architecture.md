@@ -213,10 +213,13 @@ was terminated` — the window opens, paints nothing, and **no page ever loads**
   launcher's five-second grace followed by a force-kill, which is what "turning them all off takes
   a while" was (owner, 2026-09-21). `stop` and `removeSlot` both close first, and
   `orchestrator.test.ts` pins the order rather than the two calls.
-- **A stopping screen goes dark before its browser is gone.** `stop` moves the slot to `stopped`
-  and only then awaits the exit, so the shell pushes state once right after the call and again when
-  the process has finished. Without the first push the card stays lit for the whole shutdown, which
-  reads as the app having ignored the click.
+- **A stopping screen goes dark before its browser is gone, but it is not stopped yet.** `stop`
+  moves the slot to `stopping` and it reaches `stopped` only after the launcher confirms no live
+  process remains; the shell pushes state once right after the call and again after that
+  confirmation. The intermediate state darkens and
+  disables shutdown-sensitive controls immediately while keeping profile archive, cache deletion and a new launch
+  behind the live-process guard. A stop that fails while leaving the process alive remains
+  retryable without pretending the profile is free.
 - **A pid is on loan, so the adapter is told when one is finished.** Everything the window adapter
   remembers is keyed by pid - the embedded handle above all - and Windows hands process ids back
   out, most eagerly right after a burst of exits. "Stop every screen, start them all again" is that
@@ -301,7 +304,12 @@ ladder the core owns and the panel only draws. The panel can ask for the fourth
 notch and never for "400%", the same shape as `slots:move` carrying one screen
 instead of an ordering. The ladder reaches the renderer in the pushed state,
 because it is a measurement against the bundled Chromium and moves with that pin.
-The overlay gained a `zoom` request beside `volume`, with the same anchor shape.
+The overlay gained a `zoom` request beside `volume`, with the same anchor shape. Both requests also
+carry `trigger: click | hover` ([ADR-0033](adr/0033-distinguish-click-and-hover-in-the-overlay-request.md)):
+click-opened popovers stay until an explicit close, while
+hover-opened ones close after the pointer misses or leaves them, deferring that close through an
+active slider drag. The discriminator was preferred to a second IPC channel because the privilege
+and payload remain the same; only renderer lifetime differs.
 
 With the owner's explicit approval
 ([ADR-0028](adr/0028-read-only-default-zoom-preference.md)),
@@ -344,7 +352,7 @@ page reports the actual zoom for those tests; production has no such oracle.
 Persisted default is not live-page feedback: in-session default changes not yet
 flushed, policy overrides and a navigation finishing after the settle interval
 remain limitations. Manual page-zoom changes are not polled or immediately
-overridden; a later target change or hide/reload reapplies the automatic policy.
+overridden; a later target change or reload reapplies the automatic policy.
 
 ### Embedded stacking after panel reactivation
 
@@ -891,7 +899,7 @@ The load-bearing points:
   adapter holds only the **newest** frame and discards what it overtook; a frame is complete in
   itself, so nothing is lost by dropping an older one. Measured 2026-09-20 over six screens: a
   focus transition 75 ms → 36 ms, and the catch-up after a divider drag 2.2 s → 84 ms.
-- Modals and the volume popover render in a **second, transparent overlay window owned by the
+- Modals and the volume/zoom popovers render in a **second, transparent overlay window owned by the
   panel**, because a child Chrome window always paints over the panel's DOM. It is **not**
   always-on-top: being owned is what puts it over the embedded screens, and the flag additionally
   put it over every other program on the machine (measured in `spike/overlay-z`, removed on

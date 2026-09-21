@@ -41,14 +41,22 @@ describe('transition', () => {
 
   describe('stopping', () => {
     it.each<SlotState>(['starting', 'running', 'crashed', 'restarting'])(
-      'can always stop from %s',
+      'begins stopping from %s',
       (from) => {
-        expect(transition(from, 'stop')).toBe('stopped')
+        expect(transition(from, 'stop')).toBe(from === 'crashed' ? 'stopped' : 'stopping')
       },
     )
 
+    it('becomes stopped only after the browser has actually exited', () => {
+      expect(transition('stopping', 'stopped')).toBe('stopped')
+    })
+
     it('ignores a stop that arrives when already stopped', () => {
       expect(transition('stopped', 'stop')).toBe('stopped')
+    })
+
+    it('keeps stopping when another stop is requested before exit', () => {
+      expect(transition('stopping', 'stop')).toBe('stopping')
     })
   })
 
@@ -66,6 +74,10 @@ describe('transition', () => {
       ['crashed', 'crash'],
       ['restarting', 'start'],
       ['restarting', 'restart'],
+      ['stopping', 'start'],
+      ['stopping', 'ready'],
+      ['stopping', 'crash'],
+      ['stopping', 'restart'],
     ])('refuses %s + %s', (state, event) => {
       expect(() => transition(state, event)).toThrow(/cannot .* from/i)
     })
@@ -77,7 +89,7 @@ describe('transition', () => {
   })
 
   it('only ever returns a known state', () => {
-    const events: SlotEvent[] = ['start', 'ready', 'crash', 'stop', 'restart']
+    const events: SlotEvent[] = ['start', 'ready', 'crash', 'stop', 'restart', 'stopped']
     for (const state of SLOT_STATES) {
       for (const event of events) {
         try {
@@ -95,6 +107,7 @@ describe('isLive', () => {
     expect(isLive('running')).toBe(true)
     expect(isLive('starting')).toBe(true)
     expect(isLive('restarting')).toBe(true)
+    expect(isLive('stopping')).toBe(true)
   })
 
   it('reports no process for stopped and crashed', () => {

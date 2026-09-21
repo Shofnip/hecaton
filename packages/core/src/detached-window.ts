@@ -9,7 +9,7 @@
  * It arrives invisible, and the reason is this architecture rather than a bug in
  * the browser. A screen is born at `OFFSCREEN_LAUNCH` (-32000) so it never
  * flashes on the desktop before being embedded, and it is then moved into the
- * panel with Win32 `MoveWindow` — underneath the browser, which is never told.
+ * panel through the Win32 worker — underneath the browser, which is never told.
  * So when the page opens a window, the browser positions it against where it
  * still believes the opener is: off the left edge of the world. Measured
  * 2026-09-18 with the production sequence: the login window came up **visible**,

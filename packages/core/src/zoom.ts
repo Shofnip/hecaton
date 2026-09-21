@@ -26,9 +26,9 @@ export function screenZoomFactor(
 }
 
 /**
- * What the three card buttons may reach.
+ * What the manual slider may reach.
  *
- * The same measured ladder the automatic policy uses, so every factor a button
+ * The same measured ladder the automatic policy uses, so every factor the slider
  * produces is one `zoomStepsFromDefault` can name in native commands — the
  * manual control is a different *chooser*, never a different mechanism. The
  * range is wider than the automatic clamp at the top (200% against 100%)

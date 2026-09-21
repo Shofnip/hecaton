@@ -136,8 +136,16 @@ export class NativeWindowManager implements WindowManager, ZoomController {
   /** Embedded windows by pid: their handles, since node-window-manager loses them. */
   private readonly embedded = new Map<number, number>()
 
-  /** Pids whose window is still being waited for, so retries do not stack. */
-  private readonly pendingEmbeds = new Set<number>()
+  /**
+   * Polls still waiting for a browser window, one cancelable operation per pid.
+   *
+   * The object identity is a generation token as well as a timer holder: a
+   * callback that was already queued when `forget` ran can prove it belongs to
+   * an obsolete poll before it touches a window. Merely deleting a pid from a
+   * Set is not enough, because the old callback would otherwise recurse and add
+   * it straight back.
+   */
+  private readonly pendingEmbeds = new Map<number, { timer?: NodeJS.Timeout }>()
 
   /** When each freshly embedded pid may be revealed. See `embed`. */
   private readonly repaintDeadline = new Map<number, number>()
@@ -232,7 +240,7 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    * Two coordinate worlds, one per lifecycle stage:
    *
    * - **Embedded** (the video-wall norm): `bounds` is the screen's rectangle in
-   *   the panel's client area, and the child is moved there with MoveWindow,
+   *   the panel's client area, and the child is moved there with `SetWindowPos`,
    *   re-asserting HWND_TOP so Electron's own input hwnd cannot cover it. This is
    *   the path the renderer's layout drives, live, on every resize.
    * - **Top-level** (before the embed, e.g. the integration suite placing a bare
@@ -352,12 +360,17 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    * comment says the adapter owns.
    */
   reparent(pid: number): boolean {
+    if (this.disposed) return false
     if (this.embedded.has(pid)) return true
     const parent = this.parentHwnd?.()
     if (parent === undefined) return false
     const hwnd = this.windowFor(pid)?.id
     if (hwnd !== undefined) return this.embed(pid, hwnd, parent)
-    if (!this.pendingEmbeds.has(pid)) this.pollEmbed(pid, 0)
+    if (!this.pendingEmbeds.has(pid)) {
+      const pending: { timer?: NodeJS.Timeout } = {}
+      this.pendingEmbeds.set(pid, pending)
+      this.pollEmbed(pid, 0, pending)
+    }
     return false
   }
 
@@ -377,7 +390,7 @@ export class NativeWindowManager implements WindowManager, ZoomController {
   forget(pid: number): void {
     this.cancelDeferredShow(pid)
     this.embedded.delete(pid)
-    this.pendingEmbeds.delete(pid)
+    this.cancelPendingEmbed(pid)
     this.zoomReadyAt.delete(pid)
     this.pendingZoom.delete(pid)
     this.revealAfterEmbed.delete(pid)
@@ -387,6 +400,7 @@ export class NativeWindowManager implements WindowManager, ZoomController {
 
   /** SetParent the child into the panel and remember its handle. */
   private embed(pid: number, hwnd: number, parent: number): boolean {
+    this.cancelPendingEmbed(pid)
     this.fire(`reparent ${hwnd} ${parent}`)
     // Hide it the instant it is embedded. The window launches off-screen so it is
     // not visible on the desktop, but should Chrome ever clamp that position onto a
@@ -429,9 +443,11 @@ export class NativeWindowManager implements WindowManager, ZoomController {
   }
 
   /** Keeps trying to embed a slot whose window has not appeared yet. */
-  private pollEmbed(pid: number, attempt: number): void {
-    this.pendingEmbeds.add(pid)
+  private pollEmbed(pid: number, attempt: number, pending: { timer?: NodeJS.Timeout }): void {
     const timer = setTimeout(() => {
+      // `forget`, `dispose`, or a newer explicit reparent may have cancelled
+      // this generation while its callback was waiting in the event queue.
+      if (this.disposed || this.pendingEmbeds.get(pid) !== pending) return
       if (this.embedded.has(pid)) {
         this.pendingEmbeds.delete(pid)
         return
@@ -440,18 +456,25 @@ export class NativeWindowManager implements WindowManager, ZoomController {
       const hwnd = this.windowFor(pid)?.id
       if (parent !== undefined && hwnd !== undefined) {
         this.embed(pid, hwnd, parent)
-        this.pendingEmbeds.delete(pid)
         return
       }
       if (attempt + 1 >= EMBED_MAX_ATTEMPTS) {
         this.pendingEmbeds.delete(pid)
         return
       }
-      this.pollEmbed(pid, attempt + 1)
+      this.pollEmbed(pid, attempt + 1, pending)
     }, EMBED_RETRY_MS)
     // Never let a pending embed hold the process open (matters for tests and a
     // clean shutdown); a real app keeps running for its own reasons.
     timer.unref?.()
+    pending.timer = timer
+  }
+
+  /** Cancels both the next retry and every queued callback from its generation. */
+  private cancelPendingEmbed(pid: number): void {
+    const pending = this.pendingEmbeds.get(pid)
+    if (pending?.timer !== undefined) clearTimeout(pending.timer)
+    this.pendingEmbeds.delete(pid)
   }
 
   /**
@@ -827,6 +850,7 @@ export class NativeWindowManager implements WindowManager, ZoomController {
   /** Stops the persistent worker. Call on shutdown; the adapter is done after. */
   async dispose(): Promise<void> {
     this.disposed = true
+    for (const pid of [...this.pendingEmbeds.keys()]) this.cancelPendingEmbed(pid)
     this.zoomReadyAt.clear()
     this.pendingZoom.clear()
     // A pending reveal outliving the worker would fire into a dead pipe. The

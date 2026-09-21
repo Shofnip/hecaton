@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { WasapiAudioController } from './wasapi-audio-controller.js'
@@ -41,6 +41,17 @@ osc.connect(gain).connect(ctx.destination); osc.start(); ctx.resume();
 </script>`
 
 /** The browser process for a profile — the one without --type=, as the launcher matches. */
+function commandUsesProfile(commandLine: string, profilePath: string): boolean {
+  const command = commandLine.toLowerCase()
+  const profile = profilePath.toLowerCase()
+  return [`--user-data-dir=${profile}`, `--user-data-dir="${profile}"`].some((argument) => {
+    const index = command.indexOf(argument)
+    if (index < 0) return false
+    const next = command[index + argument.length]
+    return next === undefined || next === '"' || /\s/.test(next)
+  })
+}
+
 function browserPidFor(profilePath: string): number | undefined {
   const script =
     "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' } " +
@@ -50,10 +61,13 @@ function browserPidFor(profilePath: string): number | undefined {
     maxBuffer: 16 * 1024 * 1024,
   })
   if (!stdout.trim()) return undefined
-  const rows = JSON.parse(stdout) as { ProcessId: number; CommandLine: string | null }[]
+  const parsed = JSON.parse(stdout) as
+    | { ProcessId: number; CommandLine: string | null }
+    | { ProcessId: number; CommandLine: string | null }[]
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
   return rows.find(
     (row) =>
-      (row.CommandLine ?? '').includes(`--user-data-dir=${profilePath}`) &&
+      commandUsesProfile(row.CommandLine ?? '', profilePath) &&
       !(row.CommandLine ?? '').includes('--type='),
   )?.ProcessId
 }
@@ -92,24 +106,41 @@ async function launchTone(): Promise<Slot> {
   return { profile, page, pid: pid! }
 }
 
-function kill(pid: number): void {
-  try {
-    execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
-  } catch {
-    // already gone
+async function removeToneProfile(profilePath: string): Promise<void> {
+  const safeProfile = resolve(profilePath)
+  if (
+    dirname(safeProfile) !== resolve(tmpdir()) ||
+    !basename(safeProfile).startsWith('hecaton-audio-')
+  ) {
+    throw new Error(`refusing to remove unexpected audio profile ${JSON.stringify(safeProfile)}`)
   }
-}
 
-function removeDir(path: string): void {
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const pid = browserPidFor(safeProfile)
+    if (pid === undefined) break
     try {
-      rmSync(path, { recursive: true, force: true })
-      return
+      execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
     } catch {
-      // Chrome briefly holds handles after exit; a synchronous retry is enough
-      // by the time the OS releases them.
+      // The next exact-profile query decides whether it is really gone.
     }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
   }
+  const remainingPid = browserPidFor(safeProfile)
+  if (remainingPid !== undefined) {
+    throw new Error(`browser ${remainingPid} still holds temporary profile ${safeProfile}`)
+  }
+
+  let lastError: unknown
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      rmSync(safeProfile, { recursive: true, force: true })
+      if (!existsSync(safeProfile)) return
+    } catch (error) {
+      lastError = error
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 250))
+  }
+  throw new Error(`could not remove temporary audio profile ${safeProfile}: ${String(lastError)}`)
 }
 
 let controller: WasapiAudioController
@@ -133,14 +164,8 @@ describe.skipIf(!onWindows)('WasapiAudioController', () => {
     // The controller now drives a persistent PowerShell worker; without closing
     // it the test process would not exit.
     await controller?.dispose()
-    if (a) {
-      kill(a.pid)
-      removeDir(a.profile)
-    }
-    if (b) {
-      kill(b.pid)
-      removeDir(b.profile)
-    }
+    if (a) await removeToneProfile(a.profile)
+    if (b) await removeToneProfile(b.profile)
   })
 
   it('mutes a slot by its main pid', async () => {

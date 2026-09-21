@@ -91,15 +91,16 @@ export interface WindowManager {
    */
   reparent(pid: number): boolean
   /**
-   * Lets go of everything remembered about a pid, because that browser is gone.
+   * Lets go of everything remembered about a pid once its graceful close has
+   * been requested and the core will issue no more window commands for it.
    *
    * Windows reuses process ids, so an adapter that remembers an embedded window
    * by pid will hand a **new** browser the dead handle of an old one - and,
    * worse, treat its `reparent` as already done, leaving the new window where
    * it was born, off-screen and invisible. The core calls this from the one
-   * place that means "this pid is finished": a stop, a crash, or a spawn that
-   * failed. It is not a request to close anything; `close` does that, and by
-   * the time this is called there is nothing left to close.
+   * place that means "this pid is finished here": a stop, a crash, or a spawn
+   * that failed. It is not a request to close anything; `close` does that first
+   * on the stop path, while the launcher may still be waiting for process exit.
    */
   forget(pid: number): void
   /**

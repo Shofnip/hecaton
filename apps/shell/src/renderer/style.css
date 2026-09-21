@@ -179,7 +179,7 @@ svg {
   padding: 6px 0;
 }
 
-#sidebar.collapsed > *:not(.sidebar-toggle) {
+#sidebar.collapsed > *:not(.sidebar-toggle):not(.spacer) {
   display: none;
 }
 
@@ -1385,7 +1385,7 @@ body.reordering .card-name {
 }
 
 /* ============================ overlay window ============================ */
-/* The overlay hosts the modals and the volume popover above the embedded games.
+/* The overlay hosts the modals and the volume/zoom popovers above the embedded games.
    Its body is transparent so the games show through; the modal backdrop neither
    dims nor blurs (that would cover the screens the owner wants visible) — it only
    catches an outside click. The dialog and popover keep their own panel surface. */
@@ -1398,7 +1398,7 @@ body[data-mode='overlay'] .modal-backdrop {
   backdrop-filter: none;
 }
 
-/* Full-window click-catcher behind the volume popover: an outside click closes it. */
+/* Full-window click-catcher behind either popover: an outside click closes it. */
 .overlay-catcher {
   position: fixed;
   inset: 0;

@@ -35,7 +35,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { NativeWindowManager } from './native-window-manager.js'
@@ -149,6 +149,17 @@ class Host {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** The browser process for a profile, matched the way the launcher matches it. */
+function commandUsesProfile(commandLine: string, profilePath: string): boolean {
+  const command = commandLine.toLowerCase()
+  const profile = profilePath.toLowerCase()
+  return [`--user-data-dir=${profile}`, `--user-data-dir="${profile}"`].some((argument) => {
+    const index = command.indexOf(argument)
+    if (index < 0) return false
+    const next = command[index + argument.length]
+    return next === undefined || next === '"' || /\s/.test(next)
+  })
+}
+
 function browserPidFor(profilePath: string): number | undefined {
   const script =
     "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' } " +
@@ -158,12 +169,50 @@ function browserPidFor(profilePath: string): number | undefined {
     maxBuffer: 16 * 1024 * 1024,
   })
   if (!stdout.trim()) return undefined
-  const rows = JSON.parse(stdout) as { ProcessId: number; CommandLine: string | null }[]
+  const parsed = JSON.parse(stdout) as
+    | { ProcessId: number; CommandLine: string | null }
+    | { ProcessId: number; CommandLine: string | null }[]
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
   return rows.find(
     (row) =>
-      (row.CommandLine ?? '').includes(`--user-data-dir=${profilePath}`) &&
+      commandUsesProfile(row.CommandLine ?? '', profilePath) &&
       !(row.CommandLine ?? '').includes('--type='),
   )?.ProcessId
+}
+
+async function removeBrowserProfile(profilePath: string): Promise<void> {
+  const safeProfile = resolve(profilePath)
+  if (
+    dirname(safeProfile) !== resolve(tmpdir()) ||
+    !basename(safeProfile).startsWith('hecaton-clip-')
+  ) {
+    throw new Error(`refusing to remove unexpected clip profile ${JSON.stringify(safeProfile)}`)
+  }
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const browserPid = browserPidFor(safeProfile)
+    if (browserPid === undefined) break
+    try {
+      execFileSync('taskkill', ['/PID', String(browserPid), '/F', '/T'], { stdio: 'ignore' })
+    } catch {
+      // The next exact-profile query decides whether it is really gone.
+    }
+    await sleep(250)
+  }
+  const remainingPid = browserPidFor(safeProfile)
+  if (remainingPid !== undefined) {
+    throw new Error(`browser ${remainingPid} still holds temporary profile ${safeProfile}`)
+  }
+  let lastError: unknown
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      rmSync(safeProfile, { recursive: true, force: true })
+      if (!existsSync(safeProfile)) return
+    } catch (error) {
+      lastError = error
+    }
+    await sleep(250)
+  }
+  throw new Error(`could not remove temporary clip profile ${safeProfile}: ${String(lastError)}`)
 }
 
 let host: Host
@@ -247,18 +296,9 @@ describe.skipIf(!onWindows)('an embedded screen shows its page from the first ro
   afterAll(async () => {
     manager?.close(pid)
     await sleep(1500)
-    try {
-      execFileSync('taskkill', ['/PID', String(pid), '/F', '/T'], { stdio: 'ignore' })
-    } catch {
-      // Already gone.
-    }
+    await manager?.dispose()
     await host?.stop()
-    await sleep(500)
-    try {
-      rmSync(profileRoot, { recursive: true, force: true })
-    } catch {
-      // A browser that has not finished letting go of its profile; harmless here.
-    }
+    await removeBrowserProfile(profileRoot)
   }, 60_000)
 
   /** The colour `rows` pixels below the cell's top edge, in the middle column. */

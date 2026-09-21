@@ -107,7 +107,7 @@ export interface SlotSnapshot {
    * for a screen that is not running.
    */
   extraWindows: number
-  /** Whether the app still chooses this screen's zoom, for the `A±` button. */
+  /** Whether the app still chooses this screen's zoom, for the magnifier's `Auto` button. */
   zoomAuto: boolean
   /**
    * The factor now in force, when one is known — the manual one the user
@@ -130,6 +130,9 @@ export class Orchestrator {
   private readonly screen: ScreenBounds
   private readonly globals: GlobalConfig
   private readonly slots = new Map<number, SlotRuntime>()
+  /** Launches/stops in flight, so concurrent IPC calls cannot overlap one profile. */
+  private readonly launchTasks = new Map<number, Promise<void>>()
+  private readonly stopTasks = new Map<number, Promise<void>>()
 
   /**
    * The factor each screen was last given, by slot id.
@@ -213,6 +216,8 @@ export class Orchestrator {
     if (pid === undefined) return
     this.shownWindows.delete(pid)
     this.placedWindows.delete(pid)
+    this.appliedMuted.delete(pid)
+    this.appliedVolume.delete(pid)
     this.zoom?.forget(pid)
     // And the adapter's own memory of that pid, for the same reason this
     // method exists: the next browser may be handed the same id.
@@ -239,7 +244,7 @@ export class Orchestrator {
    */
   private layoutIds(): number[] {
     return [...this.slots.values()]
-      .filter((slot) => isLive(slot.state))
+      .filter((slot) => isLive(slot.state) && slot.state !== 'stopping')
       .map((slot) => slot.config.id)
   }
 
@@ -304,15 +309,7 @@ export class Orchestrator {
       throw new Error('cannot remove the last slot')
     }
     const slot = this.slot(slotId)
-    const pid = slot.pid
-    if (pid !== undefined) {
-      this.windows.close(pid) // graceful close before the launcher stops it (see stop)
-      // And the same handover `stop` makes, in the same order: the adapter
-      // keeps everything by pid, and this one is about to be handed back to
-      // Windows for the next browser to be given.
-      this.forgetWindow(pid)
-      await this.launcher.stop(pid)
-    }
+    if (isLive(slot.state)) await this.stop(slotId)
     await this.profiles?.archive(slot.config.profileDir)
 
     this.slots.delete(slotId)
@@ -399,7 +396,7 @@ export class Orchestrator {
   }
 
   /**
-   * The `A±` button: hands the choice of zoom to the user, or takes it back.
+   * The magnifier's `Auto` button: hands the choice of zoom to the user, or takes it back.
    *
    * Turning it **off** freezes the factor the screen already has, by storing
    * it — so the button changes who decides, not how big the game is. Turning it
@@ -528,7 +525,18 @@ export class Orchestrator {
     slot.state = transition(slot.state, 'start')
     slot.restartAttempts = 0
     this.emit({ level: 'info', event: 'slot.start', ...this.slotFields(slot) })
-    await this.spawn(slot)
+    await this.trackLaunch(slot)
+  }
+
+  /** Registers every launch path so a concurrent stop waits for its resulting pid. */
+  private async trackLaunch(slot: SlotRuntime): Promise<void> {
+    const task = this.spawn(slot)
+    this.launchTasks.set(slot.config.id, task)
+    try {
+      await task
+    } finally {
+      if (this.launchTasks.get(slot.config.id) === task) this.launchTasks.delete(slot.config.id)
+    }
   }
 
   /**
@@ -568,6 +576,10 @@ export class Orchestrator {
         persistProfile: slot.config.persistProfile,
         backgroundThrottling: slot.config.backgroundThrottling,
       })
+      // A stop can arrive while launch is still resolving. The stop task waits
+      // for this one and will close the pid it just produced; making the window
+      // ready here would briefly resurrect a screen the user already stopped.
+      if (slot.state === 'stopping') return
       slot.state = transition(slot.state, 'ready')
       slot.lastError = undefined
       // Embed the freshly launched window into the panel. Idempotent, so it is
@@ -578,6 +590,10 @@ export class Orchestrator {
     } catch (error) {
       this.forgetWindow(slot.pid)
       slot.pid = undefined
+      if (slot.state === 'stopping') {
+        slot.state = transition(slot.state, 'stopped')
+        return
+      }
       this.recordFailure(slot, error)
       throw error
     }
@@ -603,9 +619,24 @@ export class Orchestrator {
   }
 
   async stop(slotId: number): Promise<void> {
+    const existing = this.stopTasks.get(slotId)
+    if (existing !== undefined) return existing
     const slot = this.slot(slotId)
-    const pid = slot.pid
     slot.state = transition(slot.state, 'stop')
+    const task = this.finishStop(slot)
+    this.stopTasks.set(slotId, task)
+    try {
+      await task
+    } finally {
+      if (this.stopTasks.get(slotId) === task) this.stopTasks.delete(slotId)
+    }
+  }
+
+  private async finishStop(slot: SlotRuntime): Promise<void> {
+    const launch = this.launchTasks.get(slot.config.id)
+    if (launch !== undefined) await launch.catch(() => {})
+    if (slot.state === 'stopped') return
+    const pid = slot.pid
     // Ask the embedded window to close gracefully first (WM_CLOSE); the launcher
     // then waits for that clean exit and force-kills only as a fallback. Without
     // it the launcher's own graceful ask cannot reach the reparented child and
@@ -618,13 +649,27 @@ export class Orchestrator {
     // while" on 2026-09-21.
     if (pid !== undefined) this.windows.close(pid)
     this.forgetWindow(pid)
-    slot.pid = undefined
     slot.restartAttempts = 0
+    slot.extraWindows = 0
     this.emit({ level: 'info', event: 'slot.stop', ...this.slotFields(slot) })
     // Everything above is synchronous on purpose: the shell pushes its state
     // right after calling this, so the card goes dark now rather than when the
     // browser has finished exiting.
-    if (pid !== undefined) await this.launcher.stop(pid)
+    if (pid === undefined) {
+      slot.state = transition(slot.state, 'stopped')
+      return
+    }
+    try {
+      await this.launcher.stop(pid)
+    } finally {
+      // `stop` can still reject because cleanup of an ephemeral profile failed.
+      // The process answer, not the promise answer, decides whether profile
+      // operations and a new launch are safe.
+      if (!this.launcher.isAlive(pid)) {
+        slot.pid = undefined
+        slot.state = transition(slot.state, 'stopped')
+      }
+    }
   }
 
   /**
@@ -815,7 +860,7 @@ export class Orchestrator {
    */
   revealDetachedWindows(): void {
     for (const slot of this.slots.values()) {
-      if (!isLive(slot.state) || slot.pid === undefined) {
+      if (!isLive(slot.state) || slot.state === 'stopping' || slot.pid === undefined) {
         slot.extraWindows = 0
         continue
       }
@@ -841,7 +886,7 @@ export class Orchestrator {
    */
   closeExtraWindows(id: number): void {
     const slot = this.slots.get(id)
-    if (!slot || !isLive(slot.state) || slot.pid === undefined) return
+    if (!slot || !isLive(slot.state) || slot.state === 'stopping' || slot.pid === undefined) return
     const closed = this.windows.closeExtraWindows(slot.pid)
     if (closed > 0) {
       slot.extraWindows = 0
@@ -855,7 +900,7 @@ export class Orchestrator {
    */
   async checkLiveness(): Promise<void> {
     for (const slot of this.slots.values()) {
-      if (!isLive(slot.state) || slot.pid === undefined) continue
+      if (!isLive(slot.state) || slot.state === 'stopping' || slot.pid === undefined) continue
       if (this.launcher.isAlive(slot.pid)) continue
 
       this.forgetWindow(slot.pid)
@@ -875,7 +920,7 @@ export class Orchestrator {
       slot.state = transition(slot.state, 'restart')
       this.emit({ level: 'info', event: 'slot.restart', ...this.slotFields(slot) })
       try {
-        await this.spawn(slot)
+        await this.trackLaunch(slot)
       } catch {
         // Already recorded as crashed by spawn. Swallowing here is deliberate:
         // a failed restart must not abort the sweep over the other slots.
@@ -904,7 +949,7 @@ export class Orchestrator {
         // sweep measured: the card draws its cancel control from this, and the
         // two answers - "how many windows" and "is it running" - must not be
         // able to disagree in the two seconds before the next sweep.
-        extraWindows: isLive(slot.state) ? slot.extraWindows : 0,
+        extraWindows: isLive(slot.state) && slot.state !== 'stopping' ? slot.extraWindows : 0,
         zoomAuto: slot.config.zoomAuto,
       }
       const zoom = slot.config.zoom ?? this.zoomFactors.get(slot.config.id)

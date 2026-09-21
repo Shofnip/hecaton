@@ -91,10 +91,11 @@ describe('parseOverlayRequest', () => {
 
   it('accepts a volume request with its anchor rectangle', () => {
     const anchor = { x: 10, y: 20, width: 34, height: 34 }
-    expect(parseOverlayRequest({ kind: 'volume', id: 1, anchor })).toEqual({
+    expect(parseOverlayRequest({ kind: 'volume', id: 1, anchor, trigger: 'hover' })).toEqual({
       kind: 'volume',
       id: 1,
       anchor,
+      trigger: 'hover',
     })
   })
 
@@ -106,8 +107,24 @@ describe('parseOverlayRequest', () => {
   it('rejects a bad slot id or a malformed anchor', () => {
     expect(() => parseOverlayRequest({ kind: 'edit', id: 0 })).toThrow(/positive integer/)
     expect(() => parseOverlayRequest({ kind: 'volume', id: 1 })).toThrow(/anchor must be an object/)
+    expect(() => parseOverlayRequest({ kind: 'zoom', id: 1 })).toThrow(
+      /zoom anchor must be an object/,
+    )
     expect(() =>
-      parseOverlayRequest({ kind: 'volume', id: 1, anchor: { x: -1, y: 0, width: 1, height: 1 } }),
+      parseOverlayRequest({
+        kind: 'volume',
+        id: 1,
+        anchor: { x: 0, y: 0, width: 1, height: 1 },
+        trigger: 'keyboard',
+      }),
+    ).toThrow(/trigger/)
+    expect(() =>
+      parseOverlayRequest({
+        kind: 'volume',
+        id: 1,
+        anchor: { x: -1, y: 0, width: 1, height: 1 },
+        trigger: 'click',
+      }),
     ).toThrow(/x must be an integer/)
   })
 })
@@ -514,10 +531,11 @@ describe('the zoom channels', () => {
 
   it('anchors a zoom popover the way the volume one is anchored', () => {
     const anchor = { x: 10, y: 20, width: 20, height: 20 }
-    expect(parseOverlayRequest({ kind: 'zoom', id: 3, anchor })).toEqual({
+    expect(parseOverlayRequest({ kind: 'zoom', id: 3, anchor, trigger: 'click' })).toEqual({
       kind: 'zoom',
       id: 3,
       anchor,
+      trigger: 'click',
     })
     expect(() => parseOverlayRequest({ kind: 'zoom', id: 3 })).toThrow()
   })

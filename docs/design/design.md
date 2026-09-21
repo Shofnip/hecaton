@@ -110,6 +110,7 @@ Largura **38px**, apenas botões de ícone (28×28px, ícones de 16px), sem text
    - Quando **algumas** telas estão ligadas e outras não: verde (`accent` + `accentSoft`), tooltip "Ligar todas as telas". Ao clicar, liga apenas as telas desligadas.
    - Quando **todas** estão ligadas: vermelho (`danger` + `dangerSoft`), tooltip "Desligar todas as telas".
    - Quando **todas** estão desligadas: **sem cor** — a mesma face neutra dos outros botões da barra — e verde apenas no hover (owner, 2026-09-21). Uma parede inteiramente desligada é o estado de repouso, e não deve parecer uma ação pendente.
+   - Enquanto qualquer tela está em `stopping`, fica desabilitado até o processo terminar, para não sobrepor um novo comando ao encerramento em curso.
 3. **Adicionar tela** — ícone `+`. Ativo apenas com menos de 4 telas; desabilitado mantém o mesmo estilo dos demais botões com **opacidade 0.45** (não muda a cor do ícone), cursor `not-allowed`, tooltip "Limite de 4 telas atingido". Hover (quando ativo) acende borda e ícone no `accent`.
 4. **Perfis** — ícone de duas pessoas. Abre o modal de perfis (§10.2), que desde 2026-09-19 é
    onde tudo sobre perfis acontece; antes disso era uma seção dentro de Configurações.
@@ -161,12 +162,13 @@ Quando a tela está **em execução**, o card ganha borda esverdeada (`accent` a
 
 Fundo escuro (`screenOff`) nos dois temas. Conteúdo por estado:
 
-| Estado    | Conteúdo                                                                                                                                                                                                                                                                                              |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `off`     | Botão grande centralizado: ícone power + "Ligar" (hover em `accent`)                                                                                                                                                                                                                                  |
-| `loading` | Spinner girando em `warn` + "Carregando…"                                                                                                                                                                                                                                                             |
-| `on`      | Vazio: a janela do Chrome embutida (reparentada via `SetParent`, ADR-0011) cobre exatamente esta região, e o painel só publica o retângulo em `screens:layout`. **Não é um `<webview>`** — `webviewTag` está desligado (ADR-0007). No protótipo havia o placeholder "▶ conteúdo da tela em execução". |
-| `error`   | Ícone de alerta em `danger` + mensagem + botão "Tentar novamente" (com ícone de reload)                                                                                                                                                                                                               |
+| Estado     | Conteúdo                                                                                                                                                                                                                                                                                              |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `off`      | Botão grande centralizado: ícone power + "Ligar" (hover em `accent`)                                                                                                                                                                                                                                  |
+| `loading`  | Spinner girando em `warn` + "Carregando…"                                                                                                                                                                                                                                                             |
+| `on`       | Vazio: a janela do Chrome embutida (reparentada via `SetParent`, ADR-0011) cobre exatamente esta região, e o painel só publica o retângulo em `screens:layout`. **Não é um `<webview>`** — `webviewTag` está desligado (ADR-0007). No protótipo havia o placeholder "▶ conteúdo da tela em execução". |
+| `stopping` | Spinner girando + "Desligando…"; a tela escurece imediatamente, mas só vira `off` quando o processo do navegador realmente termina.                                                                                                                                                                   |
+| `error`    | Ícone de alerta em `danger` + mensagem + botão "Tentar novamente" (com ícone de reload)                                                                                                                                                                                                               |
 
 Mensagens de erro:
 
@@ -179,10 +181,10 @@ Botões de 20×20px com ícones de 16px sobre fundo `panelSoft` — o ícone qua
 
 **Grupo de uso cotidiano (esquerda):**
 
-1. **Ligar/Desligar** — destacado em `accent` quando a tela está ativa (qualquer estado exceto `off`).
-2. **Recarregar** — desabilitado (opacidade 0.45) quando a tela está desligada; o ícone gira durante o carregamento.
-3. **Volume** — abre o popover vertical (seção 6). Abre também **ao passar o mouse**, depois de uma pausa curta de intenção; o popover se fecha sozinho quando o ponteiro sai dele (nunca no meio de um arrasto). Ícone fica vermelho quando mudo. O botão **não** ganha destaque enquanto o popover está aberto: o popover vive na janela de overlay, e a parede não guarda esse estado.
-4. **Zoom** — ícone de lupa; abre o popover de zoom (seção 6.1), por clique ou hover como o de volume. Desabilitado quando a tela está desligada. Ganha o destaque `accent` quando o zoom daquela tela é **manual** — ou seja, o destaque diz "você mexeu aqui", não "o popover está aberto".
+1. **Ligar/Desligar** — destacado em `accent` quando a tela está ativa; durante `stopping` fica neutro e desabilitado até o processo terminar.
+2. **Recarregar** — desabilitado (opacidade 0.45) quando a tela está desligada ou desligando; o ícone gira durante o carregamento.
+3. **Volume** — abre o popover vertical (seção 6). Abre também **ao passar o mouse**, depois de uma pausa curta de intenção; quando aberto por hover, fecha se o ponteiro não chegar ao popover ou sair dele, nunca no meio de um arrasto. Aberto por clique, permanece até clique externo ou `Esc`. Ícone fica vermelho quando mudo. O botão **não** ganha destaque enquanto o popover está aberto: o popover vive na janela de overlay, e a parede não guarda esse estado.
+4. **Zoom** — ícone de lupa; abre o popover de zoom (seção 6.1), por clique ou hover como o de volume. Desabilitado quando a tela está desligada ou desligando. Ganha o destaque `accent` quando o zoom daquela tela é **manual** — ou seja, o destaque diz "você mexeu aqui", não "o popover está aberto".
 
 **Grupo de visualização e gestão (direita):** 4. **Foco** — ícone de mira; destacado em `accent` quando aquela tela está em foco. Alterna o modo foco. 5. **Tela cheia** — alterna entre maximizar/restaurar (ícone muda entre expandir/contrair). 6. **Editar** — abre o modal de edição (seção 8). 7. **Apagar** — ícone de lixeira em `danger`, sempre o último botão (o mais distante das ações frequentes). Abre confirmação (seção 9).
 
@@ -369,24 +371,26 @@ toast próprio: quem anuncia é a parede, com "Agora em {perfil}", quando a jane
 
 - **Estados de tela**: não há eventos `did-*` para janelas de outro processo. `loading` =
   slot lançado e janela ainda não resolvida/embutida; `on` = PID resolvido e janela
-  embutida; `error` = falha de lançamento ou processo morto (detecção de vida por
+  embutida; `stopping` = encerramento pedido, ainda guardado como processo vivo até a saída;
+  `error` = falha de lançamento ou processo morto (detecção de vida por
   `process.kill(pid, 0)`, como hoje). A simulação de falha aleatória do protótipo (15%)
   existe apenas para demonstrar o estado de erro e **não deve ser portada**.
 - **Favicon**: **empacotado no app** (ícone do Poke IdleWorld; globo genérico para endereço
   personalizado). Sem evento de favicon e sem rede em tempo de execução —
   `connect-src 'none'` permanece.
-- **Persistência** (já planejada): configurações por tela (nome, endereço, sessão, volume,
-  mudo, throttling), tema, estado do "áudio em foco" e altura das miniaturas.
+- **Persistência**: configurações por tela (nome, endereço, sessão, volume, mudo, throttling,
+  `zoomAuto` e zoom manual), tema e estado do "áudio em foco". Altura das miniaturas e
+  personalização da barra lateral duram somente a sessão atual.
 - **Interação com a tela embutida** (obrigações medidas no spike): o shell encaminha o foco
   de teclado ao clicar numa tela (`WM_PARENTNOTIFY` via `hookWindowMessage` +
-  `AttachThreadInput`/`SetFocus`); reafirma `HWND_TOP` do filho em cada sync de bounds
-  (`movechild`), e **não** em mudanças de ativação — a obrigação 0.1 do ADR-0011 previa isso e
-  nunca foi implementada (ver a Correção de 2026-08-20 nesse ADR); **esconde (`SW_HIDE`) apenas a tela que um modal desenhado no próprio
+  `AttachThreadInput`/`SetFocus`); reafirma `HWND_TOP` dos filhos em cada frame de bounds
+  (`movechildren`) e também restaura a ordem nativa ao reativar o painel (`restack`, ADR-0029);
+  **esconde (`SW_HIDE`) apenas a tela que um modal desenhado no próprio
   painel realmente cobre**, porque a janela nativa pinta por cima do DOM — as demais seguem
   visíveis. Três correções em relação ao que este documento dizia antes, todas conferidas no
   código: não há encaminhamento de foco no evento `focus` da BrowserWindow (só o
-  `WM_PARENTNOTIFY`), não há reafirmação de z-order na ativação, e um modal não esconde a grade
-  inteira. O popover de volume e quase todos os modais vivem na janela overlay — que
+  `WM_PARENTNOTIFY`), a ativação restaura z-order sem mudar foco, e um modal não esconde a grade
+  inteira. Os popovers de volume e zoom e quase todos os modais vivem na janela overlay — que
   **não** é always-on-top desde 2026-09-18: ela é _owned_ pelo painel, o que já basta para pintar
   acima das telas embutidas sem cobrir os outros programas da máquina (ADR-0011 e sua Correção) — e
   não escondem tela alguma. Os desenhados no próprio painel são três: o portão dos termos, o de

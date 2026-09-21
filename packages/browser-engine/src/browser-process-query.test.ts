@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { browserProcessQuery } from './browser-process-query.js'
+import {
+  browserProcessQuery,
+  commandLineUsesProfile,
+  parseBrowserProcessRows,
+} from './browser-process-query.js'
 
 describe('browserProcessQuery', () => {
   it('filters on the executable it was given, not on a hardcoded name', () => {
@@ -22,10 +26,7 @@ describe('browserProcessQuery', () => {
     expect(browserProcessQuery('chrome.exe')).toContain('Select-Object ProcessId,CommandLine')
   })
 
-  it('produces one JSON document even for a single match', () => {
-    // ConvertTo-Json emits an object rather than an array when there is exactly
-    // one row, and the caller parses an array. The @() is what makes the shape
-    // constant.
+  it('produces one JSON document for the matching rows', () => {
     expect(browserProcessQuery('chrome.exe')).toMatch(/^@\(/)
     expect(browserProcessQuery('chrome.exe')).toContain('ConvertTo-Json -Compress')
   })
@@ -49,5 +50,47 @@ describe('browserProcessQuery', () => {
     expect(() => browserProcessQuery('C:\\x\\chrome.exe')).toThrow(/name/i)
     expect(() => browserProcessQuery('x/chrome.exe')).toThrow(/name/i)
     expect(() => browserProcessQuery('')).toThrow(/name/i)
+  })
+})
+
+describe('parseBrowserProcessRows', () => {
+  it('normalizes the bare object Windows PowerShell emits for one row', () => {
+    expect(
+      parseBrowserProcessRows(JSON.stringify({ ProcessId: 42, CommandLine: 'chrome --one' })),
+    ).toEqual([{ pid: 42, commandLine: 'chrome --one' }])
+  })
+
+  it('keeps an array and normalizes a null command line', () => {
+    expect(
+      parseBrowserProcessRows(
+        JSON.stringify([
+          { ProcessId: 42, CommandLine: 'chrome --one' },
+          { ProcessId: 43, CommandLine: null },
+        ]),
+      ),
+    ).toEqual([
+      { pid: 42, commandLine: 'chrome --one' },
+      { pid: 43, commandLine: '' },
+    ])
+  })
+})
+
+describe('commandLineUsesProfile', () => {
+  it('matches quoted and unquoted exact profile arguments', () => {
+    expect(
+      commandLineUsesProfile('chrome --user-data-dir=C:\\tmp\\slot-1 --app=x', 'C:\\tmp\\slot-1'),
+    ).toBe(true)
+    expect(
+      commandLineUsesProfile(
+        'chrome "--user-data-dir=C:\\tmp\\profile with spaces" --app=x',
+        'C:\\tmp\\profile with spaces',
+      ),
+    ).toBe(true)
+  })
+
+  it('does not confuse a profile path with a longer path sharing its prefix', () => {
+    expect(
+      commandLineUsesProfile('chrome --user-data-dir=C:\\tmp\\slot-10 --app=x', 'C:\\tmp\\slot-1'),
+    ).toBe(false)
   })
 })

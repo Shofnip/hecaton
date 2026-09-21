@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { createServer } from 'node:http'
 import type { Server } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import { windowManager } from 'node-window-manager'
@@ -59,6 +59,81 @@ function zoomBubbles(browserPid: number, screenHwnd: number): number[] {
         !window.getTitle().trim(),
     )
     .map((window) => window.id)
+}
+
+/** Finds the browser root by exact profile, never by title or a spawn pid. */
+function commandUsesProfile(commandLine: string, profilePath: string): boolean {
+  const command = commandLine.toLowerCase()
+  const profile = profilePath.toLowerCase()
+  return [`--user-data-dir=${profile}`, `--user-data-dir="${profile}"`].some((argument) => {
+    const index = command.indexOf(argument)
+    if (index < 0) return false
+    const next = command[index + argument.length]
+    return next === undefined || next === '"' || /\s/.test(next)
+  })
+}
+
+function browserPidFor(profilePath: string): number | undefined {
+  const script =
+    "@(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' } " +
+    '| Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress'
+  const stdout = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
+  })
+  if (!stdout.trim()) return undefined
+  const parsed = JSON.parse(stdout) as
+    | { ProcessId: number; CommandLine: string | null }
+    | { ProcessId: number; CommandLine: string | null }[]
+  const rows = Array.isArray(parsed) ? parsed : [parsed]
+  return rows.find(
+    (row) =>
+      commandUsesProfile(row.CommandLine ?? '', profilePath) &&
+      !(row.CommandLine ?? '').includes('--type='),
+  )?.ProcessId
+}
+
+function temporaryProfile(profilePath: string): string {
+  const resolved = resolve(profilePath)
+  if (
+    dirname(resolved) !== resolve(tmpdir()) ||
+    !basename(resolved).startsWith('hecaton-native-zoom-')
+  ) {
+    throw new Error(`refusing to remove unexpected profile path ${JSON.stringify(resolved)}`)
+  }
+  return resolved
+}
+
+async function removeBrowserProfile(profilePath: string): Promise<void> {
+  const safeProfile = temporaryProfile(profilePath)
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const remainingPid = browserPidFor(safeProfile)
+    if (remainingPid === undefined) break
+    try {
+      execFileSync('taskkill', ['/PID', String(remainingPid), '/F', '/T'], { stdio: 'ignore' })
+    } catch {
+      // The next exact-profile query decides whether it is really gone.
+    }
+    await sleep(250)
+  }
+  const remainingPid = browserPidFor(safeProfile)
+  if (remainingPid !== undefined) {
+    throw new Error(`browser ${remainingPid} still holds temporary profile ${safeProfile}`)
+  }
+
+  let lastError: unknown
+  for (let attempt = 0; attempt < 40; attempt++) {
+    try {
+      rmSync(safeProfile, { recursive: true, force: true })
+      if (!existsSync(safeProfile)) return
+    } catch (error) {
+      lastError = error
+    }
+    await sleep(250)
+  }
+  throw new Error(`could not remove temporary profile ${safeProfile}: ${String(lastError)}`)
 }
 
 let host: ChildProcessWithoutNullStreams
@@ -142,22 +217,7 @@ describe.skipIf(process.platform !== 'win32')('embedded page zoom through the re
     child.unref()
     // Resolve by exact profile, not title or the launcher stub pid.
     for (let i = 0; i < 40 && pid === undefined; i++) {
-      const text = execFileSync(
-        'powershell',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-Command',
-          '@(Get-CimInstance Win32_Process -Filter "Name=\'chrome.exe\'" | Select-Object ProcessId,CommandLine) | ConvertTo-Json -Compress',
-        ],
-        { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, windowsHide: true },
-      )
-      const parsed = JSON.parse(text) as { ProcessId: number; CommandLine: string }[]
-      pid = parsed.find(
-        (p) =>
-          p.CommandLine?.includes(`--user-data-dir=${profile}`) &&
-          !p.CommandLine.includes('--type='),
-      )?.ProcessId
+      pid = browserPidFor(profile)
       if (!pid) await sleep(200)
     }
     expect(pid).toBeGreaterThan(0)
@@ -178,23 +238,10 @@ describe.skipIf(process.platform !== 'win32')('embedded page zoom through the re
 
   afterAll(async () => {
     await manager?.dispose()
-    if (pid) {
-      try {
-        execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' })
-      } catch {
-        /* already gone */
-      }
-    }
     host?.stdin.end('exit\n')
     host?.kill()
     server?.close()
-    if (profile) {
-      try {
-        rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-      } catch {
-        /* temp held by browser shutdown */
-      }
-    }
+    if (profile) await removeBrowserProfile(profile)
   })
 
   it('applies card/focus/card from a non-100% default without relaunch', async () => {

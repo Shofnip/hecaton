@@ -8,11 +8,14 @@
  *                          |                  |
  *                        crash              crash
  *                          v                  v
- *                       crashed <-------------+
+ *                       crashed <------------+
  *                         | |
  *              restart    | |    start
  *                 v       | |       v
- *           restarting <--+ +--> starting --ready--> running
+ *           restarting <--+ +--> starting
+ *
+ * Starting, running and restarting all enter `stopping` on `stop`; it advances
+ * to `stopped` only after the launcher confirms no live process remains.
  *
  * `stop` is accepted from anywhere: the user closing a slot must always work.
  * `start` is accepted from `crashed` for the same reason from the other side —
@@ -22,11 +25,18 @@
  * resets it.
  */
 
-export const SLOT_STATES = ['stopped', 'starting', 'running', 'crashed', 'restarting'] as const
+export const SLOT_STATES = [
+  'stopped',
+  'starting',
+  'running',
+  'crashed',
+  'restarting',
+  'stopping',
+] as const
 
 export type SlotState = (typeof SLOT_STATES)[number]
 
-export type SlotEvent = 'start' | 'ready' | 'crash' | 'stop' | 'restart'
+export type SlotEvent = 'start' | 'ready' | 'crash' | 'stop' | 'restart' | 'stopped'
 
 /**
  * Only the legal moves. Anything absent here is a bug in the caller rather than
@@ -36,10 +46,11 @@ export type SlotEvent = 'start' | 'ready' | 'crash' | 'stop' | 'restart'
  */
 const TRANSITIONS: Readonly<Record<SlotState, Partial<Record<SlotEvent, SlotState>>>> = {
   stopped: { start: 'starting', stop: 'stopped' },
-  starting: { ready: 'running', crash: 'crashed', stop: 'stopped' },
-  running: { crash: 'crashed', stop: 'stopped' },
+  starting: { ready: 'running', crash: 'crashed', stop: 'stopping' },
+  running: { crash: 'crashed', stop: 'stopping' },
   crashed: { start: 'starting', restart: 'restarting', stop: 'stopped' },
-  restarting: { ready: 'running', crash: 'crashed', stop: 'stopped' },
+  restarting: { ready: 'running', crash: 'crashed', stop: 'stopping' },
+  stopping: { stop: 'stopping', stopped: 'stopped' },
 }
 
 export function transition(state: SlotState, event: SlotEvent): SlotState {
@@ -57,5 +68,7 @@ export function transition(state: SlotState, event: SlotEvent): SlotState {
  * crashed. Used to decide what to watch and what to clean up.
  */
 export function isLive(state: SlotState): boolean {
-  return state === 'starting' || state === 'running' || state === 'restarting'
+  return (
+    state === 'starting' || state === 'running' || state === 'restarting' || state === 'stopping'
+  )
 }
