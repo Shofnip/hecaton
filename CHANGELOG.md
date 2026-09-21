@@ -8,6 +8,42 @@ lido sem abrir o aplicativo e antes de instalar qualquer coisa.
 Escrito para quem usa, não para quem programa. O histórico técnico completo está
 nos commits.
 
+## 0.5.0
+
+Zoom e barra lateral agora podem ser ajustados do seu jeito, sem atrapalhar a
+parede de jogos.
+
+- **Zoom por tela.** O botão de lupa abre um controle vertical de 25% a 200%,
+  com a porcentagem visível enquanto você arrasta. O modo **Auto** continua
+  ajustando o jogo ao tamanho do card; ao desligá-lo, o valor escolhido vale na
+  grade, no foco e na tela cheia e fica salvo para a próxima vez. O balão que o
+  Chromium mostrava por cima do jogo ao mudar o zoom não aparece mais.
+- **Uma barra lateral que sai do caminho.** Os botões de ligar todas, adicionar
+  e perfis podem ser reordenados arrastando. A seta na base recolhe a barra para
+  uma faixa fina e a expande de novo; no modo foco ela desaparece por inteiro.
+  A ordem e o recolhimento duram só até fechar esta janela, então cada abertura
+  começa no arranjo original.
+- **Iniciar várias telas ficou confiável.** Uma tela que demorava a abrir podia
+  gastar sua posição e sua ordem de aparecer antes de entrar no painel, ficando
+  preta, pequena ou fora do lugar. A posição agora espera o encaixe terminar.
+- **Ligar todas não engasga mais o computador.** As telas passam a iniciar uma
+  por vez, com tempo para cada navegador estabilizar antes do próximo. Desligar
+  todas continua acontecendo em paralelo e rápido.
+- **Redimensionar mantém cada jogo no seu card.** Quando os movimentos chegavam
+  mais rápido que o Windows conseguia aplicá-los, a posição nova de uma tela
+  podia ser descartada pela mudança seguinte de outra. Os movimentos pendentes
+  agora são combinados por tela, sem fila atrasada nem saltos para posições antigas.
+- **Desligar todas ficou rápido.** O pedido de fechamento agora chega à janela
+  antes de o aplicativo esquecer como encontrá-la, evitando esperar pelo prazo
+  de encerramento forçado de cada navegador.
+- **Ligar tudo de novo não perde telas.** O Windows pode reutilizar os números
+  dos processos logo depois de um desligamento em grupo; o Hecaton agora limpa
+  todos os dados da janela antiga antes que esse número seja usado de novo.
+- **Popovers mais previsíveis.** Volume e zoom continuam abrindo por clique ou
+  por uma breve pausa do mouse, mas não fecham no meio de um arrasto e não
+  confundem a passagem do ponteiro com um clique.
+- **Navegador atualizado.** O Chromium incluído passou para 156.0.8067.0.
+
 ## 0.4.0
 
 As telas agora ficam na ordem que você escolher, e o jogo cabe dentro da carta.

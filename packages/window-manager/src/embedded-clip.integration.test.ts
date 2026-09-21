@@ -7,7 +7,7 @@
  * nothing in the API can report it and the constant has always been a measured
  * number with a comment telling the next person to re-measure it.
  *
- * It went stale. Measured here against the bundled Chromium (156.0.8065.0) on
+ * It went stale. Measured here against the bundled Chromium (156.0.8067.0) on
  * 2026-09-20: the strip is **30** physical pixels, not 37, so the old constant
  * clipped 7 rows off the top of every game, on every screen — with no symptom an
  * eye would catch on a game page, which is exactly why this is a test and not a

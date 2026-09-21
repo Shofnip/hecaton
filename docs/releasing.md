@@ -49,9 +49,9 @@ Currently pinned, in `scripts/fetch-chromium.mjs`:
 
 |          |                                                                    |
 | -------- | ------------------------------------------------------------------ |
-| Revision | `1699959`                                                          |
-| Version  | `156.0.8065.0`                                                     |
-| SHA256   | `e26d2f77c37e98e2d537cc550b0cd04e7e456e74340f4db1ffb20db820bb8d08` |
+| Revision | `1701686`                                                          |
+| Version  | `156.0.8067.0`                                                     |
+| SHA256   | `f3826ee0d308cd2937e8c40fa949550f945a6eadd49d518e02db4457419adb59` |
 
 `tests/bundled-browser.test.ts` holds this table to the script, so the two cannot describe different
 revisions.

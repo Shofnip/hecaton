@@ -86,7 +86,7 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * display DPI.
  *
  * It is a property of the browser, so it moves when the bundled revision moves:
- * it was 37, and on Chromium 156.0.8065.0 it is 30. Until that was re-measured,
+ * it was 37, and on Chromium 156.0.8065.0 and 156.0.8067.0 it is 30. Until that was re-measured,
  * seven rows were being clipped off the top of every game, on every screen.
  * Nothing on a game page looks wrong when its top seven rows are gone, which is
  * why "tune it if a sliver shows or the game is cropped" never caught it and a

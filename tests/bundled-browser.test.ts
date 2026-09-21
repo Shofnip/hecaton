@@ -90,6 +90,12 @@ describe('the revision pin is the same one the release ritual describes', () => 
     expect(versioned?.[1]).toBeTruthy()
   })
 
+  it('pins the browser build measured for this release', () => {
+    expect(pinned?.[1]).toBe('1701686')
+    expect(versioned?.[1]).toBe('156.0.8067.0')
+    expect(hashed?.[1]).toBe('f3826ee0d308cd2937e8c40fa949550f945a6eadd49d518e02db4457419adb59')
+  })
+
   it('docs/releasing.md names the same revision', () => {
     // The browser stops updating itself the moment it is bundled, so the release
     // is the only occasion that raises it. A document naming a revision nobody

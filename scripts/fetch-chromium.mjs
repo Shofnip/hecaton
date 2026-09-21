@@ -52,9 +52,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // receives no stable-branch security backports. That was the owner's decision, and
 // what it costs is written down in ADR-0016 rather than discovered later.
 // ---------------------------------------------------------------------------
-const REVISION = '1699959'
-const SHA256 = 'e26d2f77c37e98e2d537cc550b0cd04e7e456e74340f4db1ffb20db820bb8d08'
-const VERSION = '156.0.8065.0'
+const REVISION = '1701686'
+const SHA256 = 'f3826ee0d308cd2937e8c40fa949550f945a6eadd49d518e02db4457419adb59'
+const VERSION = '156.0.8067.0'
 const URL = `https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/${REVISION}/chrome-win.zip`
 
 /**
@@ -65,7 +65,7 @@ const URL = `https://storage.googleapis.com/chromium-browser-snapshots/Win_x64/$
  * dropped, each entry with a reason, in the same spirit as the `files` allowlist
  * in electron-builder.yml. Measured 2026-08-20 on revision 1682878: removing
  * these takes the tree from 798 MB / 261 files to 440 MB / 254 files. Re-measured
- * 2026-09-17 on revision 1699959, which is what raising the pin obliges: the
+ * 2026-09-21 on revision 1701686, which is what raising the pin obliges: the
  * archive holds 258 entries, all seven were still there to remove, and what is
  * left is 251 files / 445 MB. On the older revision the browser still launches,
  * is found by the WMI filter, keeps ADR-0011's window geometry to the pixel,
