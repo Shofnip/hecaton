@@ -5,10 +5,37 @@ import { basename, dirname, join, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { windowManager } from 'node-window-manager'
+import { DesktopSnapshotReader } from './desktop-snapshot-reader.js'
 import { NativeWindowManager } from './native-window-manager.js'
 import { Win32Worker } from './win32-worker.js'
 
 const onWindows = process.platform === 'win32'
+
+describe.skipIf(!onWindows)('periodic desktop reads', () => {
+  it('returns only windows requested by pid or panel handle', async () => {
+    const reader = new DesktopSnapshotReader()
+    try {
+      const snapshot = await reader.read({ processIds: [process.pid] })
+
+      expect(snapshot.windows.every((window) => window.processId === process.pid)).toBe(true)
+      expect(reader.processId).toBeGreaterThan(0)
+      expect(reader.processId).not.toBe(process.pid)
+    } finally {
+      await reader.dispose()
+    }
+  })
+
+  it('turns a late sweep after disposal into a no-op', async () => {
+    const disposed = new NativeWindowManager()
+    await disposed.dispose()
+
+    await expect(disposed.sweepExtraWindows([123, 456])).resolves.toEqual([
+      { pid: 123, moved: 0, extraWindows: 0 },
+      { pid: 456, moved: 0, extraWindows: 0 },
+    ])
+    expect(disposed.desktopEnumerations).toBe(0)
+  })
+})
 
 /**
  * The browser the app ships, not one installed on the machine (ADR-0016).
@@ -350,6 +377,22 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
     })
 
+    it('reads the desktop once for a sweep containing several screens', async () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      const before = embedManager.desktopEnumerations
+
+      const pending = embedManager.sweepExtraWindows([pid, secondPid])
+
+      // Enumeration is synchronous inside node-window-manager. The adapter must
+      // hand it to a worker before returning or this call itself freezes input.
+      expect(pending).toBeInstanceOf(Promise)
+      const sweep = await pending
+
+      expect(sweep.map(({ pid: sweptPid }) => sweptPid)).toEqual([pid, secondPid])
+      expect(embedManager.desktopEnumerations - before).toBe(1)
+    })
+
     it('is idempotent, so the core may call it whenever it places a slot', async () => {
       expect(embedManager.reparent(pid)).toBe(true)
       expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
@@ -390,6 +433,24 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       embedManager.setLayout([{ pid, bounds: { x: 70, y: 80, width: 380, height: 300 } }])
       await waitForRect(childHwnd, () => regionSize(childHwnd).width === 380)
       expect(regionSize(childHwnd)).toEqual({ width: 380, height: 300 })
+    })
+
+    it('settles an asynchronous placement once after the layout becomes quiet', async () => {
+      // SWP_ASYNCWINDOWPOS posts the resize to Chrome and returns before Chrome
+      // applies it. MoveOne must therefore re-read the now-settled frame once;
+      // otherwise the synchronous clip and the asynchronous window resize can
+      // remain out of step until the user resizes the Hecaton panel again.
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      const before = embedManager.layoutCommandsSent
+
+      embedManager.setLayout([{ pid, bounds: { x: 75, y: 85, width: 390, height: 310 } }])
+
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(embedManager.layoutCommandsSent - before).toBe(2)
+      await waitForRect(childHwnd, () => regionSize(childHwnd).width === 390)
+      expect(regionSize(childHwnd)).toEqual({ width: 390, height: 310 })
     })
 
     it('skips the frames the user has already moved past', async () => {
@@ -696,7 +757,7 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
   })
 
   it('moves the out-of-view window onto the desktop', async () => {
-    expect(embedManager.revealDetachedWindows(screenPid!)).toBe(1)
+    expect(await embedManager.revealDetachedWindows(screenPid!)).toBe(1)
 
     // The move goes through the persistent worker, so it lands a beat later -
     // the adapter answers "I asked for it", not "Windows has done it".
@@ -710,13 +771,13 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
     expect(rescued!.y).toBeGreaterThan(-32000)
   })
 
-  it('leaves it alone once it is on the desktop', () => {
+  it('leaves it alone once it is on the desktop', async () => {
     // Idempotence is the property that makes this safe on a timer: it runs
     // several times a second, and a window the user then dragged must stay where
     // they put it.
     const before = detachedBoundsOf(screenPid!)
 
-    expect(embedManager.revealDetachedWindows(screenPid!)).toBe(0)
+    expect(await embedManager.revealDetachedWindows(screenPid!)).toBe(0)
 
     expect(detachedBoundsOf(screenPid!)).toEqual(before)
   })
@@ -730,18 +791,19 @@ describe.skipIf(!onWindows)('rescuing the windows a screen opens for itself', ()
     expect(hwnd).toBeDefined()
     moveWindowTo(hwnd!, -32000, -32000)
 
-    expect(embedManager.revealDetachedWindows(screenPid!)).toBe(0)
+    expect(await embedManager.revealDetachedWindows(screenPid!)).toBe(0)
 
     await new Promise((r) => setTimeout(r, 500))
     expect(detachedBoundsOf(screenPid!)?.x).toBe(-32000)
   })
 
-  it('does nothing for a process with no embedded screen', () => {
+  it('does nothing for a process with no embedded screen', async () => {
     // Before the embed, a screen is *supposed* to be off-screen - that is what
     // keeps it from flashing on the desktop. Rescuing then would undo the
     // architecture rather than help the user.
     const virgin = new NativeWindowManager()
-    expect(virgin.revealDetachedWindows(screenPid!)).toBe(0)
+    expect(await virgin.revealDetachedWindows(screenPid!)).toBe(0)
+    await virgin.dispose()
   })
 })
 

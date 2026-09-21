@@ -160,14 +160,14 @@ describe('crash detection', () => {
     await app.start(1)
     launcher.killSilently(launcher.pidForSlot(1)!)
 
-    await app.checkLiveness()
+    expect(await app.checkLiveness()).toBe(true)
     expect(app.stateOf(1)).toBe('crashed')
   })
 
   it('leaves a healthy slot alone', async () => {
     const app = makeOrchestrator()
     await app.start(1)
-    await app.checkLiveness()
+    expect(await app.checkLiveness()).toBe(false)
     expect(app.stateOf(1)).toBe('running')
   })
 
@@ -394,7 +394,7 @@ describe('the core no longer tiles running windows', () => {
 })
 
 describe('the windows a screen opens for itself', () => {
-  it('asks the adapter to rescue them for every live screen', async () => {
+  it('asks for one native sweep containing every live screen', async () => {
     // "Entrar com Google" opens a second browser window, and it lands at the
     // corner a screen is born in - see detached-window.ts. Every live screen is
     // asked, because any of them could be the one signing in.
@@ -402,9 +402,9 @@ describe('the windows a screen opens for itself', () => {
     await app.start(1)
     await app.start(2)
 
-    app.revealDetachedWindows()
+    await app.revealDetachedWindows()
 
-    expect(windows.revealed.sort()).toEqual([launcher.pidForSlot(1), launcher.pidForSlot(2)].sort())
+    expect(windows.sweeps).toEqual([[launcher.pidForSlot(1), launcher.pidForSlot(2)]])
   })
 
   it('leaves stopped screens out of it', async () => {
@@ -415,9 +415,16 @@ describe('the windows a screen opens for itself', () => {
     await app.start(2)
     await app.stop(2)
 
-    app.revealDetachedWindows()
+    await app.revealDetachedWindows()
 
-    expect(windows.revealed).toEqual([launcher.pidForSlot(1)])
+    expect(windows.sweeps).toEqual([[launcher.pidForSlot(1)]])
+  })
+
+  it('does not enumerate the desktop when every screen is stopped', async () => {
+    const app = makeOrchestrator()
+
+    expect(await app.revealDetachedWindows()).toBe(false)
+    expect(windows.sweeps).toEqual([])
   })
 
   it('logs a screen whose window had to be rescued, and says nothing otherwise', async () => {
@@ -437,14 +444,25 @@ describe('the windows a screen opens for itself', () => {
     await app.start(1)
     windows.detachedToReveal.set(launcher.pidForSlot(1)!, 1)
 
-    app.revealDetachedWindows()
+    await app.revealDetachedWindows()
     expect(logger.entries.filter((entry) => entry.event === 'slot.detached-window')).toEqual([
       { level: 'info', event: 'slot.detached-window', slotId: 1, gameId: 'poke-idleworld' },
     ])
 
     windows.detachedToReveal.clear()
-    app.revealDetachedWindows()
+    await app.revealDetachedWindows()
     expect(logger.entries.filter((entry) => entry.event === 'slot.detached-window')).toHaveLength(1)
+  })
+
+  it('reports whether the panel-visible window count changed', async () => {
+    const app = makeOrchestrator()
+    await app.start(1)
+    const pid = launcher.pidForSlot(1)!
+
+    expect(await app.revealDetachedWindows()).toBe(false)
+    windows.extraWindowsByPid.set(pid, 1)
+    expect(await app.revealDetachedWindows()).toBe(true)
+    expect(await app.revealDetachedWindows()).toBe(false)
   })
 })
 
@@ -1356,7 +1374,7 @@ describe('cancelling a provider login', () => {
     await app.start(1)
     windows.extraWindowsByPid.set(launcher.pidForSlot(1)!, 1)
 
-    app.revealDetachedWindows()
+    await app.revealDetachedWindows()
 
     expect(app.snapshot().find((slot) => slot.id === 1)?.extraWindows).toBe(1)
   })
@@ -1365,11 +1383,11 @@ describe('cancelling a provider login', () => {
     const app = makeOrchestrator()
     await app.start(1)
 
-    app.revealDetachedWindows()
+    await app.revealDetachedWindows()
     expect(app.snapshot().find((slot) => slot.id === 1)?.extraWindows).toBe(0)
 
     windows.extraWindowsByPid.set(launcher.pidForSlot(1)!, 2)
-    app.revealDetachedWindows()
+    await app.revealDetachedWindows()
     await app.stop(1)
     // A stopped screen has no process and no windows; leaving the last count
     // behind would leave a control on the card that closes nothing.

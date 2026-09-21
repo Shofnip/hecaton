@@ -9,7 +9,7 @@ import { defineConfig } from 'vitest/config'
  */
 export default defineConfig({
   test: {
-    include: ['packages/**/src/**/*.integration.test.ts'],
+    include: ['packages/**/src/**/*.integration.test.ts', 'apps/**/src/**/*.integration.test.ts'],
     environment: 'node',
     // Real processes and shared temp state do not tolerate parallel runs.
     fileParallelism: false,

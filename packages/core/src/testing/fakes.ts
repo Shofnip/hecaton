@@ -18,6 +18,7 @@ import type {
   Storage,
   WindowManager,
   WindowPlacement,
+  WindowSweep,
 } from '../ports.js'
 import type { AppContainerReadState } from '../browser-access.js'
 import type { InstanceLockState, MachineFacts } from '../instance-claim.js'
@@ -175,12 +176,23 @@ export class FakeWindowManager implements WindowManager {
 
   /** Pids the core asked about, in order. */
   readonly revealed: number[] = []
+  /** Each batch the core asked the adapter to inspect. */
+  readonly sweeps: number[][] = []
   /** How many windows a given pid has out of view; absent means none. */
   readonly detachedToReveal = new Map<number, number>()
 
   revealDetachedWindows(pid: number): number {
     this.revealed.push(pid)
     return this.detachedToReveal.get(pid) ?? 0
+  }
+
+  async sweepExtraWindows(pids: readonly number[]): Promise<readonly WindowSweep[]> {
+    this.sweeps.push([...pids])
+    return pids.map((pid) => ({
+      pid,
+      moved: this.revealDetachedWindows(pid),
+      extraWindows: this.extraWindows(pid),
+    }))
   }
 
   /** How many windows a given pid has open beside its screen; absent means none. */

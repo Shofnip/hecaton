@@ -1,16 +1,31 @@
-/** Starts heavy browser processes one at a time, without abandoning later screens on one failure. */
-export async function startAllSequentially(
-  ids: readonly number[],
-  start: (id: number) => Promise<unknown>,
-  settle: () => Promise<void>,
-  onError: (error: unknown) => void,
-): Promise<void> {
-  for (let index = 0; index < ids.length; index++) {
+/** Dispatches one global start concurrently and ignores another until it completes. */
+export class StartAll {
+  private active = false
+
+  get running(): boolean {
+    return this.active
+  }
+
+  async run(
+    ids: readonly number[],
+    start: (id: number) => Promise<unknown>,
+    onError: (error: unknown) => void,
+  ): Promise<boolean> {
+    if (this.active) return false
+    this.active = true
     try {
-      await start(ids[index]!)
-    } catch (error) {
-      onError(error)
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await start(id)
+          } catch (error) {
+            onError(error)
+          }
+        }),
+      )
+      return true
+    } finally {
+      this.active = false
     }
-    if (index + 1 < ids.length) await settle()
   }
 }

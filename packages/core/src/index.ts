@@ -135,6 +135,7 @@ export type {
   Storage,
   WindowManager,
   WindowPlacement,
+  WindowSweep,
   ZoomController,
   ZoomPreferences,
 } from './ports.js'

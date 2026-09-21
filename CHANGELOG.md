@@ -26,13 +26,17 @@ parede de jogos.
 - **Iniciar várias telas ficou confiável.** Uma tela que demorava a abrir podia
   gastar sua posição e sua ordem de aparecer antes de entrar no painel, ficando
   preta, pequena ou fora do lugar. A posição agora espera o encaixe terminar.
-- **Ligar todas não engasga mais o computador.** As telas passam a iniciar uma
-  por vez, com tempo para cada navegador estabilizar antes do próximo. Desligar
-  todas continua acontecendo em paralelo e rápido.
+- **Ligar todas ficou rápido sem travar o painel.** As telas agora começam juntas,
+  e uma que falhar não impede as outras de abrir. Um segundo clique é ignorado
+  até essa rodada terminar. Desligar todas continua acontecendo em paralelo.
+- **O cursor não dá mais uma pausa a cada dois segundos.** A verificação das
+  janelas de login saiu do relógio: ela acontece apenas quando o Hecaton ganha ou
+  perde foco, fora da interface, e a parede não é redesenhada quando nada mudou.
 - **Redimensionar mantém cada jogo no seu card.** Quando os movimentos chegavam
   mais rápido que o Windows conseguia aplicá-los, a posição nova de uma tela
   podia ser descartada pela mudança seguinte de outra. Os movimentos pendentes
-  agora são combinados por tela, sem fila atrasada nem saltos para posições antigas.
+  agora são combinados por tela e a posição final é conferida uma vez quando o
+  movimento termina, sem fila atrasada, saltos antigos ou faixas pretas persistentes.
 - **Desligar todas ficou rápido.** O pedido de fechamento agora chega à janela
   antes de o aplicativo esquecer como encontrá-la, evitando esperar pelo prazo
   de encerramento forçado de cada navegador.

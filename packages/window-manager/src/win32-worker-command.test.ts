@@ -20,6 +20,7 @@
  * edit walks through.
  */
 import { describe, expect, it } from 'vitest'
+import { DESKTOP_SNAPSHOT_WORKER_SOURCE } from './desktop-snapshot-worker-source.js'
 import { WORKER_SCRIPT } from './win32-worker.js'
 
 /** What `CreateProcess` accepts, including the terminating null. */
@@ -57,5 +58,11 @@ describe('the encoded worker command', () => {
     const ratio = encodedLength(WORKER_SCRIPT) / WORKER_SCRIPT.length
     expect(ratio).toBeGreaterThan(2.6)
     expect(ratio).toBeLessThan(2.8)
+  })
+
+  it('also fits the separate periodic desktop reader', () => {
+    expect(encodedLength(DESKTOP_SNAPSHOT_WORKER_SOURCE)).toBeLessThan(
+      WINDOWS_COMMAND_LINE_LIMIT - REQUIRED_HEADROOM,
+    )
   })
 })

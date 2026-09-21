@@ -110,7 +110,7 @@ Largura **38px**, apenas botões de ícone (28×28px, ícones de 16px), sem text
    - Quando **algumas** telas estão ligadas e outras não: verde (`accent` + `accentSoft`), tooltip "Ligar todas as telas". Ao clicar, liga apenas as telas desligadas.
    - Quando **todas** estão ligadas: vermelho (`danger` + `dangerSoft`), tooltip "Desligar todas as telas".
    - Quando **todas** estão desligadas: **sem cor** — a mesma face neutra dos outros botões da barra — e verde apenas no hover (owner, 2026-09-21). Uma parede inteiramente desligada é o estado de repouso, e não deve parecer uma ação pendente.
-   - Ao ligar várias, inicia **uma tela por vez**, esperando cada navegador estabilizar antes da próxima; abrir quatro árvores do Chromium juntas deixa a máquina inteira sem resposta. Ao desligar, os pedidos continuam simultâneos para a parede apagar rápido.
+   - Ao ligar várias, todos os pedidos começam **juntos** e cada falha fica independente: uma tela com problema não impede as outras de abrir. Um segundo clique global é ignorado até essa rodada terminar. Ao desligar, os pedidos também são simultâneos para a parede apagar rápido.
    - Enquanto qualquer tela está em `stopping`, fica desabilitado até o processo terminar, para não sobrepor um novo comando ao encerramento em curso.
 3. **Adicionar tela** — ícone `+`. Ativo apenas com menos de 4 telas; desabilitado mantém o mesmo estilo dos demais botões com **opacidade 0.45** (não muda a cor do ícone), cursor `not-allowed`, tooltip "Limite de 4 telas atingido". Hover (quando ativo) acende borda e ícone no `accent`.
 4. **Perfis** — ícone de duas pessoas. Abre o modal de perfis (§10.2), que desde 2026-09-19 é

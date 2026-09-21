@@ -32,6 +32,7 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * Protocol, one command line in -> one reply line out:
  *   reparent <child> <parent>       -> OK parent=<hwnd>
  *   movechildren <hwnd>,<x>,<y>,<w>,<h>;...  -> OK   (x,y in the parent's client area)
+ *   settlechildren <hwnd>,<x>,<y>,<w>,<h>;... -> OK  (reposts position, keeps the clip)
  *   movetop <hwnd> <x> <y>          -> OK        (x,y in screen px; keeps size and frame)
  *   focusat <parent> <x> <y>        -> OK <hwnd> | OK none  (x,y in the parent's client area)
  *   restack <child> <pid> <parent> -> OK | OK hidden (validated embedded child only)
@@ -235,18 +236,16 @@ public static class W {
     return "OK";
   }
 
-  // See MoveChildren above. Wire format: hwnd,x,y,w,h;hwnd,x,y,w,h;...
-  public static string MoveChildren(string spec) {
+  public static string MoveChildren(string spec, bool settle) {
     string[] items = spec.Split(';');
     for (int i = 0; i < items.Length; i++) {
       string[] p = items[i].Split(',');
-      MoveOne((IntPtr)long.Parse(p[0]), int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), int.Parse(p[4]));
+      MoveOne((IntPtr)long.Parse(p[0]), int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), int.Parse(p[4]), settle);
     }
     return "OK";
   }
 
-  static void MoveOne(IntPtr h, int x, int y, int w, int hh) {
-    // Game viewport and frame arithmetic: see MoveChildren above the literal.
+  static void MoveOne(IntPtr h, int x, int y, int w, int hh, bool settle) {
     RECT wr; GetWindowRect(h, out wr);
     RECT cr; GetClientRect(h, out cr);
     POINT origin; origin.X = 0; origin.Y = 0; ClientToScreen(h, ref origin);
@@ -270,7 +269,7 @@ public static class W {
     // Region = just the game, in window coords: past the frame-left, and past the
     // frame-top plus the title bar. SetWindowRgn takes ownership of the region.
     // In window coordinates, so it does not depend on the move having landed yet.
-    SetWindowRgn(h, CreateRectRgn(left, top + APP_TITLE, left + w, top + APP_TITLE + hh), true);
+    if (!settle) SetWindowRgn(h, CreateRectRgn(left, top + APP_TITLE, left + w, top + APP_TITLE + hh), true);
   }
 
   // Native zoom IDs measured by spike/scale; no focus or input-queue changes.
@@ -322,7 +321,8 @@ while ($true) {
   try {
     switch ($a[0]) {
       'reparent'  { Reply ([W]::Reparent([IntPtr][int64]$a[1], [IntPtr][int64]$a[2])) }
-      'movechildren' { Reply ([W]::MoveChildren($a[1])) }
+      'movechildren' { Reply ([W]::MoveChildren($a[1], $false)) }
+      'settlechildren' { Reply ([W]::MoveChildren($a[1], $true)) }
       'movetop'   { Reply ([W]::MoveTop([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'focusat'   { Reply ([W]::FocusAt([IntPtr][int64]$a[1], [int]$a[2], [int]$a[3])) }
       'restack'   { Reply ([W]::Restack([IntPtr][int64]$a[1], [uint32]$a[2], [IntPtr][int64]$a[3])) }

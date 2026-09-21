@@ -60,6 +60,15 @@ export interface WindowPlacement {
   bounds: GridCell
 }
 
+/** One live screen's result from a shared top-level-window enumeration. */
+export interface WindowSweep {
+  pid: number
+  /** Extra windows moved back onto a monitor during this sweep. */
+  moved: number
+  /** Visible, titled windows beside the embedded screen after the sweep. */
+  extraWindows: number
+}
+
 export interface WindowManager {
   /** False when the window is not found yet; the browser may still be starting. */
   setBounds(pid: number, bounds: GridCell): boolean
@@ -128,34 +137,16 @@ export interface WindowManager {
    */
   close(pid: number): boolean
   /**
-   * Brings any window this process owns that is **not** the embedded screen onto
-   * the visible desktop, and returns how many had to be moved.
+   * Inspects every live screen from one snapshot of the desktop's top-level
+   * windows. Brings unreachable provider-login windows back onto a monitor and
+   * reports how many extra windows each screen currently owns.
    *
-   * The case that forced it: a game's "sign in with <provider>" opens a second
-   * browser window, and it is born at the corner a screen is launched in, since
-   * the browser positions it against where it still believes the opener to be —
-   * it was never told that Win32 moved the screen into the panel. Measured
-   * 2026-09-18: visible, in the taskbar, at (-32000,-32000).
-   *
-   * Which windows are unreachable, and where a rescued one belongs, is
-   * `detached-window.ts` in the core; the adapter enumerates, asks, and moves.
-   * A window with any part of it on a monitor is left exactly where it is, so a
-   * login window the user dragged is never yanked back.
+   * Batch and async shapes are load-bearing: `getWindows()` is synchronous and
+   * measured at 6.86 ms median. Re-enumerating for each question and each of
+   * four screens blocked Electron's main thread for 100 ms median; even one
+   * batched enumeration left a visible cursor hitch, so it runs on a worker.
    */
-  revealDetachedWindows(pid: number): number
-  /**
-   * How many windows this process owns that are **not** the embedded screen.
-   *
-   * In practice this is the provider-login window and nothing else: the screen
-   * itself is a `WS_CHILD` after the embed and is not a top-level window any
-   * more, so anything counted here is a window the page opened. The panel draws
-   * its "cancel the login" control from this number, and only while it is above
-   * zero — a control that closes nothing is worse than no control.
-   *
-   * Counted rather than inferred because there is no CDP: the app learns what a
-   * page did only by looking at Win32.
-   */
-  extraWindows(pid: number): number
+  sweepExtraWindows(pids: readonly number[]): Promise<readonly WindowSweep[]>
   /**
    * Closes those windows, the way clicking their X does, and returns how many
    * were asked.

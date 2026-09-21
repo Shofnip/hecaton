@@ -724,7 +724,7 @@ export class Orchestrator {
    *   whole frame in 36 ms. Entering or leaving focus is one frame, so that is
    *   the transition the user sits through.
    * - The panel redraws and re-emits its layout on every state push — the
-   *   liveness sweep alone pushes every two seconds — so a frame that re-sends
+   *   liveness sweep used to push every two seconds — so a frame that re-sends
    *   unchanged rectangles moves every screen to where it already is, for ever,
    *   each move costing a reflow inside the page. An unchanged frame now sends
    *   nothing at all.
@@ -848,32 +848,38 @@ export class Orchestrator {
    * Rescues the windows a screen's browser opens for itself — a provider login,
    * above all — which arrive out of view.
    *
-   * Driven from the same timer as `checkLiveness` rather than from an event,
-   * because there is no event to have: without CDP the app learns nothing about
-   * what a page does, and a window that appears between two ticks is a window the
-   * user is already waiting on. Why it lands off-screen at all, and the rule for
-   * which ones may be moved, are in `detached-window.ts`.
+   * Driven when the panel gains or loses focus. A provider popup changes focus
+   * when it opens and again when it closes, giving the shell a native event to
+   * react to without CDP and without polling the desktop. Why it lands off-screen
+   * at all, and the rule for which ones may be moved, are in `detached-window.ts`.
    *
-   * Synchronous and silent when there is nothing to do: this runs several times a
-   * second across every live screen, so the log line is for the rescue, never for
-   * the sweep.
+   * One batched adapter call covers the whole live set. The log line is for an
+   * actual rescue, never for a quiet sweep, and the return value says whether the
+   * renderer-visible count changed.
    */
-  revealDetachedWindows(): void {
+  async revealDetachedWindows(): Promise<boolean> {
+    const live = [...this.slots.values()].filter(
+      (slot) => isLive(slot.state) && slot.state !== 'stopping' && slot.pid !== undefined,
+    )
+    const sweep =
+      live.length === 0 ? [] : await this.windows.sweepExtraWindows(live.map((slot) => slot.pid!))
+    const results = new Map(sweep.map((result) => [result.pid, result]))
+    let changed = false
     for (const slot of this.slots.values()) {
       if (!isLive(slot.state) || slot.state === 'stopping' || slot.pid === undefined) {
+        if (slot.extraWindows !== 0) changed = true
         slot.extraWindows = 0
         continue
       }
-      const moved = this.windows.revealDetachedWindows(slot.pid)
-      if (moved > 0) {
+      const result = results.get(slot.pid)
+      if (result?.moved) {
         this.emit({ level: 'info', event: 'slot.detached-window', ...this.slotFields(slot) })
       }
-      // Counted on the same sweep, for the panel's cancel control. Rescuing and
-      // counting are two questions about the same set of windows, and asking
-      // them together is what keeps the control from lagging a tick behind the
-      // window it closes.
-      slot.extraWindows = this.windows.extraWindows(slot.pid)
+      const extraWindows = result?.extraWindows ?? 0
+      if (slot.extraWindows !== extraWindows) changed = true
+      slot.extraWindows = extraWindows
     }
+    return changed
   }
 
   /**
@@ -898,11 +904,13 @@ export class Orchestrator {
    * Called on a timer by the shell. Every slot is handled independently — one
    * slot crashing, or failing to come back, never touches its neighbours.
    */
-  async checkLiveness(): Promise<void> {
+  async checkLiveness(): Promise<boolean> {
+    let changed = false
     for (const slot of this.slots.values()) {
       if (!isLive(slot.state) || slot.state === 'stopping' || slot.pid === undefined) continue
       if (this.launcher.isAlive(slot.pid)) continue
 
+      changed = true
       this.forgetWindow(slot.pid)
       slot.pid = undefined
       slot.state = transition(slot.state, 'crash')
@@ -926,6 +934,7 @@ export class Orchestrator {
         // a failed restart must not abort the sweep over the other slots.
       }
     }
+    return changed
   }
 
   /**

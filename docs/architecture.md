@@ -171,6 +171,27 @@ was terminated` — the window opens, paints nothing, and **no page ever loads**
   from the app is the only way to abandon a login (owner, 2026-09-19). `slots:cancelLogin` posts
   WM_CLOSE to those windows and to nothing else — the screen itself is a `WS_CHILD` after the embed
   and is not among them — so the session the user already had is untouched.
+- **The two-second liveness tick never reads the desktop.** `node-window-manager.getWindows()` is
+  synchronous. The old rescue plus extra-window
+  count called it three times per live screen on Electron's main thread; the cursor therefore paused
+  whenever Hecaton had focus, every two seconds. A disposable probe measured four screens at 109.24
+  ms median and 226.34 ms p95. Batching every live pid into one enumeration reduced that to 9.14 ms
+  median and 10.36 ms p95, but the owner could still perceive the remaining pause with the screens
+  on. Moving the addon call to a Node worker thread shortened the work but did not remove the owner's
+  exact two-second hitch: the addon was still running inside Electron's process. Moving the read to a
+  persistent PowerShell helper reduced its steady work to 0.31-0.76 ms but did not remove the owner's
+  exact-cadence hitch, proving that a desktop read did not belong on that timer at all. Provider
+  popups change panel focus when they open and close, so panel focus/blur now triggers the helper and
+  the timer is left with only four `process.kill(pid, 0)` checks (measured at 0.006 ms median, 0.008 ms
+  p95 and 0.10 ms maximum). The helper calls Win32 directly. It checks the process id first and
+  reads visibility, title and geometry only for the live browser pids and the panel handle, so hundreds
+  of unrelated desktop windows are never materialised or sent to main. Measured after the helper's
+  one-time 386 ms compile. With every screen stopped the core does not call the adapter at all. A
+  focus-triggered sweep reports whether an extra-window count changed, while the liveness tick reports
+  only an actual process death, so main no longer sends an identical
+  state to both renderers and the wall no longer rebuilds itself every two seconds for no visible
+  reason. Liveness and audio timers are single-flight and teardown waits for an active tick before
+  disposing their workers; a timer can therefore neither overlap itself nor call a disposed adapter.
 - **An embedded screen is reloaded and held hidden for a second before it is revealed.** On this
   browser, `SetParent` on an `--app` window throws away its rendered surface and it never comes
   back — the screen sits grey until somebody reloads it by hand. Chrome 150 does not do it, a
@@ -902,6 +923,13 @@ The load-bearing points:
   claim that every core call was complete — the unchanged-rectangle optimisation deliberately
   makes them partial. Measured 2026-09-20 over six screens: a
   focus transition 75 ms → 36 ms, and the catch-up after a divider drag 2.2 s → 84 ms.
+  `SWP_ASYNCWINDOWPOS` can acknowledge the final resize before Chrome applies it while
+  `SetWindowRgn` changes the clip immediately; repeated real-browser runs observed that mismatch
+  on roughly two of five first placements, leaving a black strip until another layout arrived.
+  After 100 ms without a newer layout, the adapter therefore sends the newest rectangle once more;
+  that pass retains the already-correct clip, re-reads the now-settled frame insets, then posts the
+  same asynchronous move. The live path and the one quiet-time correction both remain asynchronous
+  and responsive.
 - Modals and the volume/zoom popovers render in a **second, transparent overlay window owned by the
   panel**, because a child Chrome window always paints over the panel's DOM. It is **not**
   always-on-top: being owned is what puts it over the embedded screens, and the flag additionally
@@ -912,11 +940,13 @@ The load-bearing points:
   WASAPI and the `Global\` mutex), disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
   shell-outs are async so they never freeze the main thread; a screen closes gracefully by a
   `WM_CLOSE` posted to the embedded child.
-- **The global power button starts screens sequentially**
-  ([ADR-0035](adr/0035-start-all-screens-sequentially.md)). Each start is awaited and followed by
-  a 1.8-second settle interval before the next browser begins; failures do not abandon later
-  screens. Four Chromium process trees starting together again caused computer-wide lag after
-  initial zoom and bubble suppression joined the launch path. Stops remain concurrent and fast.
+- **The global power button starts every eligible screen together**
+  ([ADR-0037](adr/0037-start-all-screens-together.md), superseding
+  [ADR-0035](adr/0035-start-all-screens-sequentially.md)). One launch wave dispatches all requests
+  in the same turn, keeps failures independent and ignores another global action until it resolves.
+  The earlier freeze came from synchronous main-thread process queries that are no longer present;
+  the four-screen probe measured 1.26 seconds to ready with no long task, against 8.64 seconds for
+  the strict sequence. Starts and stops are both concurrent.
 - **Disposal is bounded, and that is load-bearing.** `before-quit` defers the quit until all three
   workers are disposed, so an unbounded wait there is not a slow shutdown but a permanent one:
   the app stays alive with its windows already hidden, and the account it holds stays unopenable by

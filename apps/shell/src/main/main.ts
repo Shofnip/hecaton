@@ -89,6 +89,8 @@ import {
 import { buildGameRegistry } from '@hecaton/games'
 import { allowsNavigation, cspHeaders, panelWebPreferences } from './security.js'
 import { firstRunSlots } from './first-run.js'
+import { runDetachedWindowSweep, runLivenessTick } from './liveness-tick.js'
+import { SingleFlightTask } from './periodic-task.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const RENDERER_DIR = join(HERE, '..', 'renderer')
@@ -464,6 +466,9 @@ let userDataDeleted = false
 /** The two repeating effects, held so the deletion can stop them. */
 let livenessTimer: ReturnType<typeof setInterval> | undefined
 let audioTimer: ReturnType<typeof setInterval> | undefined
+let livenessTask: SingleFlightTask | undefined
+let audioTask: SingleFlightTask | undefined
+let detachedWindowTask: SingleFlightTask | undefined
 
 // A volume-slider drag fires dozens of changes a second; each applies to audio
 // at once (the persistent WASAPI worker is ~12ms) but persisting every one would
@@ -1310,8 +1315,7 @@ function quitAfterDeletion(): void {
   // after the deletion puts `logs/` back.
   logger.silence()
   cancelPendingSave()
-  if (livenessTimer) clearInterval(livenessTimer)
-  if (audioTimer) clearInterval(audioTimer)
+  void stopTimers()
   setTimeout(() => app.quit(), QUIT_AFTER_DELETION_MS)
 }
 
@@ -1340,21 +1344,29 @@ interface AccountSwitch {
  * will not parse leaves the panel up with no screens to sweep.
  */
 function startTimers(): void {
-  if (livenessTimer) clearInterval(livenessTimer)
-  if (audioTimer) clearInterval(audioTimer)
-  livenessTimer = undefined
-  audioTimer = undefined
+  clearTimerHandles()
   if (!orchestrator) return
+  const active = orchestrator
+  const reportFailure = (error: unknown): void => {
+    logger.log({
+      level: 'error',
+      event: 'timer.failed',
+      message: error instanceof Error ? error.message : String(error),
+    })
+  }
+  livenessTask = new SingleFlightTask(() => runLivenessTick(active, pushState), reportFailure)
+  audioTask = new SingleFlightTask(() => active.applyAudio(), reportFailure)
+  detachedWindowTask = new SingleFlightTask(
+    () => runDetachedWindowSweep(active, pushState),
+    reportFailure,
+  )
 
   livenessTimer = setInterval(() => {
-    // Two jobs on one timer, and deliberately so: both are sweeps over the live
-    // screens that exist because there is no CDP to tell the app anything. One
-    // notices a browser that died; the other notices a window a page opened - a
-    // provider login - which the browser places off the edge of the world (see
-    // detached-window.ts). Synchronous and silent when there is nothing to move,
-    // so it costs the tick nothing.
-    orchestrator.revealDetachedWindows()
-    void orchestrator.checkLiveness().then(pushState)
+    // Process existence is the only periodic check. Detached browser windows
+    // are inspected on panel focus transitions instead: opening or closing a
+    // provider popup changes focus, and a desktop enumeration on this timer was
+    // the exact two-second cursor hitch reported by the owner.
+    livenessTask?.run()
   }, LIVENESS_INTERVAL_MS)
 
   // Make audio follow focus on its own faster timer. A tick still crosses a
@@ -1362,14 +1374,36 @@ function startTimers(): void {
   // worker, down from the ~270 ms a fresh shell-out cost - so a busy flag keeps
   // ticks from overlapping rather than stacking work when the interval is
   // shorter than the tick.
-  let audioBusy = false
   audioTimer = setInterval(() => {
-    if (audioBusy) return
-    audioBusy = true
-    void orchestrator.applyAudio().finally(() => {
-      audioBusy = false
-    })
+    audioTask?.run()
   }, AUDIO_FOCUS_INTERVAL_MS)
+}
+
+function clearTimerHandles(): void {
+  if (livenessTimer) clearInterval(livenessTimer)
+  if (audioTimer) clearInterval(audioTimer)
+  livenessTimer = undefined
+  audioTimer = undefined
+}
+
+/** Stops future ticks and lets an active one finish before its adapters are disposed. */
+async function stopTimers(): Promise<void> {
+  clearTimerHandles()
+  const stoppingLiveness = livenessTask
+  const stoppingAudio = audioTask
+  const stoppingDetachedWindows = detachedWindowTask
+  await Promise.allSettled([
+    stoppingLiveness?.stop(),
+    stoppingAudio?.stop(),
+    stoppingDetachedWindows?.stop(),
+  ])
+  if (livenessTask === stoppingLiveness) livenessTask = undefined
+  if (audioTask === stoppingAudio) audioTask = undefined
+  if (detachedWindowTask === stoppingDetachedWindows) detachedWindowTask = undefined
+}
+
+function inspectDetachedWindows(): void {
+  detachedWindowTask?.run()
 }
 
 /**
@@ -1459,6 +1493,7 @@ async function adoptAccount(lock: MutexInstanceLock, targetId: number): Promise<
   // hold one account's lock and another's paths. `openAccount` repeats the
   // `mkdirSync`, which is idempotent.
   mkdirSync(accountDir(targetId), { recursive: true })
+  await stopTimers()
   await Promise.allSettled([audioController?.dispose(), windowManager?.dispose()])
   if (instanceLock !== lock) await instanceLock.release()
   instanceLock = lock
@@ -1643,7 +1678,9 @@ function createPanel(): void {
   // callback; unchanged geometry must not leave it covering the game (ADR-0029).
   panel.on('focus', () => {
     setImmediate(() => windowManager?.restoreEmbeddedZOrder())
+    inspectDetachedWindows()
   })
+  panel.on('blur', inspectDetachedWindows)
   void panel.loadFile(join(RENDERER_DIR, 'index.html'))
   panel.once('ready-to-show', () => panel?.show())
   panel.on('closed', () => {
@@ -1826,10 +1863,14 @@ function hookChildFocus(window: BrowserWindow): void {
     if (disposed) return
     disposed = true
     event.preventDefault()
-    void Promise.allSettled([
-      audioController?.dispose(),
-      windowManager?.dispose(),
-      instanceLock.release(),
-    ]).finally(() => app.quit())
+    void stopTimers()
+      .then(() =>
+        Promise.allSettled([
+          audioController?.dispose(),
+          windowManager?.dispose(),
+          instanceLock.release(),
+        ]),
+      )
+      .finally(() => app.quit())
   })
 }

@@ -19,10 +19,12 @@
  * adapter remembers each embedded window's handle by pid and drives it from the
  * worker directly from then on.
  *
- * The port is synchronous, so the worker is driven fire-and-forget: a call
- * resolves the window's handle synchronously (returning false when there is
- * none yet) and queues the Win32 op without waiting. The worker's queue is FIFO,
- * so a reparent is always carried out before the moves that follow it.
+ * Commands are driven fire-and-forget: a call resolves the window's handle
+ * synchronously (returning false when there is none yet) and queues the Win32
+ * op without waiting. The worker's queue is FIFO, so a reparent is always
+ * carried out before the moves that follow it. The focus-triggered desktop snapshot is
+ * the exception: it is asynchronous because its native enumeration runs in a
+ * dedicated helper process rather than inside Electron.
  *
  * Holds no business rules. Where each window goes, and when it is embedded,
  * hidden or reloaded, is the core's decision; the invisible-border arithmetic
@@ -30,9 +32,17 @@
  */
 import { createRequire } from 'node:module'
 import { centredOver, isOffScreen } from '@hecaton/core'
-import type { GridCell, WindowManager, WindowPlacement, ZoomController } from '@hecaton/core'
+import type {
+  GridCell,
+  WindowManager,
+  WindowPlacement,
+  WindowSweep,
+  ZoomController,
+} from '@hecaton/core'
 import { measureInsets } from './dwm-insets.js'
 import type { Insets } from './dwm-insets.js'
+import { DesktopSnapshotReader } from './desktop-snapshot-reader.js'
+import type { DesktopSnapshot } from './desktop-snapshot.js'
 import { Win32Worker } from './win32-worker.js'
 
 // node-window-manager is CommonJS with a native addon; createRequire loads it
@@ -91,6 +101,17 @@ const SW_SHOW = 5
 const REPAINT_SETTLE_MS = 1000
 
 /**
+ * Quiet period before re-applying the newest embedded layout once.
+ *
+ * `SWP_ASYNCWINDOWPOS` returns before Chrome applies the resize, while the clip
+ * region beside it is applied synchronously. A second pass after the posted
+ * resize has landed re-reads the real frame and brings both back into step. It
+ * is debounced so a live divider drag gets one correction when it stops rather
+ * than one extra native command per animation frame.
+ */
+const LAYOUT_SETTLE_MS = 100
+
+/**
  * How long after a zoom command Chrome's own bubble is worth watching for, and
  * how often to look.
  *
@@ -110,6 +131,7 @@ const BUBBLE_SWEEP_MS = 40
 
 export class NativeWindowManager implements WindowManager, ZoomController {
   private readonly worker = new Win32Worker()
+  private desktop: DesktopSnapshotReader | undefined
   private disposed = false
   private readonly zoomReadyAt = new Map<number, number>()
   /** Cancels commands still waiting for a document when its window changes state. */
@@ -321,6 +343,9 @@ export class NativeWindowManager implements WindowManager, ZoomController {
   private layoutInFlight = false
   /** Latest unsent delta for each screen while another layout command is in flight. */
   private queuedLayout: Map<number, string> | undefined
+  /** Newest placement per screen, re-applied once after layout activity stops. */
+  private readonly layoutToSettle = new Map<number, string>()
+  private layoutSettleTimer: NodeJS.Timeout | undefined
 
   /**
    * How many layout commands the worker was actually given. Diagnostics and
@@ -330,6 +355,32 @@ export class NativeWindowManager implements WindowManager, ZoomController {
   layoutCommandsSent = 0
 
   private queueLayout(parts: Map<number, string>): void {
+    for (const [pid, part] of parts) this.layoutToSettle.set(pid, part)
+    this.scheduleLayoutSettle()
+    this.sendLayout(parts)
+  }
+
+  /** Debounces the one corrective pass that follows an asynchronous resize. */
+  private scheduleLayoutSettle(): void {
+    if (this.layoutSettleTimer !== undefined) clearTimeout(this.layoutSettleTimer)
+    this.layoutSettleTimer = setTimeout(() => {
+      this.layoutSettleTimer = undefined
+      if (this.disposed || this.layoutToSettle.size === 0) return
+      const settled = new Map(this.layoutToSettle)
+      this.layoutToSettle.clear()
+      this.layoutCommandsSent++
+      const command = `settlechildren ${[...settled.values()].join(';')}`
+      // Chrome has now applied the first posted resize. The worker re-reads the
+      // settled frame and posts the same outer rectangle again, while retaining
+      // the already-correct viewport clip.
+      void this.worker.send(command).catch(() => {
+        // Best effort, for the same worker-restart reason as `sendLayout`.
+      })
+    }, LAYOUT_SETTLE_MS)
+    this.layoutSettleTimer.unref?.()
+  }
+
+  private sendLayout(parts: Map<number, string>): void {
     if (this.layoutInFlight) {
       const queued = this.queuedLayout ?? new Map<number, string>()
       for (const [pid, part] of parts) queued.set(pid, part)
@@ -349,7 +400,7 @@ export class NativeWindowManager implements WindowManager, ZoomController {
         this.layoutInFlight = false
         const next = this.queuedLayout
         this.queuedLayout = undefined
-        if (next !== undefined) this.queueLayout(next)
+        if (next !== undefined) this.sendLayout(next)
       })
   }
 
@@ -399,6 +450,8 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     this.revealAfterEmbed.delete(pid)
     this.placeAfterEmbed.delete(pid)
     this.bubbleDeadlines.delete(pid)
+    this.layoutToSettle.delete(pid)
+    this.queuedLayout?.delete(pid)
   }
 
   /** SetParent the child into the panel and remember its handle. */
@@ -688,67 +741,75 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     }
   }
 
+  /** How many desktop snapshots the batched sweep took. Diagnostics and tests only. */
+  desktopEnumerations = 0
+
   /**
-   * Brings the windows a screen opened for itself back onto the desktop.
+   * Rescues and counts extra windows for every live screen from one desktop snapshot.
    *
-   * The port says what this is for; here is how. Every visible, titled top-level
-   * window of the process is a candidate — the embedded screen is a `WS_CHILD`
-   * and `getWindows` does not list it, so it needs no excluding — and each one
-   * that no monitor can show is centred over the panel and raised.
-   *
-   * **Nothing happens until the screen is embedded**, and that guard is the
-   * whole reason this is not dangerous: before the embed, the screen itself is
-   * deliberately parked at `OFFSCREEN_LAUNCH`, and rescuing it there would drag
-   * it across the desktop exactly once per launch — the flash the offscreen
-   * birth exists to prevent.
-   *
-   * Centred over the panel rather than over the primary monitor: a login window
-   * belongs in front of the app that caused it, on the monitor the user is
-   * looking at. When the panel's own rectangle cannot be read, the primary
-   * monitor's work area stands in.
+   * `getWindows()` is synchronous. Calling it separately for rescue, panel bounds and
+   * counting made a four-screen liveness tick block the main thread for 100 ms median
+   * every two seconds. Batching reduced that to 9-13 ms, but keeping the addon in
+   * Electron's process still produced a visible pause. A persistent helper now uses
+   * Win32 directly and returns only the requested processes' windows. The shell calls
+   * it only on focus transitions, never on its periodic liveness tick.
    */
-  revealDetachedWindows(pid: number): number {
-    if (!this.embedded.has(pid)) return 0
+  async sweepExtraWindows(pids: readonly number[]): Promise<readonly WindowSweep[]> {
+    const empty = (): readonly WindowSweep[] =>
+      pids.map((pid) => ({ pid, moved: 0, extraWindows: 0 }))
+    if (this.disposed) return empty()
+    const embeddedPids = pids.filter((pid) => this.embedded.has(pid))
+    if (embeddedPids.length === 0) return empty()
 
-    // Everything here is in **physical pixels**, and that is a correction rather
-    // than a detail. `Monitor.getWorkArea()` hands back the raw Win32 rectangle
-    // while `Window.getBounds()` divides by that monitor's scale factor - read in
-    // node-window-manager's own source, not assumed - so comparing the two
-    // directly is wrong on any scaled display and wrong in a way that only shows
-    // on somebody else's machine.
-    const monitors = windowManager
-      .getMonitors()
-      .map((monitor) => asCell(monitor.getWorkArea()))
-      .filter((area) => area.width > 0 && area.height > 0)
-    if (monitors.length === 0) return 0
-    const target = this.panelArea()
-    // A panel that is itself off-screen - minimized, most often - is no place to
-    // move anything to. Better to leave the window where it is than to drag it
-    // somewhere equally invisible, every tick.
-    if (!target || isOffScreen(target, monitors)) return 0
-
-    let moved = 0
-    for (const window of windowManager.getWindows()) {
-      if (window.processId !== pid) continue
-      if (!window.isVisible() || !window.getTitle().trim()) continue
-      // Once per window, for the life of this process. A window is rescued when
-      // it is born out of view; a window the user then minimizes or drags off a
-      // second monitor is theirs to place, and chasing it would be the app
-      // rearranging somebody's desktop on a two-second clock.
-      if (this.rescued.has(window.id)) continue
-      const bounds = physicalBounds(window)
-      if (!isOffScreen(bounds, monitors)) continue
-
-      const { x, y } = centredOver(bounds, target)
-      // Through the worker rather than `setBounds`, for two reasons: the library
-      // would re-scale these coordinates by the scale factor of whichever monitor
-      // the window is nearest, and a minimized window has to be left alone, which
-      // only Win32 can answer (IsIconic).
-      this.fire(`movetop ${window.id} ${x} ${y}`)
-      this.rescued.add(window.id)
-      moved++
+    this.desktopEnumerations++
+    this.desktop ??= new DesktopSnapshotReader()
+    const parent = this.parentHwnd?.()
+    let snapshot: DesktopSnapshot
+    try {
+      snapshot = await this.desktop.read(
+        parent === undefined
+          ? { processIds: embeddedPids }
+          : { processIds: embeddedPids, panelHwnd: parent },
+      )
+    } catch (error) {
+      if (this.disposed) return empty()
+      throw error
     }
-    return moved
+    if (this.disposed) return empty()
+    const { windows, monitors: allMonitors } = snapshot
+    const monitors = allMonitors.filter((area) => area.width > 0 && area.height > 0)
+    const target =
+      parent === undefined ? undefined : windows.find((window) => window.id === parent)?.bounds
+    const canRescue = target !== undefined && !isOffScreen(target, monitors)
+
+    return pids.map((pid) => {
+      if (!this.embedded.has(pid)) return { pid, moved: 0, extraWindows: 0 }
+      const screen = this.embedded.get(pid)
+      const extra = windows.filter(
+        (window) =>
+          window.processId === pid && window.id !== screen && window.visible && window.titled,
+      )
+      let moved = 0
+      if (canRescue) {
+        for (const window of extra) {
+          // Once per window, for the life of this process. A window the user
+          // subsequently moves is theirs to place and is never chased.
+          if (this.rescued.has(window.id)) continue
+          const bounds = window.bounds
+          if (!isOffScreen(bounds, monitors)) continue
+          const { x, y } = centredOver(bounds, target)
+          this.fire(`movetop ${window.id} ${x} ${y}`)
+          this.rescued.add(window.id)
+          moved++
+        }
+      }
+      return { pid, moved, extraWindows: extra.length }
+    })
+  }
+
+  /** Single-screen diagnostic used by the focused integration coverage. */
+  async revealDetachedWindows(pid: number): Promise<number> {
+    return (await this.sweepExtraWindows([pid]))[0]?.moved ?? 0
   }
 
   /**
@@ -760,9 +821,8 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    * opened - a provider login, in practice. Zero before the embed, because until
    * then the screen *is* one of those windows and would count itself.
    */
-  extraWindows(pid: number): number {
-    if (!this.embedded.has(pid)) return 0
-    return this.extraWindowsOf(pid).length
+  async extraWindows(pid: number): Promise<number> {
+    return (await this.sweepExtraWindows([pid]))[0]?.extraWindows ?? 0
   }
 
   /**
@@ -795,29 +855,19 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    * being wrong differs: there it would move a screen once, here it would put a
    * "close the login" button on every running card and leave it there.
    */
-  private extraWindowsOf(pid: number): NativeWindow[] {
+  private extraWindowsOf(pid: number, windows = windowManager.getWindows()): NativeWindow[] {
     const screen = this.embedded.get(pid)
-    return windowManager
-      .getWindows()
-      .filter(
-        (window) =>
-          window.processId === pid &&
-          window.id !== screen &&
-          window.isVisible() &&
-          window.getTitle().trim(),
-      )
+    return windows.filter(
+      (window) =>
+        window.processId === pid &&
+        window.id !== screen &&
+        window.isVisible() &&
+        window.getTitle().trim(),
+    )
   }
 
   /** Windows already brought into view, so none is moved twice. */
   private readonly rescued = new Set<number>()
-
-  /** The panel's own rectangle, when the shell gave this adapter a way to find it. */
-  private panelArea(): GridCell | undefined {
-    const parent = this.parentHwnd?.()
-    if (parent === undefined) return undefined
-    const panel = windowManager.getWindows().find((window) => window.id === parent)
-    return panel ? physicalBounds(panel) : undefined
-  }
 
   /** The native window handle. Diagnostics and tests only. */
   windowIdOf(pid: number): number | undefined {
@@ -864,40 +914,13 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     // timer, and nothing it finds after shutdown is this app's to hide.
     this.revealAfterEmbed.clear()
     this.placeAfterEmbed.clear()
+    this.layoutToSettle.clear()
+    if (this.layoutSettleTimer !== undefined) clearTimeout(this.layoutSettleTimer)
+    this.layoutSettleTimer = undefined
     this.bubbleDeadlines.clear()
     if (this.bubbleSweep !== undefined) clearInterval(this.bubbleSweep)
     this.bubbleSweep = undefined
+    await this.desktop?.dispose()
     await this.worker.dispose()
-  }
-}
-
-/**
- * node-window-manager's rectangle with every field present.
- *
- * Its `IRectangle` types x, y, width and height as optional, and a window that
- * answers with a missing field is one no geometry can be done about — treating
- * the gap as 0 keeps the arithmetic total, and such a window is off-screen by
- * every test that matters anyway.
- */
-function asCell(rect: { x?: number; y?: number; width?: number; height?: number }): GridCell {
-  return { x: rect.x ?? 0, y: rect.y ?? 0, width: rect.width ?? 0, height: rect.height ?? 0 }
-}
-
-/**
- * A window's rectangle in physical pixels, which is the space monitors are in.
- *
- * `getBounds` divides by the scale factor of the window's monitor, so this
- * multiplies it back. On a 100% display the two are the same number, which is
- * exactly why the mismatch was invisible here and would not have been on a
- * laptop at 150%.
- */
-function physicalBounds(window: NativeWindow): GridCell {
-  const scale = window.getMonitor().getScaleFactor() || 1
-  const bounds = asCell(window.getBounds())
-  return {
-    x: Math.round(bounds.x * scale),
-    y: Math.round(bounds.y * scale),
-    width: Math.round(bounds.width * scale),
-    height: Math.round(bounds.height * scale),
   }
 }
