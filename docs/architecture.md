@@ -900,9 +900,18 @@ The load-bearing points:
   stdin forever; the mutex worker's one-second bound is unconditional rather than tested that way,
   and its suite covers claiming, release, and leaving no orphan when the holder is killed.
 
-Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundThrottling`) and a
-global `theme`, no schema bump. The IPC surface gained `slots:rename/setVolume/setMuted/reload`,
-`ui:setTheme`, `screens:layout` and `overlay:open`/`overlay:close`.
+- **Sidebar personalisation lasts for one launch**
+  ([ADR-0032](adr/0032-keep-sidebar-arrangement-session-only.md)). The power-all, add-screen and
+  profiles buttons can be reordered by dragging, while Settings remains below the spacer; the bar
+  can collapse to a 16px strip. Both choices live only in renderer memory, so every launch starts
+  in the shipped order with the bar expanded. Focus mode hides the whole bar, arrow included, and
+  leaving focus restores the current launch's order and collapsed state. There is deliberately no
+  config field or IPC channel for either preference.
+
+Config gained additive per-slot fields (`name`, `volume`, `muted`, `backgroundThrottling`, and
+since ADR-0031 `zoomAuto`/`zoom`) and a global `theme`, no schema bump. The IPC surface gained
+`slots:rename/setVolume/setMuted/reload`, `slots:setZoomAuto`/`slots:setZoomRung`, `ui:setTheme`,
+`screens:layout` and `overlay:open`/`overlay:close`.
 
 ### Reordering the wall
 

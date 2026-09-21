@@ -17,6 +17,8 @@
  * running.
  */
 
+import { ClickAfterDrag } from './click-after-drag.js'
+
 // ---- the shape of what main sends and what the bridge exposes ----
 
 type SlotState = 'stopped' | 'starting' | 'running' | 'crashed' | 'restarting'
@@ -459,6 +461,8 @@ const powerAllBtn = document.getElementById('power-all') as HTMLButtonElement
 const addBtn = document.getElementById('add-screen') as HTMLButtonElement
 const settingsBtn = document.getElementById('open-settings') as HTMLButtonElement
 const profilesBtn = document.getElementById('open-profiles') as HTMLButtonElement
+const sidebarEl = document.getElementById('sidebar') as HTMLElement | null
+const toggleSidebarBtn = document.getElementById('toggle-sidebar') as HTMLButtonElement | null
 
 // ============================ state ============================
 
@@ -489,9 +493,26 @@ let draggingVolume = false
 let draggingZoom = false
 let draggingDivider = false
 
+/**
+ * The sidebar, as this session has it (owner, 2026-09-21).
+ *
+ * Both of these are deliberately **not** persisted: the owner chose session-only
+ * over a config field and an IPC channel, so the bar opens in its shipped order
+ * and expanded at every launch. That also means neither needs validating - the
+ * order can only ever be a permutation of the three ids below, produced by this
+ * file from its own DOM.
+ *
+ * Only the three actions above the spacer take part. Configurações stays
+ * anchored at the bottom: it is the least frequent destination and the only one
+ * that opens the data panel, and the gap between the groups is what says so.
+ */
+const SIDEBAR_ACTIONS = ['power-all', 'add-screen', 'open-profiles'] as const
+let sidebarOrder: string[] = [...SIDEBAR_ACTIONS]
+let sidebarCollapsed = false
+
 /** A background push must not redraw the wall out from under a drag. */
 function interacting(): boolean {
-  return draggingDivider || cardDrag?.active === true
+  return draggingDivider || cardDrag?.active === true || sidebarDrag?.active === true
 }
 
 function slot(id: number): SlotSnapshot | undefined {
@@ -500,6 +521,170 @@ function slot(id: number): SlotSnapshot | undefined {
 
 function slotName(s: SlotSnapshot): string {
   return s.name ?? `Tela ${s.id}`
+}
+
+// ============================ the sidebar (design §4) ============================
+
+interface SidebarDrag {
+  id: string
+  pointerId: number
+  from: { x: number; y: number }
+  /** False until the pointer passes DRAG_THRESHOLD; until then this is a click. */
+  active: boolean
+  overId: string | undefined
+}
+
+let sidebarDrag: SidebarDrag | undefined
+/** Swallows only the click a drag release itself may synthesize. */
+const sidebarClickAfterDrag = new ClickAfterDrag()
+
+/**
+ * Puts the bar in the state this session has asked for.
+ *
+ * Called from `render`, so it is idempotent by construction: moving a node that
+ * is already where it belongs costs nothing, and the classes are toggles.
+ *
+ * **Focus mode hides the whole bar** (owner, 2026-09-21), arrow included, the
+ * way fullscreen already covers it - there the layer is `position: fixed` over
+ * everything, here the bar is simply gone. Leaving focus brings it back, which
+ * is the only way back precisely because the arrow goes too: a control that
+ * survived would be a second way out of focus mode competing with the one on
+ * the card.
+ */
+function applySidebar(focused: boolean): void {
+  if (!sidebarEl) return
+  const hidden = focused
+  sidebarEl.hidden = hidden
+  sidebarEl.classList.toggle('collapsed', sidebarCollapsed)
+  if (!hidden) {
+    // The order is applied by moving the buttons themselves, before the
+    // spacer - so the bar reads top to bottom exactly as `sidebarOrder` does,
+    // and Configurações and the arrow keep their anchored places below it.
+    const spacer = sidebarEl.querySelector('.spacer')
+    for (const id of sidebarOrder) {
+      const node = document.getElementById(id)
+      if (node && spacer) sidebarEl.insertBefore(node, spacer)
+    }
+  }
+  if (toggleSidebarBtn) {
+    toggleSidebarBtn.replaceChildren(icon(sidebarCollapsed ? 'chevronRight' : 'chevronLeft', 16))
+    toggleSidebarBtn.title = sidebarCollapsed ? 'Mostrar o menu' : 'Esconder o menu'
+  }
+  paintSidebarDrag()
+}
+
+/** The bar in the order the user is looking at, read from the DOM like `wallOrder`. */
+function sidebarDomOrder(): string[] {
+  if (!sidebarEl) return [...sidebarOrder]
+  return [...sidebarEl.querySelectorAll<HTMLElement>('[data-sidebar-action]')].map(
+    (node) => node.id,
+  )
+}
+
+/** Which draggable sidebar button is under a point, if any. */
+function sidebarActionUnder(x: number, y: number): string | undefined {
+  const node = document.elementFromPoint(x, y)?.closest('[data-sidebar-action]')
+  return node instanceof HTMLElement ? node.id : undefined
+}
+
+function paintSidebarDrag(): void {
+  const drag = sidebarDrag?.active === true ? sidebarDrag : undefined
+  for (const id of SIDEBAR_ACTIONS) {
+    const node = document.getElementById(id)
+    if (!node) continue
+    node.classList.toggle('dragging', drag !== undefined && id === drag.id)
+    node.classList.toggle(
+      'drop-target',
+      drag !== undefined && drag.overId === id && drag.overId !== drag.id,
+    )
+  }
+}
+
+function endSidebarDrag(): void {
+  const wasActive = sidebarDrag?.active === true
+  sidebarDrag = undefined
+  paintSidebarDrag()
+  if (wasActive) {
+    render()
+    scheduleLayout()
+  }
+}
+
+/**
+ * Makes the three action buttons reorderable by dragging one onto another.
+ *
+ * The same gesture as the wall's cards, and deliberately the same rules: a
+ * threshold so a press that does not travel is still a click, no pointer
+ * capture, and `event.buttons === 0` on a move as the check for a release that
+ * was never delivered. What differs is only what is being reordered.
+ *
+ * Unlike a card, a sidebar button **is** the thing that acts when clicked, so
+ * the click that ends a real drag has to be swallowed - otherwise reordering
+ * "ligar todas" would also turn every screen on.
+ */
+function installSidebarDrag(): void {
+  for (const id of SIDEBAR_ACTIONS) {
+    const node = document.getElementById(id)
+    if (!node) continue
+    node.dataset['sidebarAction'] = id
+    node.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return
+      // A drag whose release landed on another button may produce no click at
+      // all. In that case this is a new, deliberate press and must not inherit
+      // the old drag's suppression.
+      sidebarClickAfterDrag.pointerStarted()
+      sidebarDrag = {
+        id,
+        pointerId: event.pointerId,
+        from: { x: event.clientX, y: event.clientY },
+        active: false,
+        overId: undefined,
+      }
+    })
+    // Capture phase, so it runs before the button's own handler and can stop it.
+    node.addEventListener(
+      'click',
+      (event) => {
+        if (!sidebarClickAfterDrag.consumeClick()) return
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      },
+      true,
+    )
+  }
+
+  window.addEventListener('pointermove', (event) => {
+    if (!sidebarDrag || event.pointerId !== sidebarDrag.pointerId) return
+    if (event.buttons === 0) {
+      endSidebarDrag()
+      return
+    }
+    if (!sidebarDrag.active) {
+      const travelled =
+        Math.abs(event.clientX - sidebarDrag.from.x) + Math.abs(event.clientY - sidebarDrag.from.y)
+      if (travelled < DRAG_THRESHOLD) return
+      sidebarDrag.active = true
+    }
+    sidebarDrag.overId = sidebarActionUnder(event.clientX, event.clientY)
+    paintSidebarDrag()
+  })
+
+  window.addEventListener('pointerup', (event) => {
+    if (!sidebarDrag || event.pointerId !== sidebarDrag.pointerId) return
+    const drag = sidebarDrag
+    const order = sidebarDomOrder()
+    endSidebarDrag()
+    if (!drag.active) return
+    sidebarClickAfterDrag.dragEnded()
+    if (drag.overId === undefined || drag.overId === drag.id) return
+    const toIndex = order.indexOf(drag.overId)
+    if (toIndex < 0) return
+    const rest = order.filter((each) => each !== drag.id)
+    rest.splice(toIndex, 0, drag.id)
+    sidebarOrder = rest
+    render()
+    scheduleLayout()
+  })
 }
 
 // ============================ toasts (design §12) ============================
@@ -765,8 +950,15 @@ function render(): void {
   // Sidebar reflects the running set.
   const anyScreens = state.slots.length > 0
   const allOn = anyScreens && state.slots.every((s) => s.state !== 'stopped')
+  // Three states, not two (owner, 2026-09-21). With every screen off the button
+  // carries **no** tint and only greens on hover, because a wall that is
+  // entirely off is the resting state and should not look like a pending
+  // action. A wall with some screens on keeps the green, which is a real
+  // "there is more to turn on".
+  const allOff = anyScreens && state.slots.every((s) => s.state === 'stopped')
   powerAllBtn.classList.toggle('all-on', allOn)
-  powerAllBtn.classList.toggle('some-off', !allOn)
+  powerAllBtn.classList.toggle('some-off', !allOn && !allOff)
+  powerAllBtn.classList.toggle('all-off', allOff)
   powerAllBtn.title = allOn ? 'Desligar todas as telas' : 'Ligar todas as telas'
   const canAdd = state.slots.length < state.maxSlots
   addBtn.disabled = !canAdd
@@ -774,6 +966,9 @@ function render(): void {
 
   const focused = state.slots.find((s) => s.focused)
   const fs = fullscreenId !== undefined ? slot(fullscreenId) : undefined
+  // The bar goes with focus mode, and carries this session's order. Fullscreen
+  // needs nothing here: its layer is fixed over the whole app, bar included.
+  applySidebar(focused !== undefined)
 
   board.className = ''
   board.replaceChildren()
@@ -2888,7 +3083,18 @@ function initWall(): void {
     run(() => window.hecaton.openOverlay({ kind: 'profiles' })),
   )
 
+  toggleSidebarBtn?.addEventListener('click', () => {
+    sidebarCollapsed = !sidebarCollapsed
+    // No transition on the bar's width, deliberately: the embedded windows are
+    // placed from measured DOM rectangles, and animating the stage would have
+    // them chasing a width that is still moving. It snaps, and the games are in
+    // their new cells in the same frame.
+    render()
+    scheduleLayout()
+  })
+
   installReorder()
+  installSidebarDrag()
 
   // The window resizing moves every viewport, so the embedded windows must
   // follow. A ResizeObserver on the stage catches sidebar-independent reflow too.

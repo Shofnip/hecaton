@@ -94,6 +94,7 @@ ninguém copia, e na parede arrastar é como se mira uma tela.
 └──┴──────────────────────────────┘
 ```
 
+- **Ordem, recolhimento e modo foco** (owner, 2026-09-21): os três botões de ação (ligar todas, adicionar, perfis) podem ser **reordenados arrastando** um sobre o outro, com as mesmas duas marcas das cartas da parede. Configurações continua ancorado no rodapé. Uma **seta** abaixo dele recolhe a barra a uma faixa de 16px que mostra só a própria seta, e a traz de volta. Nenhum dos dois é persistido: a barra abre na ordem de fábrica e expandida a cada lançamento. No **modo foco** a barra some inteira, seta inclusive, como a tela cheia já a cobre — sair do foco é o caminho de volta.
 - A barra lateral fica **grudada à borda esquerda da janela**: sem margem esquerda, cantos arredondados **apenas no lado direito** (`0 10px 10px 0`), margem vertical de 2px, sem borda no lado esquerdo.
 - Área principal com padding de 4px e grade com **gap de 1px** — as telas ficam praticamente coladas, para que a parede leia como uma superfície só e cada pixel economizado vá para os jogos. A borda própria de cada card é o que ainda marca a divisão.
 - **A ordem dos cards é do usuário** (decisão do dono, 2026-09-20). É a ordem em que as telas estão salvas na configuração, e é ela que a parede desenha — não a ordem dos números. Arrasta-se um card pelo cabeçalho (§5.1). O número da tela **não muda de lugar junto**: "Tela 2" continua sendo a Tela 2 depois de ir para o primeiro quadro, porque o número é o perfil onde aquele login mora.
@@ -106,8 +107,9 @@ Largura **38px**, apenas botões de ícone (28×28px, ícones de 16px), sem text
 
 1. **Logo** — quadrado 24×24px com gradiente no `accent` e a letra "H".
 2. **Ligar/Desligar todas** — ícone de power.
-   - Quando **nem todas** as telas estão ligadas: verde (`accent` + `accentSoft`), tooltip "Ligar todas as telas". Ao clicar, liga apenas as telas desligadas.
+   - Quando **algumas** telas estão ligadas e outras não: verde (`accent` + `accentSoft`), tooltip "Ligar todas as telas". Ao clicar, liga apenas as telas desligadas.
    - Quando **todas** estão ligadas: vermelho (`danger` + `dangerSoft`), tooltip "Desligar todas as telas".
+   - Quando **todas** estão desligadas: **sem cor** — a mesma face neutra dos outros botões da barra — e verde apenas no hover (owner, 2026-09-21). Uma parede inteiramente desligada é o estado de repouso, e não deve parecer uma ação pendente.
 3. **Adicionar tela** — ícone `+`. Ativo apenas com menos de 4 telas; desabilitado mantém o mesmo estilo dos demais botões com **opacidade 0.45** (não muda a cor do ícone), cursor `not-allowed`, tooltip "Limite de 4 telas atingido". Hover (quando ativo) acende borda e ícone no `accent`.
 4. **Perfis** — ícone de duas pessoas. Abre o modal de perfis (§10.2), que desde 2026-09-19 é
    onde tudo sobre perfis acontece; antes disso era uma seção dentro de Configurações.

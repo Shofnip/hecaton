@@ -158,7 +158,51 @@ svg {
   flex-direction: column;
   align-items: center;
   padding: 8px 0;
-  gap: 7px;
+  /* 5px, down from 7 (owner, 2026-09-21). The buttons are 28px, so the group
+     still reads as separate targets; below about 4 they start to look like one
+     strip of controls. */
+  gap: 5px;
+}
+
+/* `display: flex` above beats the browser's own `[hidden] { display: none }`,
+   so without this the bar would ignore being hidden and stay on screen through
+   focus mode. An author rule needs an author rule to undo it. */
+#sidebar[hidden] {
+  display: none;
+}
+
+/* Collapsed: a strip holding the arrow and nothing else. No width transition,
+   for the reason the click handler gives - the embedded game windows are placed
+   from measured rectangles, and an animating stage would have them chasing it. */
+#sidebar.collapsed {
+  width: 16px;
+  padding: 6px 0;
+}
+
+#sidebar.collapsed > *:not(.sidebar-toggle) {
+  display: none;
+}
+
+#sidebar.collapsed .sidebar-toggle {
+  width: 14px;
+  height: 22px;
+  border-radius: 5px;
+}
+
+/* The arrow sits at the very bottom, under Configurações. */
+.sidebar-toggle {
+  margin-top: 2px;
+}
+
+/* Reordering the three actions: the same two marks the wall's cards carry, so
+   the gesture looks like itself wherever it is used. */
+.sidebar-btn.dragging {
+  opacity: 0.45;
+}
+
+.sidebar-btn.drop-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .logo {
@@ -239,6 +283,17 @@ svg {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* Every screen off: no tint at all, the same neutral face every other sidebar
+   button wears at rest. It greens on hover through the `.sidebar-btn.power-all`
+   rule above, which is the only colour this state ever shows. Stated as an
+   empty-looking rule on purpose - without it, "all off has no modifier" reads
+   as an oversight rather than a decision. */
+.power-all.all-off {
+  color: var(--muted);
+  border-color: var(--border);
+  background: var(--panel-soft);
 }
 
 /* ---- main stage ---- */

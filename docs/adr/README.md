@@ -109,6 +109,11 @@ order the order of the `slots` array, dragged by a card's head, over one channel
 carrying `{id, toIndex}` — and never by renumbering, since a screen's id is its
 profile directory (Accepted).
 
+Sidebar: [0032](0032-keep-sidebar-arrangement-session-only.md) keeps the three
+reorderable actions and the collapsed/expanded choice in renderer memory for the
+current launch only; focus mode hides the entire bar and restores that session state
+when focus ends (Accepted).
+
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
 decision is taken.
