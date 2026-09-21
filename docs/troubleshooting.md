@@ -417,6 +417,33 @@ language — which is exactly why the app checks by SID and not by that name.
 
 ---
 
+## Embedded screens drift out of line when Windows scaling is above 100%
+
+**Symptom**
+
+The farther a card is from the panel's top-left client origin, the farther its embedded browser is
+shifted down and right. At 125%, the measured displacement is `position × 0.25`.
+
+**Cause**
+
+This is a known, unresolved defect measured on 2026-09-20 from pixels on two machines at 125%.
+The renderer sends physical-pixel rectangles, but the PowerShell Win32 worker is DPI-unaware, so
+Windows virtualises the already-physical coordinates and scales them a second time. A 100%
+desktop cannot reveal it because the virtualisation is then a no-op.
+
+Do not confuse it with the pre-embed placement race reported on 2026-09-21. That bug could leave a
+cold-started screen small, in a wrong corner or entirely off-screen and was fixed by deferring its
+one-shot rectangle until after `SetParent`. The DPI defect is systematic, proportional to position
+and still present.
+
+**What to do**
+
+There is no production workaround in the app yet. Set Windows display scaling to 100% for correct
+alignment. Before changing the worker, reproduce and measure the candidate fix on a display whose
+scale is not 100%; the project's 100% development machine cannot validate it.
+
+---
+
 ## A screen turns on grey and only paints after a reload
 
 **Symptom**

@@ -873,6 +873,16 @@ The load-bearing points:
   channel is gone). The window-manager fits the **game** to the viewport and clips Chrome's
   `--app` title bar and frame away with `SetWindowRgn` — which also stops the user dragging a
   screen out of place.
+- **Known, measured DPI defect (not fixed): the Win32 PowerShell worker is DPI-unaware.** The
+  renderer correctly converts CSS rectangles to physical pixels before `screens:layout`, but
+  Windows then virtualises those coordinates for the worker and scales them a second time. On
+  2026-09-20 the displacement was confirmed from pixels on two machines at 125% scaling:
+  `position × (scale − 1)`, so a cell is progressively farther out of line the farther it is from
+  the parent-client origin. At 100% the virtualisation is a no-op, which is why the development
+  machine cannot reproduce it. This is distinct from the 2026-09-21 pre-embed race below: that race
+  spent one-shot placement before `SetParent` and is fixed; this defect remains on every placement
+  made through a scaled desktop. Any fix must first be measured against the real worker on a
+  non-100% display rather than inferred from Win32 DPI documentation.
 - **A layout frame is one unit, and only the newest one is applied**
   ([ADR-0025](adr/0025-a-layout-frame-is-the-unit-of-window-movement.md)). The core sends every
   screen that moved through `setLayout` in a single call, leaves out any screen already where the

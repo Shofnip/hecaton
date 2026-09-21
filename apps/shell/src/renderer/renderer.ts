@@ -3013,8 +3013,11 @@ interface ScreenPlacement {
  * Rectangles are physical pixels in the panel's client area: getBoundingClientRect
  * gives CSS pixels from the client origin (the web content fills the window's
  * client area), and multiplying by devicePixelRatio is the exact CSS-to-device
- * ratio for this window's display. Verified at 1x (this machine and the spike);
- * higher-DPI displays still need a manual check.
+ * ratio for this window's display. The conversion is correct, but placement is
+ * still wrong above 100% because the DPI-unaware PowerShell worker receives
+ * these already-physical coordinates through Windows virtualisation and scales
+ * them a second time. Measured at 125% on 2026-09-20 and recorded in
+ * architecture.md; unresolved here.
  */
 function emitLayout(): void {
   // Open modal dialogs and the volume popover occlude whatever they cover.
