@@ -231,7 +231,27 @@ width/height ratio selects the nearest supported Chromium preset, clamped to
 25–100%, with ties choosing the smaller preset. Focus mode targets 100%; leaving
 focus recalculates the card target. This approximates a workspace, not an exact
 1920×1080 viewport at every size. The shell supplies display DPI separately;
-the renderer's placement rectangles and IPC contract are unchanged.
+the renderer's placement rectangles are unchanged.
+
+**Since 2026-09-21 that is the behaviour of a screen left on automatic, which is
+every screen until somebody moves its slider**
+([ADR-0031](adr/0031-a-zoom-slider-and-no-zoom-bubble.md)). The magnifier on each
+card opens a slider in the overlay window, beside where the speaker opens the
+volume one, with a live percentage and an `Auto` button; dragging it turns the
+automatic mode off, and the factor it sets then holds in the card, in focus and
+in fullscreen alike — manual means the app stops choosing, so those transitions
+send no zoom command at all. Two optional slot fields carry it, `zoomAuto` and
+`zoom`, absent meaning automatic, so no existing config file migrates and
+`SCHEMA_VERSION` does not move. The slider runs 25–200% where the automatic
+clamp is 25–100%, still only on the measured preset ladder.
+
+**The two channels it added carry no zoom.** `slots:setZoomAuto` flips the mode;
+`slots:setZoomRung` names a **notch** — an index into `MANUAL_ZOOM_PRESETS`, the
+ladder the core owns and the panel only draws. The panel can ask for the fourth
+notch and never for "400%", the same shape as `slots:move` carrying one screen
+instead of an ordering. The ladder reaches the renderer in the pushed state,
+because it is a measurement against the bundled Chromium and moves with that pin.
+The overlay gained a `zoom` request beside `volume`, with the same anchor shape.
 
 With the owner's explicit approval
 ([ADR-0028](adr/0028-read-only-default-zoom-preference.md)),
@@ -243,8 +263,10 @@ parses that one value and plans signed preset steps after reset. Missing or
 invalid files produce unknown, not a presumed 100%. `ScreenZoom` skips unknown
 defaults and retries on a later layout; it never holds up placement. It coalesces
 pending targets per pid and remembers accepted targets so unchanged layout ticks
-do not reread the profile or resend commands. Hide, reload and stop invalidate
-that state. The shell uses the same launcher instance for launch and preferences.
+do not reread the profile or resend commands. Reload and stop invalidate that
+state; **a hide no longer does** (ADR-0031). Hiding a window does not change the
+zoom it already has, and re-sending it on every return from fullscreen was one
+Chrome zoom bubble per screen, per transition. The shell uses the same launcher instance for launch and preferences.
 
 `NativeWindowManager.applyZoom` waits out the existing one-second embed/reload
 settle interval, then asks the Win32 worker to reset and send the signed number
@@ -253,6 +275,13 @@ and bounds the command count. Waiting commands are discarded on hide, reload,
 close, disposal or replacement. There is no focus attachment, cursor movement,
 CDP, extension or game-page injection. A successful reply means commands were
 posted, **not** that the live page reported its resulting percentage.
+
+Once a command is away the adapter sweeps away the bubble Chrome answers it with
+(ADR-0031): for 900 ms, on one timer shared by the whole wall, it hides visible
+top-level windows of that screen's browser whose title is blank — the mirror of
+the rule `extraWindowsOf` uses, which is why the _titled_ save-password bubble is
+untouched. The measurements behind the window, the cadence and the blank-title
+rule are in the bubble bullet under **Browser control**.
 
 Against disposable defaults of 125%, 85% and 110.08%, those production functions
 plus the probe's native commands reached all 30 requested zoom targets, including
@@ -340,12 +369,25 @@ bullet names probe P5, which measured the bundled Chromium `154.0.8014.0` (revis
   them is the one the code already uses in the other direction — `extraWindowsOf` counts windows
   whose title is **not** blank — and no suppressor would have to match any particular text.
   `ShowWindow(SW_HIDE)` removes either one and the page keeps the zoom it was given; `SW_SHOWNA`
-  brings the password bubble back with the same handle and geometry. Two traps for anyone who
-  measures this again: once the zoom bubble is hidden rather than left to self-destruct, Chrome
-  **reuses the same handle**, so neither "a new window appeared" nor "a window became visible" is a
-  usable test; and synthetic input cannot stage the login, because Windows refuses
-  `SetForegroundWindow` to a process that is not already foreground. Nothing was built on this —
-  the owner left both bubbles alone on 2026-09-20.
+  brings the password bubble back with the same handle and geometry. One trap for anyone who
+  measures this again: synthetic input cannot stage the login, because Windows refuses
+  `SetForegroundWindow` to a process that is not already foreground.
+
+  **The zoom bubble is now suppressed** ([ADR-0031](adr/0031-a-zoom-slider-and-no-zoom-bubble.md));
+  the password one is still deliberately left alone. A second probe, `spike/bubble`, measured what
+  the suppressor needed on 2026-09-21, and **corrects two numbers above**. The bubble becomes
+  visible 97 ms after the first command of a session and 15-16 ms after later ones, not 58-73.
+  And the handle is **not** reused: three commands produced three different handles, so a
+  suppressor must re-find the window every time and must not remember one. (The earlier note said
+  the opposite, which would have made "remember the handle and re-hide it" look like a design.)
+  What that probe adds: every **other** untitled top-level window the browser process owns - its
+  `Chrome_StatusTrayWindow`, its `Base_PowerMessageWindow`, the IME windows and a hidden
+  `Chrome_WidgetWin_0` - is **invisible**, so "visible, blank title, not the embedded screen"
+  selects the bubble and nothing else; and `node-window-manager`, the enumeration the adapter
+  already uses for the rescue and the extra-window count, lists it with `isVisible()` true and
+  `getTitle()` empty, so no new Win32 call was needed. The sweep runs for 900 ms after each zoom
+  command, one timer for the whole wall.
+
 - **The WMI query is too slow for polling.** Resolve the PID once at launch; check liveness
   with `process.kill(pid, 0)`.
 - **Never identify a window by title.** During the spike a title filter matched the user's own

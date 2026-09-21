@@ -54,6 +54,12 @@ const api = {
     ipcRenderer.invoke('slots:setVolume', { id, volume }),
   setSlotMuted: (id: number, muted: boolean) => ipcRenderer.invoke('slots:setMuted', { id, muted }),
   reloadSlot: (id: number) => ipcRenderer.invoke('slots:reload', id),
+  // Manual zoom: the mode, and a notch of the slider. Never a factor - the core
+  // owns the ladder, so there is no size here for the panel to be wrong about.
+  setSlotZoomAuto: (id: number, auto: boolean) =>
+    ipcRenderer.invoke('slots:setZoomAuto', { id, auto }),
+  setSlotZoomRung: (id: number, rung: number) =>
+    ipcRenderer.invoke('slots:setZoomRung', { id, rung }),
   cancelSlotLogin: (id: number) => ipcRenderer.invoke('slots:cancelLogin', id),
   // Reordering the wall: one screen, and where it was dropped.
   moveSlot: (id: number, toIndex: number) => ipcRenderer.invoke('slots:move', { id, toIndex }),

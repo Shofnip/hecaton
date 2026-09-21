@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { windowManager } from 'node-window-manager'
 import { NativeWindowManager } from './native-window-manager.js'
 import { Win32Worker } from './win32-worker.js'
 
@@ -39,6 +40,26 @@ while ($true) {
 }
 $f.Dispose()
 `
+
+/**
+ * Chrome's own zoom bubble, as the probe in `spike/bubble` found it: a visible
+ * top-level window of the browser process with a **blank** title, which is the
+ * mirror image of the rule `extraWindowsOf` uses. Every other untitled window
+ * the browser owns was measured invisible, so this finds the bubble and
+ * nothing else.
+ */
+function zoomBubbles(browserPid: number, screenHwnd: number): number[] {
+  return windowManager
+    .getWindows()
+    .filter(
+      (window) =>
+        window.processId === browserPid &&
+        window.id !== screenHwnd &&
+        window.isVisible() &&
+        !window.getTitle().trim(),
+    )
+    .map((window) => window.id)
+}
 
 let host: ChildProcessWithoutNullStreams
 let server: Server
@@ -232,5 +253,36 @@ describe.skipIf(process.platform !== 'win32')('embedded page zoom through the re
     await actualZoom(1)
     expect(await manager.applyZoom(pid!, 0)).toBe(true)
     await actualZoom(1.25)
+  })
+
+  it('leaves no zoom bubble on the wall', async () => {
+    // Measured 2026-09-21 in spike/bubble: the bubble becomes visible within
+    // ~100 ms of the command and dismisses itself only after ~1.3 s. So a
+    // window still visible most of a second later is one the user sees, and
+    // before the suppressor existed this is exactly what every focus and
+    // fullscreen transition put on each card.
+    manager.setLayout([{ pid: pid!, bounds: { x: 40, y: 60, width: 620, height: 350 } }])
+    expect(await manager.applyZoom(pid!, -8)).toBe(true)
+    await sleep(700)
+    expect(zoomBubbles(pid!, hwnd)).toEqual([])
+    // The page keeps the zoom it was given: hiding the bubble is not undoing
+    // the command that provoked it.
+    await actualZoom(1 / 3)
+  })
+
+  it('keeps suppressing across a burst, since the bubble is a new window each time', async () => {
+    // The handle is not reused - spike/bubble saw three different ones - so a
+    // suppressor that remembered one window would miss the next. The gap is
+    // shorter than the bubble's own ~1.3 s life, so each command arrives while
+    // the previous bubble would still be on screen.
+    for (const steps of [-7, -6, -5]) {
+      expect(await manager.applyZoom(pid!, steps)).toBe(true)
+      await sleep(250)
+    }
+    await sleep(600)
+    expect(zoomBubbles(pid!, hwnd)).toEqual([])
+    // Each command resets to this profile's 125% default first, so the page
+    // ends where the **last** one put it: five presets below 1.25 is 0.75.
+    await actualZoom(0.75)
   })
 })

@@ -12,6 +12,7 @@ import {
 } from './testing/fakes.js'
 import type { ScreenBounds } from './grid.js'
 import type { SlotOverrides } from './config.js'
+import { manualZoomRungOf, MANUAL_ZOOM_PRESETS } from './zoom.js'
 
 const SCREEN: ScreenBounds = { x: 0, y: 0, width: 1920, height: 1080 }
 const REGISTRY = buildRegistry([
@@ -553,7 +554,7 @@ describe('applyScreenLayout (the renderer-driven geometry)', () => {
     expect(steps.map((x) => x.steps)).toEqual([-5, -6])
   })
 
-  it('invalidates zoom across hide, reload and restart', async () => {
+  it('keeps the zoom of a hidden screen, and invalidates it across reload and restart', async () => {
     const { app, steps } = zoomSetup()
     await app.start(1)
     const bounds = { x: 0, y: 0, width: 620, height: 350 }
@@ -563,21 +564,26 @@ describe('applyScreenLayout (the renderer-driven geometry)', () => {
     app.applyScreenLayout(layout)
     await settled()
     expect(steps).toHaveLength(1)
+    // Hiding a screen does not change the zoom its window already has, so
+    // coming back must not re-send the same command: that burst - one per
+    // screen, every time fullscreen is left - is what put Chrome's zoom bubble
+    // on the wall (ADR-0031).
     app.applyScreenLayout([{ id: 1 }])
     app.applyScreenLayout(layout)
     await settled()
-    expect(steps).toHaveLength(2)
+    expect(steps).toHaveLength(1)
+    // A reload and a restart do: the document, or the process, is a new one.
     app.reload(1)
     app.applyScreenLayout(layout)
     await settled()
-    expect(steps).toHaveLength(3)
+    expect(steps).toHaveLength(2)
     const pid = launcher.pidForSlot(1)!
     await app.stop(1)
     launcher.nextPid = pid
     await app.start(1)
     app.applyScreenLayout(layout)
     await settled()
-    expect(steps).toHaveLength(4)
+    expect(steps).toHaveLength(3)
   })
   it('positions a running screen at its client-area bounds and shows it', async () => {
     const app = makeOrchestrator()
@@ -738,6 +744,9 @@ describe('snapshot for the panel', () => {
       // Zero until the sweep says otherwise, and the card draws no cancel
       // control while it is zero.
       extraWindows: 0,
+      // The app still chooses the zoom. No factor is carried: none has been
+      // worked out, because no layout frame has arrived (ADR-0031).
+      zoomAuto: true,
     }
     expect(makeOrchestrator().snapshot()).toEqual([
       { id: 1, ...base },
@@ -1441,5 +1450,108 @@ describe('the wall order', () => {
 
     // Slot 1 sits second on the wall, so it gets the narrower right-hand cell.
     expect(launcher.launched[1]?.bounds.width).toBe(960)
+  })
+})
+
+describe('manual zoom (the slider behind the magnifier)', () => {
+  const settled = async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve()
+  }
+  function manualSetup() {
+    const steps: { pid: number; steps: number }[] = []
+    const app = makeOrchestrator({
+      zoom: {
+        preferences: { defaultZoomLevel: async () => 0 },
+        controller: {
+          applyZoom: async (pid, value) => {
+            steps.push({ pid, steps: value })
+            return true
+          },
+        },
+      },
+    })
+    return { app, steps }
+  }
+  const card = { x: 0, y: 0, width: 620, height: 350 }
+
+  it('reports the mode and the factor so the card can draw its buttons', async () => {
+    const { app } = manualSetup()
+    await app.start(1)
+    expect(app.snapshot()[0]).toMatchObject({ zoomAuto: true })
+    app.setSlotZoomAuto(1, false)
+    expect(app.snapshot()[0]).toMatchObject({ zoomAuto: false })
+  })
+
+  it('takes over from the automatic factor rather than jumping somewhere else', async () => {
+    const { app, steps } = manualSetup()
+    await app.start(1)
+    app.applyScreenLayout([{ id: 1, bounds: card }])
+    await settled()
+    // 620x350 lands on 1/3, six presets below the profile default. Dragging to
+    // the next notch up is 1/2, which is five - not an arbitrary jump.
+    expect(steps.map((x) => x.steps)).toEqual([-6])
+    app.setSlotZoomRung(1, manualZoomRungOf(1 / 3) + 1)
+    await settled()
+    expect(steps.map((x) => x.steps)).toEqual([-6, -5])
+    expect(app.snapshot()[0]).toMatchObject({ zoomAuto: false, zoom: 0.5 })
+  })
+
+  it('stops the app choosing, in the card and in focus alike', async () => {
+    const { app, steps } = manualSetup()
+    await app.start(1)
+    app.applyScreenLayout([{ id: 1, bounds: card }])
+    await settled()
+    app.setSlotZoomRung(1, manualZoomRungOf(0.5))
+    await settled()
+    const sent = steps.length
+    // Focus used to force 100%. Under a manual factor it must send nothing.
+    app.focus(1)
+    app.applyScreenLayout([{ id: 1, bounds: { x: 0, y: 0, width: 1500, height: 800 } }])
+    await settled()
+    expect(steps).toHaveLength(sent)
+  })
+
+  it("goes back to the app's own factor when automatic is turned on again", async () => {
+    const { app, steps } = manualSetup()
+    await app.start(1)
+    app.applyScreenLayout([{ id: 1, bounds: card }])
+    await settled()
+    app.setSlotZoomRung(1, 0)
+    await settled()
+    steps.length = 0
+    app.setSlotZoomAuto(1, true)
+    app.applyScreenLayout([{ id: 1, bounds: card }])
+    await settled()
+    expect(steps.map((x) => x.steps)).toEqual([-6])
+    expect(app.snapshot()[0]).toMatchObject({ zoomAuto: true })
+  })
+
+  it('sends nothing while a drag rests on the notch the screen is already at', async () => {
+    // A slider drag lands on the same rung many times over. Each is a command
+    // to the browser, and each command is a bubble to suppress, so the repeat
+    // has to stop here rather than at the adapter.
+    const { app, steps } = manualSetup()
+    await app.start(1)
+    app.applyScreenLayout([{ id: 1, bounds: card }])
+    await settled()
+    app.setSlotZoomRung(1, manualZoomRungOf(1))
+    await settled()
+    const sent = steps.length
+    for (let i = 0; i < 5; i++) {
+      app.setSlotZoomRung(1, manualZoomRungOf(1))
+      await settled()
+    }
+    expect(steps).toHaveLength(sent)
+    expect(app.snapshot()[0]).toMatchObject({ zoom: 1 })
+  })
+
+  it('refuses a rung that is not one, and a screen that is not configured', async () => {
+    const { app } = manualSetup()
+    await app.start(1)
+    expect(() => app.setSlotZoomRung(99, 0)).toThrow()
+    expect(() => app.setSlotZoomAuto(99, false)).toThrow()
+    expect(() => app.setSlotZoomRung(1, -1)).toThrow()
+    expect(() => app.setSlotZoomRung(1, 1.5)).toThrow()
+    expect(() => app.setSlotZoomRung(1, MANUAL_ZOOM_PRESETS.length)).toThrow()
   })
 })

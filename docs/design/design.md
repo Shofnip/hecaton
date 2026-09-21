@@ -179,7 +179,8 @@ Botões de 20×20px com ícones de 16px sobre fundo `panelSoft` — o ícone qua
 
 1. **Ligar/Desligar** — destacado em `accent` quando a tela está ativa (qualquer estado exceto `off`).
 2. **Recarregar** — desabilitado (opacidade 0.45) quando a tela está desligada; o ícone gira durante o carregamento.
-3. **Volume** — abre o popover vertical (seção 6). Ícone fica vermelho quando mudo. O botão **não** ganha destaque enquanto o popover está aberto: o popover vive na janela de overlay, e a parede não guarda esse estado.
+3. **Volume** — abre o popover vertical (seção 6). Abre também **ao passar o mouse**, depois de uma pausa curta de intenção; o popover se fecha sozinho quando o ponteiro sai dele (nunca no meio de um arrasto). Ícone fica vermelho quando mudo. O botão **não** ganha destaque enquanto o popover está aberto: o popover vive na janela de overlay, e a parede não guarda esse estado.
+4. **Zoom** — ícone de lupa; abre o popover de zoom (seção 6.1), por clique ou hover como o de volume. Desabilitado quando a tela está desligada. Ganha o destaque `accent` quando o zoom daquela tela é **manual** — ou seja, o destaque diz "você mexeu aqui", não "o popover está aberto".
 
 **Grupo de visualização e gestão (direita):** 4. **Foco** — ícone de mira; destacado em `accent` quando aquela tela está em foco. Alterna o modo foco. 5. **Tela cheia** — alterna entre maximizar/restaurar (ícone muda entre expandir/contrair). 6. **Editar** — abre o modal de edição (seção 8). 7. **Apagar** — ícone de lixeira em `danger`, sempre o último botão (o mais distante das ações frequentes). Abre confirmação (seção 9).
 
@@ -195,6 +196,15 @@ Popover ancorado **acima** do botão de volume, estilo player de vídeo:
 - Botão de **mudo** (26×26px) na base do popover; quando mudo, borda e ícone em `danger`.
 - Volume 0 equivale a mudo; ajustar o volume acima de 0 remove o mudo automaticamente.
 - Fecha ao clicar em qualquer lugar fora do popover.
+
+### 6.1 Controle de zoom
+
+Mesmo popover da seção 6 — mesma trilha vertical, mesma âncora, mesmo fechamento — com três diferenças:
+
+- A trilha tem **entalhes**: uma posição por passo de zoom que o navegador aceita, do mínimo (25%) ao máximo (200%). O arrasto para em cada entalhe, e a porcentagem no topo acompanha em tempo real.
+- **Arrastar desliga o modo automático** por si só. Não é preciso desligar antes; se não fosse assim, o próximo rearranjo da parede sobrescreveria o que a pessoa acabou de escolher.
+- No lugar do botão de mudo, um botão **Auto** na base, com o mesmo destaque `accent` dos botões ligados. Ligado, o aplicativo escolhe o zoom pelo tamanho do card (e o preenchimento da trilha aparece mais discreto, porque mostra onde a tela está e não o que a pessoa escolheu). Desligado, vale o zoom escolhido — no card, no modo foco e na tela cheia, sem exceção.
+- O zoom escolhido fica salvo por tela e sobrevive a fechar o aplicativo.
 
 ---
 

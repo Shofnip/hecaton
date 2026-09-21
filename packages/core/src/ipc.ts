@@ -22,6 +22,7 @@ import { MAX_SLOT_NAME_LENGTH } from './config.js'
 import type { GlobalConfig, SlotOverrides, Theme } from './config.js'
 import type { GridCell } from './grid.js'
 import { parseSlotOverrides } from './parse-config.js'
+import { manualZoomAtRung } from './zoom.js'
 
 /**
  * One screen's place in the video wall, as the renderer computes it.
@@ -123,6 +124,14 @@ export const IPC_CHANNELS = [
   'slots:setVolume',
   'slots:setMuted',
   'slots:reload',
+  // Manual zoom (owner, 2026-09-21), behind the magnifier on each card. Two
+  // channels, and neither carries a zoom: `setZoomAuto` flips whether the app
+  // still chooses, and `setZoomRung` names a **notch of the slider** - an index
+  // into the ladder in `zoom.ts`, which the core owns and the panel only draws.
+  // So a renderer can ask for the fourth notch and never for "400%", the same
+  // reason `slots:move` carries one screen instead of an ordering.
+  'slots:setZoomAuto',
+  'slots:setZoomRung',
   // The way out of a provider login the user cannot finish (owner, 2026-09-19):
   // closes the windows that screen's browser opened beside the embedded one,
   // and nothing else. It carries a slot id like every other screen command - so
@@ -339,6 +348,40 @@ export function parseSlotMuted(input: unknown): { id: number; muted: boolean } {
   return { id, muted }
 }
 
+/** The `A±` button: whether the app still chooses this screen's zoom. */
+export function parseSlotZoomAuto(input: unknown): { id: number; auto: boolean } {
+  const { id, rest } = requireIdObject(input, 'zoom mode')
+  const auto = rest['auto']
+  if (typeof auto !== 'boolean') {
+    throw new Error(`zoom mode must be true or false, got ${JSON.stringify(auto)}`)
+  }
+  return { id, auto }
+}
+
+/**
+ * Where the slider was dropped: a screen and a notch, and deliberately nothing
+ * else.
+ *
+ * The notch is an index into `MANUAL_ZOOM_PRESETS`, so what the renderer sends
+ * is a position on a ladder the core defined, not a size it decided on. An
+ * extra key is refused rather than ignored, which is what stops a factor riding
+ * along beside the rung and being honoured the day somebody adds a parameter -
+ * the reasoning `parseNoPayload` spells out, applied to a payload that does
+ * take fields.
+ */
+export function parseSlotZoomRung(input: unknown): { id: number; rung: number } {
+  const { id, rest } = requireIdObject(input, 'zoom rung')
+  for (const key of Object.keys(rest)) {
+    if (key !== 'id' && key !== 'rung') {
+      throw new Error(`zoom rung takes no ${JSON.stringify(key)}`)
+    }
+  }
+  if (manualZoomAtRung(rest['rung']) === undefined) {
+    throw new Error(`zoom rung must be a notch of the slider, got ${JSON.stringify(rest['rung'])}`)
+  }
+  return { id, rung: rest['rung'] as number }
+}
+
 /** The theme toggle: one of the two shipped themes, validated as a literal. */
 export function parseTheme(input: unknown): Theme {
   if (input !== 'dark' && input !== 'light') {
@@ -406,6 +449,7 @@ export function parseScreenLayout(input: unknown): ScreenPlacement[] {
 export type OverlayRequest =
   | { kind: 'edit'; id: number }
   | { kind: 'volume'; id: number; anchor: GridCell }
+  | { kind: 'zoom'; id: number; anchor: GridCell }
   | { kind: 'settings' }
   | { kind: 'profiles' }
   | { kind: 'confirmRemove'; id: number }
@@ -425,6 +469,7 @@ export function parseOverlayRequest(input: unknown): OverlayRequest {
       return { kind, id: parseSlotId(rest['id']) }
     case 'confirmRemove':
       return { kind, id: parseSlotId(rest['id']) }
+    case 'zoom':
     case 'volume': {
       const raw = rest['anchor']
       if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {

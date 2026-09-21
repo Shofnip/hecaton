@@ -36,6 +36,10 @@ interface SlotSnapshot {
   lastError?: string
   /** Windows this screen's browser opened beside it — a provider login, in practice. */
   extraWindows: number
+  /** Whether the app still picks this screen's zoom, or the user does (ADR-0031). */
+  zoomAuto: boolean
+  /** The factor now in force, when one is known. Shown as a percentage in the tooltips. */
+  zoom?: number
 }
 
 interface GameOption {
@@ -48,6 +52,8 @@ type Theme = 'dark' | 'light'
 interface PanelState {
   slots: SlotSnapshot[]
   games: GameOption[]
+  /** The notches the zoom slider has, smallest first. Main owns what each is worth. */
+  zoomPresets: number[]
   maxSlots: number
   audioFollowsFocus: boolean
   theme: Theme
@@ -109,6 +115,8 @@ interface HecatonApi {
   setSlotVolume(id: number, volume: number): Promise<void>
   setSlotMuted(id: number, muted: boolean): Promise<void>
   reloadSlot(id: number): Promise<boolean>
+  setSlotZoomAuto(id: number, auto: boolean): Promise<void>
+  setSlotZoomRung(id: number, rung: number): Promise<void>
   cancelSlotLogin(id: number): Promise<void>
   moveSlot(id: number, toIndex: number): Promise<void>
   setTheme(theme: Theme): Promise<void>
@@ -129,6 +137,7 @@ interface HecatonApi {
 type OverlayRequest =
   | { kind: 'edit'; id: number }
   | { kind: 'volume'; id: number; anchor: Anchor }
+  | { kind: 'zoom'; id: number; anchor: Anchor }
   | { kind: 'settings' }
   | { kind: 'profiles' }
   | { kind: 'confirmRemove'; id: number }
@@ -249,6 +258,12 @@ const ICONS: Record<string, Shape[]> = {
     ['path', { d: 'M21 12a9 9 0 1 1-2.64-6.36' }],
     ['polyline', { points: '21 3 21 9 15 9' }],
   ],
+  zoom: [
+    ['circle', { cx: '11', cy: '11', r: '7' }],
+    ['line', { x1: '21', x2: '16.65', y1: '21', y2: '16.65' }],
+  ],
+  chevronLeft: [['polyline', { points: '15 18 9 12 15 6' }]],
+  chevronRight: [['polyline', { points: '9 18 15 12 9 6' }]],
   focus: [
     ['path', { d: 'M3 5a2 2 0 0 1 2-2' }],
     ['path', { d: 'M19 3a2 2 0 0 1 2 2' }],
@@ -463,6 +478,7 @@ let state: PanelState = {
   // announcing a profile change that is really just the app starting.
   account: { id: 0, name: '' },
   accounts: [],
+  zoomPresets: [],
 }
 
 // UI-only state main does not own. The modal/editor flags moved to the overlay
@@ -470,6 +486,7 @@ let state: PanelState = {
 let fullscreenId: number | undefined
 let thumbHeight = 100
 let draggingVolume = false
+let draggingZoom = false
 let draggingDivider = false
 
 /** A background push must not redraw the wall out from under a drag. */
@@ -816,6 +833,7 @@ function focusDivider(): HTMLElement {
   divider.addEventListener('pointerdown', (e) => {
     divider.setPointerCapture(e.pointerId)
     draggingVolume = false
+    draggingZoom = false
     draggingDivider = true
     startY = e.clientY
     startH = thumbHeight
@@ -1026,6 +1044,12 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
   // Volume (opens the popover).
   bar.append(volumeControl(s))
 
+  // Zoom (owner, 2026-09-21): a magnifier that opens a slider, beside the
+  // speaker that opens the volume one.
+  const zoom = zoomControl(s)
+  ;(zoom as HTMLButtonElement).disabled = status === 'off'
+  bar.append(zoom)
+
   bar.append(el('div', 'flex-gap'))
 
   // Focus.
@@ -1079,6 +1103,209 @@ function controls(s: SlotSnapshot, expanded: boolean): HTMLElement {
   return bar
 }
 
+/**
+ * Opens a slider popover on hover as well as on click (owner, 2026-09-21).
+ *
+ * Two details make this work rather than flicker. The **delay** is intent: the
+ * volume and zoom buttons sit between the power and focus buttons, and a
+ * pointer crossing the bar on its way somewhere else must not throw a popover
+ * up on the wall. And the popover renders in the **overlay window**, so it is
+ * not a child of this button and cannot be reached by a CSS hover rule - the
+ * wall asks for it, exactly as the click does, and the overlay decides when it
+ * closes (see `closeOnLeave`).
+ *
+ * Opening twice is harmless but pointless, so a button whose popover is already
+ * up does not ask again: `hoverOpenFor` remembers which one that is.
+ */
+const HOVER_OPEN_MS = 220
+let hoverOpenFor: HTMLElement | undefined
+
+function openOnHover(button: HTMLElement, open: () => void): void {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  button.addEventListener('mouseenter', () => {
+    if (hoverOpenFor === button || (button as HTMLButtonElement).disabled) return
+    timer = setTimeout(() => {
+      timer = undefined
+      if ((button as HTMLButtonElement).disabled) return
+      hoverOpenFor = button
+      open()
+    }, HOVER_OPEN_MS)
+  })
+  button.addEventListener('mouseleave', () => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+    // Not a close: the pointer leaving the button is usually the pointer
+    // arriving at the popover, which lives in the other window. Only the
+    // *popover* closes itself, and clearing this is what lets a second hover
+    // re-open it afterwards.
+    if (hoverOpenFor === button) hoverOpenFor = undefined
+  })
+}
+
+// ---- zoom control + popover (ADR-0031) ----
+
+/** The factor as the UI says it: "50%", or a dash before one is known. */
+function zoomPercent(factor: number | undefined): string {
+  return factor === undefined ? '--' : `${Math.round(factor * 100)}%`
+}
+
+/**
+ * The magnifier on the control bar.
+ *
+ * It opens the slider in the overlay window, handing over its own rectangle so
+ * the popover can be anchored to it - the same handoff `volumeControl` makes,
+ * and for the same reason: the popover has to paint above the embedded game
+ * windows, which only the overlay does.
+ */
+function zoomControl(s: SlotSnapshot): HTMLElement {
+  const ask = (): void => {
+    const r = btn.getBoundingClientRect()
+    run(() =>
+      window.hecaton.openOverlay({
+        kind: 'zoom',
+        id: s.id,
+        anchor: {
+          x: Math.round(r.left),
+          y: Math.round(r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        },
+      }),
+    )
+  }
+  const btn = iconButton(
+    'zoom',
+    'icon-btn ctrl' + (s.zoomAuto ? '' : ' on'),
+    s.zoomAuto ? `Zoom automático (${zoomPercent(s.zoom)})` : `Zoom ${zoomPercent(s.zoom)}`,
+    ask,
+    CTRL_ICON,
+  )
+  openOnHover(btn, ask)
+  return btn
+}
+
+/**
+ * The slider, its live percentage, and the `Auto` button.
+ *
+ * Built like `volumePopover` - same vertical track, same pointer capture, same
+ * repaint-in-place, because it lives in the same overlay window, which has no
+ * wall to re-render. What differs is what the handle means: volume is a
+ * percentage and this is a **notch**, one per entry in the ladder the main
+ * process sent, because the core owns what each notch is worth (ADR-0031).
+ * Rounding to a notch also gives the drag its detents.
+ *
+ * Dragging turns the automatic mode off by itself. Not by calling the toggle
+ * first - `setSlotZoomRung` does it in the main process as part of the same
+ * change, so no layout frame can land in between and overwrite what the user
+ * just dragged to.
+ *
+ * It is also the one popover that **follows the state**, which the volume one
+ * deliberately does not: switching `Auto` back on hands the choice to the app,
+ * so the factor it then picks arrives in a push and the readout has to catch up
+ * or sit there lying. The listener stands down while a drag is in progress, for
+ * the same reason the volume popover has none at all - nothing may move the
+ * handle the user is holding.
+ */
+function zoomPopover(s: SlotSnapshot, presets: number[]): HTMLElement {
+  const pop = el('div', 'volume-popover zoom-popover')
+  pop.addEventListener('click', (e) => e.stopPropagation())
+  pop.addEventListener('pointerdown', (e) => e.stopPropagation())
+
+  // The notch the screen is on now. A screen the app is still choosing for has
+  // a factor too - the one the last layout worked out - so the handle opens
+  // under the current size either way, and there is no jump on first touch.
+  const rungs = Math.max(presets.length - 1, 1)
+  let rung = nearestRung(presets, s.zoom ?? 1)
+
+  const pct = el('span', 'volume-pct')
+  const track = el('div', 'volume-track')
+  track.title = 'Arraste para ajustar o zoom'
+  const fill = el('div', 'volume-fill')
+  track.append(fill)
+
+  const auto = el('button', 'zoom-auto')
+  auto.type = 'button'
+  auto.textContent = 'Auto'
+
+  const paint = (): void => {
+    pct.textContent = zoomPercent(presets[rung])
+    fill.style.setProperty('--volume-fill', `${(rung / rungs) * 100}%`)
+    auto.classList.toggle('on', s.zoomAuto)
+    auto.title = s.zoomAuto
+      ? 'O app escolhe o zoom pelo tamanho da tela'
+      : 'Voltar a deixar o app escolher o zoom'
+    pop.classList.toggle('is-auto', s.zoomAuto)
+  }
+  paint()
+
+  const setFromY = (clientY: number): void => {
+    const r = track.getBoundingClientRect()
+    const wanted = Math.round((1 - (clientY - r.top) / r.height) * rungs)
+    const next = Math.max(0, Math.min(rungs, wanted))
+    if (next === rung && !s.zoomAuto) return
+    rung = next
+    // The card's own state, so a re-render of the wall behind the overlay shows
+    // the same thing the slider does without waiting for a state push.
+    const factor = presets[rung]
+    s.zoomAuto = false
+    if (factor !== undefined) s.zoom = factor
+    run(() => window.hecaton.setSlotZoomRung(s.id, rung))
+    paint()
+  }
+  track.addEventListener('pointerdown', (e) => {
+    track.setPointerCapture(e.pointerId)
+    draggingZoom = true
+    setFromY(e.clientY)
+  })
+  track.addEventListener('pointermove', (e) => {
+    if (draggingZoom) setFromY(e.clientY)
+  })
+  const end = (e: PointerEvent): void => {
+    draggingZoom = false
+    if (track.hasPointerCapture(e.pointerId)) track.releasePointerCapture(e.pointerId)
+  }
+  track.addEventListener('pointerup', end)
+  track.addEventListener('pointercancel', end)
+
+  auto.addEventListener('click', () => {
+    s.zoomAuto = !s.zoomAuto
+    run(() => window.hecaton.setSlotZoomAuto(s.id, s.zoomAuto))
+    paint()
+  })
+
+  // Catches up with the factor the app picks once `Auto` is back on. Reads the
+  // fresh snapshot rather than the captured one, which a push replaces.
+  overlayStateListeners.length = 0
+  overlayStateListeners.push(() => {
+    if (draggingZoom) return
+    const fresh = slot(s.id)
+    if (!fresh) return
+    s.zoomAuto = fresh.zoomAuto
+    if (fresh.zoom !== undefined) s.zoom = fresh.zoom
+    rung = nearestRung(presets, s.zoom ?? 1)
+    paint()
+  })
+
+  pop.append(pct, track, auto)
+  return pop
+}
+
+/**
+ * The notch nearest a factor.
+ *
+ * The renderer's own copy of the core's `manualZoomRungOf`, over the ladder the
+ * main process sent - it cannot import from the core, since this bundle runs in
+ * a sandboxed renderer. It only decides where the handle *opens*; what a notch
+ * is worth is still answered in the main process.
+ */
+function nearestRung(presets: number[], factor: number): number {
+  let best = 0
+  for (let i = 1; i < presets.length; i++) {
+    if (Math.abs(presets[i]! - factor) < Math.abs(presets[best]! - factor)) best = i
+  }
+  return best
+}
+
 // ---- volume control + popover (design §6) ----
 
 function volumeControl(s: SlotSnapshot): HTMLElement {
@@ -1087,27 +1314,29 @@ function volumeControl(s: SlotSnapshot): HTMLElement {
   // it. Both windows share the panel's client coordinates, so the rect carries
   // over unchanged.
   const silent = s.muted || s.volume === 0
+  const ask = (): void => {
+    const r = btn.getBoundingClientRect()
+    run(() =>
+      window.hecaton.openOverlay({
+        kind: 'volume',
+        id: s.id,
+        anchor: {
+          x: Math.round(r.left),
+          y: Math.round(r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        },
+      }),
+    )
+  }
   const btn = iconButton(
     silent ? 'volumeOff' : 'volume',
     'icon-btn ctrl' + (silent ? ' muted' : ''),
     'Volume',
-    () => {
-      const r = btn.getBoundingClientRect()
-      run(() =>
-        window.hecaton.openOverlay({
-          kind: 'volume',
-          id: s.id,
-          anchor: {
-            x: Math.round(r.left),
-            y: Math.round(r.top),
-            width: Math.round(r.width),
-            height: Math.round(r.height),
-          },
-        }),
-      )
-    },
+    ask,
     CTRL_ICON,
   )
+  openOnHover(btn, ask)
   return btn
 }
 
@@ -2492,6 +2721,77 @@ function openVolume(id: number, anchor: Anchor): void {
   }
   // A click anywhere but the popover closes it (the popover stops its own clicks).
   catcher.addEventListener('click', close)
+  closeOnLeave(pop, close, () => draggingVolume)
+  document.addEventListener('keydown', onKey)
+  document.body.append(catcher, pop)
+}
+
+/**
+ * Closes a hovered-open popover when the pointer leaves it.
+ *
+ * The grace period is the gap: the popover floats 10px above the button that
+ * asked for it, and a pointer travelling between the two is briefly over
+ * neither. Re-entering cancels the close, so that gap costs nothing.
+ *
+ * A drag is never interrupted. Pointer capture keeps sending moves while the
+ * pointer is outside the track - that is the whole point of it - so closing on
+ * leave mid-drag would take the slider away from under the hand holding it.
+ */
+const HOVER_CLOSE_MS = 260
+
+function closeOnLeave(pop: HTMLElement, close: () => void, dragging: () => boolean): void {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  pop.addEventListener('mouseleave', () => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = undefined
+      if (!dragging()) close()
+    }, HOVER_CLOSE_MS)
+  })
+  pop.addEventListener('mouseenter', () => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+  })
+}
+
+/**
+ * The zoom slider, anchored to its magnifier exactly as the volume one is.
+ *
+ * It is a separate opener rather than a parameter of `openVolume` because the
+ * two popovers share only their geometry; what they hold, and what dragging
+ * them means, is different.
+ */
+function openZoom(id: number, anchor: Anchor): void {
+  const s = slot(id)
+  if (!s) {
+    void window.hecaton.closeOverlay()
+    return
+  }
+  overlayDepth++
+  const catcher = el('div', 'overlay-catcher')
+  const pop = zoomPopover(s, state.zoomPresets)
+  pop.style.position = 'fixed'
+  pop.style.left = `${anchor.x + anchor.width / 2}px`
+  pop.style.bottom = `${window.innerHeight - anchor.y + 10}px`
+  pop.style.transform = 'translateX(-50%)'
+
+  let closed = false
+  const close = (): void => {
+    if (closed) return
+    closed = true
+    catcher.remove()
+    pop.remove()
+    document.removeEventListener('keydown', onKey)
+    // The popover registered one, to follow the factor the app picks while
+    // `Auto` is on; a listener that outlived it would repaint a detached node.
+    overlayStateListeners.length = 0
+    overlayClosed()
+  }
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') close()
+  }
+  catcher.addEventListener('click', close)
+  closeOnLeave(pop, close, () => draggingZoom)
   document.addEventListener('keydown', onKey)
   document.body.append(catcher, pop)
 }
@@ -2647,6 +2947,9 @@ function initOverlay(): void {
         break
       case 'volume':
         openVolume(request.id, request.anchor)
+        break
+      case 'zoom':
+        openZoom(request.id, request.anchor)
         break
     }
   })

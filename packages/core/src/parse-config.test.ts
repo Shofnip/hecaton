@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_GLOBAL_CONFIG, SCHEMA_VERSION } from './config.js'
-import { parseConfig } from './parse-config.js'
+import { DEFAULT_GLOBAL_CONFIG, resolveSlotConfig, SCHEMA_VERSION } from './config.js'
+import { parseConfig, parseSlotAddition } from './parse-config.js'
 
 const valid = {
   schemaVersion: SCHEMA_VERSION,
@@ -279,5 +279,34 @@ describe('the dismissed update in a config file', () => {
 
   it('refuses a value that is not a string', () => {
     expect(() => parseConfig({ ...valid, updateDismissedFor: 4 })).toThrow(/updateDismissedFor/)
+  })
+})
+
+describe('the per-screen zoom preference', () => {
+  const globals = { ...DEFAULT_GLOBAL_CONFIG, maxSlots: 4 }
+
+  it('reads a screen left on automatic zoom as having no manual factor', () => {
+    const resolved = resolveSlotConfig(globals, { id: 1 })
+    expect(resolved.zoomAuto).toBe(true)
+    expect(resolved.zoom).toBeUndefined()
+  })
+
+  it('keeps a manual factor the user chose', () => {
+    const parsed = parseConfig({ ...valid, slots: [{ id: 1, zoomAuto: false, zoom: 0.5 }] })
+    expect(parsed.slots[0]).toMatchObject({ zoomAuto: false, zoom: 0.5 })
+  })
+
+  it.each([0.55, 3, 0, -1, '0.5', null])('refuses a factor off the ladder: %j', (zoom) => {
+    expect(() => parseConfig({ ...valid, slots: [{ id: 1, zoom }] })).toThrow(/zoom/)
+  })
+
+  it('refuses a zoomAuto that is not a boolean', () => {
+    expect(() => parseConfig({ ...valid, slots: [{ id: 1, zoomAuto: 'no' }] })).toThrow(/zoomAuto/)
+  })
+
+  it('lets a new screen be added on automatic zoom with a factor already chosen', () => {
+    expect(
+      parseSlotAddition({ gameId: 'poke-idleworld', zoomAuto: false, zoom: 0.75 }, globals),
+    ).toMatchObject({ zoomAuto: false, zoom: 0.75 })
   })
 })

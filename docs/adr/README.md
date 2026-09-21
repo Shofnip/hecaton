@@ -94,6 +94,11 @@ Following ADR-0026:
   100% in focus, no config field initially (Accepted).
 - [0028](0028-read-only-default-zoom-preference.md) — restricted read-only access
   to the profile's default zoom preference (Accepted).
+- [0031](0031-a-zoom-slider-and-no-zoom-bubble.md) — a per-screen zoom slider,
+  persisted, holding in focus and fullscreen too; and Chrome's zoom bubble
+  suppressed by a bounded blank-title sweep. Reverses 0027's "no configuration
+  field" and its "focus is always 100%", for a screen whose slider has been
+  moved — and only for that screen (Accepted).
 
 Input recovery: [0029](0029-restore-embedded-stacking-on-reactivation.md) restores
 native embedded stacking on panel reactivation, independently of geometry and

@@ -10,7 +10,7 @@
  */
 import { computeGrid } from './grid.js'
 import { ScreenZoom } from './screen-zoom.js'
-import { screenZoomFactor } from './zoom.js'
+import { manualZoomAtRung, screenZoomFactor } from './zoom.js'
 import type { GridCell, ScreenBounds } from './grid.js'
 import type { ScreenPlacement } from './ipc.js'
 import { resolveSlotConfig } from './config.js'
@@ -107,6 +107,14 @@ export interface SlotSnapshot {
    * for a screen that is not running.
    */
   extraWindows: number
+  /** Whether the app still chooses this screen's zoom, for the `A±` button. */
+  zoomAuto: boolean
+  /**
+   * The factor now in force, when one is known — the manual one the user
+   * stepped to, or the automatic one the last layout worked out. The card shows
+   * it as a percentage; absent means no layout has run yet.
+   */
+  zoom?: number
 }
 
 export class Orchestrator {
@@ -122,6 +130,17 @@ export class Orchestrator {
   private readonly screen: ScreenBounds
   private readonly globals: GlobalConfig
   private readonly slots = new Map<number, SlotRuntime>()
+
+  /**
+   * The factor each screen was last given, by slot id.
+   *
+   * By slot rather than by pid, because it outlives the browser: it is what the
+   * card shows as a percentage, and what the first press of `+` or `-` steps
+   * from when the user has never chosen a factor. `ScreenZoom` keeps the
+   * separate question of what has actually been *sent* to a live window, keyed
+   * by pid, because that one must be forgotten when a pid is reused.
+   */
+  private readonly zoomFactors = new Map<number, number>()
 
   /** When on, focus mode silences the screens that are not focused. */
   private audioFollowsFocus: boolean
@@ -373,6 +392,67 @@ export class Orchestrator {
   }
 
   /**
+   * The `A±` button: hands the choice of zoom to the user, or takes it back.
+   *
+   * Turning it **off** freezes the factor the screen already has, by storing
+   * it — so the button changes who decides, not how big the game is. Turning it
+   * **on** drops the stored factor and lets the next layout frame work one out,
+   * which is what makes the toggle reversible rather than a one-way door.
+   */
+  setSlotZoomAuto(id: number, auto: boolean): void {
+    const slot = this.slot(id)
+    const overrides: SlotOverrides = { ...slot.overrides, zoomAuto: auto }
+    if (auto) delete overrides.zoom
+    else {
+      const current = this.zoomFactors.get(id)
+      if (current !== undefined) overrides.zoom = current
+    }
+    slot.overrides = overrides
+    slot.config = resolveSlotConfig(this.globals, overrides)
+    if (!auto) this.requestZoom(slot)
+  }
+
+  /**
+   * The slider, dropped on one of its notches.
+   *
+   * It turns the automatic zoom off as a side effect, deliberately: with it on,
+   * the next layout frame would overwrite whatever the user just dragged to, so
+   * a slider that left the mode alone would appear to do nothing. The notch is
+   * all the panel sends — `zoom.ts` owns what each one means and both ends of
+   * the ladder — and a drag that rests on the notch the screen already has
+   * stores and sends nothing, which matters because a drag reports the same
+   * rung many times over and each command would cost a browser round trip.
+   */
+  setSlotZoomRung(id: number, rung: number): void {
+    const slot = this.slot(id)
+    const zoom = manualZoomAtRung(rung)
+    if (zoom === undefined) throw new Error(`zoom rung ${rung} is not a notch of the slider`)
+    if (!slot.config.zoomAuto && slot.config.zoom === zoom) return
+    const overrides: SlotOverrides = { ...slot.overrides, zoomAuto: false, zoom }
+    slot.overrides = overrides
+    slot.config = resolveSlotConfig(this.globals, overrides)
+    this.requestZoom(slot)
+  }
+
+  /**
+   * Sends a screen the factor its config now names, if it is running and shown.
+   *
+   * Hidden screens are skipped rather than queued: a command posted to a hidden
+   * window is one the user cannot see land, and the layout frame that reveals
+   * the screen asks again. `ScreenZoom` drops a request that matches what it
+   * last applied, so an unchanged factor costs nothing here either.
+   */
+  private requestZoom(slot: SlotRuntime): void {
+    const pid = slot.pid
+    if (slot.state !== 'running' || pid === undefined) return
+    if (this.shownWindows.get(pid) !== true) return
+    const factor = slot.config.zoomAuto ? this.zoomFactors.get(slot.config.id) : slot.config.zoom
+    if (factor === undefined) return
+    this.zoomFactors.set(slot.config.id, factor)
+    this.zoom?.request(pid, factor)
+  }
+
+  /**
    * Moves a screen to another position on the wall.
    *
    * Position, and nothing else. The id stays with the screen because the id
@@ -613,15 +693,29 @@ export class Orchestrator {
       }
       if (!bounds) {
         // Hidden: forget where it was, so coming back always places it again.
+        // The **zoom** is deliberately not forgotten - hiding a window does not
+        // change the zoom it already has, and re-sending it on every return
+        // from fullscreen is what put a Chrome zoom bubble on each card
+        // (ADR-0031). A reload or a restart still invalidates it, in `reload`
+        // and `forgetWindow`, because there the document or the process is new.
         this.placedWindows.delete(pid)
-        this.zoom?.forget(pid)
         continue
       }
       // Zoom and geometry have different invalidation rules: focus/DPI may
       // change while the rectangle stays identical. Never wait on disk/native
       // commands in the layout path; ScreenZoom coalesces each screen's target.
-      const factor = screenZoomFactor(bounds, dpiScale, slot.config.id === this.focusedSlotId)
-      if (factor !== undefined) this.zoom?.request(pid, factor)
+      //
+      // A screen whose user turned the automatic zoom off is not measured at
+      // all: their factor is the whole answer, in the card, in focus and in
+      // fullscreen alike (ADR-0031). With the mode off and no factor stored
+      // yet, nothing is sent and the screen keeps what it has.
+      const factor = slot.config.zoomAuto
+        ? screenZoomFactor(bounds, dpiScale, slot.config.id === this.focusedSlotId)
+        : slot.config.zoom
+      if (factor !== undefined) {
+        this.zoomFactors.set(slot.config.id, factor)
+        this.zoom?.request(pid, factor)
+      }
       if (sameCell(this.placedWindows.get(pid), bounds)) continue
       this.placedWindows.set(pid, bounds)
       moves.push({ pid, bounds })
@@ -797,7 +891,10 @@ export class Orchestrator {
         // two answers - "how many windows" and "is it running" - must not be
         // able to disagree in the two seconds before the next sweep.
         extraWindows: isLive(slot.state) ? slot.extraWindows : 0,
+        zoomAuto: slot.config.zoomAuto,
       }
+      const zoom = slot.config.zoom ?? this.zoomFactors.get(slot.config.id)
+      if (zoom !== undefined) view.zoom = zoom
       if (slot.config.gameId !== undefined) view.gameId = slot.config.gameId
       if (slot.config.url !== undefined) view.url = slot.config.url
       if (slot.config.name !== undefined) view.name = slot.config.name

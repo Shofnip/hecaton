@@ -90,12 +90,34 @@ const SW_SHOW = 5
  */
 const REPAINT_SETTLE_MS = 1000
 
+/**
+ * How long after a zoom command Chrome's own bubble is worth watching for, and
+ * how often to look.
+ *
+ * Both are measurements, from the disposable probe in `spike/bubble` on
+ * 2026-09-21 against the bundled Chromium: the bubble became visible 97 ms
+ * after the first command of a session and 15-16 ms after later ones, and it
+ * dismisses itself only after ~1.3 s. So the window has to open before the
+ * first sighting and close before the browser would have tidied up anyway -
+ * anything longer is sweeping for something that is no longer there.
+ *
+ * The cadence is a cost as much as a resolution: one sweep enumerates every
+ * window on the desktop, measured at ~7 ms. One timer serves every screen, so
+ * the cost is this cadence and not this cadence times the size of the wall.
+ */
+const BUBBLE_WATCH_MS = 900
+const BUBBLE_SWEEP_MS = 40
+
 export class NativeWindowManager implements WindowManager, ZoomController {
   private readonly worker = new Win32Worker()
   private disposed = false
   private readonly zoomReadyAt = new Map<number, number>()
   /** Cancels commands still waiting for a document when its window changes state. */
   private readonly pendingZoom = new Map<number, symbol>()
+
+  /** Until when each screen's zoom bubble is being swept away. See `suppressZoomBubble`. */
+  private readonly bubbleDeadlines = new Map<number, number>()
+  private bubbleSweep: NodeJS.Timeout | undefined
 
   /**
    * How the adapter finds the panel to embed into.
@@ -446,12 +468,71 @@ export class NativeWindowManager implements WindowManager, ZoomController {
       return false
     try {
       await this.worker.send(`zoom ${hwnd} ${pid} ${steps}`)
+      // Chrome answers a zoom command with a bubble. Start watching for it the
+      // moment the command is away, not when it was asked for: this call may
+      // have waited out a repaint first.
+      this.suppressZoomBubble(pid)
       return true
     } catch {
       return false
     } finally {
       if (this.pendingZoom.get(pid) === operation) this.pendingZoom.delete(pid)
     }
+  }
+
+  /**
+   * Hides the bubble Chrome shows itself whenever the zoom changes.
+   *
+   * The app changes zoom by posting Chrome's own menu commands, and Chrome
+   * answers the way it would answer a user: with a 294x64 bubble over the top
+   * right of the card, for about a second and a third. On a video wall that is
+   * one bubble per screen every time focus or fullscreen moves, which is what
+   * the owner asked to be rid of (ADR-0031).
+   *
+   * **What it hides, and why that is narrow.** A visible top-level window of
+   * that screen's browser whose title is blank - the mirror image of the rule
+   * `extraWindowsOf` already uses, and measured in `spike/bubble`: every other
+   * untitled window the browser process owns (its status tray, its power
+   * message window, the IME windows, the hidden `Chrome_WidgetWin_0`) was
+   * invisible, and the titled one is the save-password bubble, which waits for
+   * an answer and must be left alone. The embedded screen is excluded by handle
+   * rather than by trusting that a `WS_CHILD` is absent from the enumeration.
+   *
+   * **Why it is a bounded sweep and not a watch.** The handle is a different
+   * one each time - the probe saw three - so there is nothing to remember, and
+   * a permanent watch would be an app that hides browser windows at all times
+   * rather than for the instant after a command it sent. The window closes
+   * `BUBBLE_WATCH_MS` after the last command; anything the browser opens
+   * outside it is the user's.
+   *
+   * Hiding it does not undo the zoom: the command has already been handled by
+   * the time the bubble appears, and the integration test reads the resulting
+   * zoom back off the page.
+   */
+  private suppressZoomBubble(pid: number): void {
+    this.bubbleDeadlines.set(pid, Date.now() + BUBBLE_WATCH_MS)
+    if (this.bubbleSweep !== undefined) return
+    // One timer for the whole wall: six screens leaving fullscreen together
+    // should cost one enumeration per tick, not six.
+    const timer = setInterval(() => {
+      const now = Date.now()
+      for (const [each, deadline] of [...this.bubbleDeadlines]) {
+        if (deadline <= now || !this.embedded.has(each)) this.bubbleDeadlines.delete(each)
+      }
+      if (this.bubbleDeadlines.size === 0 || this.disposed) {
+        clearInterval(timer)
+        if (this.bubbleSweep === timer) this.bubbleSweep = undefined
+        return
+      }
+      for (const window of windowManager.getWindows()) {
+        const screen = this.embedded.get(window.processId)
+        if (screen === undefined || !this.bubbleDeadlines.has(window.processId)) continue
+        if (window.id === screen || !window.isVisible() || window.getTitle().trim()) continue
+        this.fire(`show ${window.id} ${SW_HIDE}`)
+      }
+    }, BUBBLE_SWEEP_MS)
+    timer.unref?.()
+    this.bubbleSweep = timer
   }
 
   /**

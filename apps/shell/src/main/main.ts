@@ -34,6 +34,9 @@ import {
   parseSlotRename,
   parseSlotUpdate,
   parseSlotVolume,
+  MANUAL_ZOOM_PRESETS,
+  parseSlotZoomAuto,
+  parseSlotZoomRung,
   parseTheme,
   requireEveryScreenStopped,
   verifyUserDataDeletion,
@@ -490,6 +493,15 @@ function cancelPendingSave(): void {
 interface PanelState {
   slots: SlotSnapshot[]
   games: { id: string; name: string }[]
+  /**
+   * The notches the zoom slider has, smallest first.
+   *
+   * Sent rather than hardcoded in the renderer because the ladder is a
+   * measurement against the bundled Chromium, and it moves when that pin moves
+   * (ADR-0031). The panel draws one notch per entry and sends back an index, so
+   * this is also what stops the two processes disagreeing about what notch 3 is.
+   */
+  zoomPresets: number[]
   maxSlots: number
   audioFollowsFocus: boolean
   theme: Theme
@@ -551,6 +563,7 @@ function currentState(): PanelState {
   const state: PanelState = {
     slots: orchestrator ? orchestrator.snapshot() : [],
     games: GAMES,
+    zoomPresets: [...MANUAL_ZOOM_PRESETS],
     maxSlots: globals.maxSlots,
     audioFollowsFocus: globals.audioFollowsFocus,
     theme: globals.theme,
@@ -942,6 +955,27 @@ function registerIpc(): void {
     },
 
     'slots:reload': (payload) => orchestrator.reload(parseSlotId(payload)),
+
+    'slots:setZoomAuto': async (payload) => {
+      // A discrete toggle, like setMuted: persist and echo at once, because the
+      // card's `A±` button and the percentage beside it both read from the
+      // state that comes back.
+      const { id, auto } = parseSlotZoomAuto(payload)
+      orchestrator.setSlotZoomAuto(id, auto)
+      await saveConfiguration()
+      pushState()
+    },
+
+    'slots:setZoomRung': async (payload) => {
+      // The orchestrator applies the new factor to the live window itself, so
+      // there is nothing to do here but persist. On a debounce and with no echo,
+      // exactly like the volume slider and for the same reason: a drag sends
+      // many of these, the file should be written once, and a state push
+      // mid-drag would fight the handle the user is holding.
+      const { id, rung } = parseSlotZoomRung(payload)
+      orchestrator.setSlotZoomRung(id, rung)
+      saveConfigurationSoon()
+    },
 
     'slots:cancelLogin': (payload) => {
       // Closes the windows that screen opened for itself - the provider login -

@@ -104,6 +104,25 @@ export interface SlotOverrides {
    * only while this is false.
    */
   backgroundThrottling?: boolean
+  /**
+   * Whether the app still chooses this screen's zoom for it.
+   *
+   * Absent means yes, which is what every screen that predates the manual
+   * controls says, so an old config file needs no migration. Turning it off is
+   * the `A±` button on the card: from then on the factor below is the whole
+   * answer, in the card, in focus and in fullscreen alike (ADR-0031).
+   */
+  zoomAuto?: boolean
+  /**
+   * The factor the user stepped to, when they have stepped to one.
+   *
+   * Only ever a rung of the measured preset ladder inside the manual range —
+   * `manualZoomFactor` in `zoom.ts` is the one rule, shared by this parser and
+   * the IPC channel. Absent with `zoomAuto: false` means "manual, but nobody
+   * has pressed a button yet", and the screen keeps the last automatic factor
+   * until they do.
+   */
+  zoom?: number
 }
 
 export interface ResolvedSlotConfig {
@@ -116,6 +135,8 @@ export interface ResolvedSlotConfig {
   volume: number
   muted: boolean
   backgroundThrottling: boolean
+  zoomAuto: boolean
+  zoom?: number
   profileDir: string
 }
 
@@ -174,10 +195,14 @@ export function resolveSlotConfig(globals: GlobalConfig, slot: SlotOverrides): R
     volume: slot.volume ?? 100,
     muted: slot.muted ?? false,
     backgroundThrottling: slot.backgroundThrottling ?? false,
+    // Automatic until the user says otherwise: the shipped behaviour is the one
+    // ADR-0027 chose, and the absence of the field is what says nobody changed it.
+    zoomAuto: slot.zoomAuto ?? true,
     profileDir: slotProfileDirName(slot.id),
   }
   if (slot.gameId !== undefined) resolved.gameId = slot.gameId
   if (slot.url !== undefined) resolved.url = slot.url
   if (slot.name !== undefined) resolved.name = slot.name
+  if (slot.zoom !== undefined) resolved.zoom = slot.zoom
   return resolved
 }

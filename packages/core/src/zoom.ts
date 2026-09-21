@@ -25,6 +25,76 @@ export function screenZoomFactor(
   )
 }
 
+/**
+ * What the three card buttons may reach.
+ *
+ * The same measured ladder the automatic policy uses, so every factor a button
+ * produces is one `zoomStepsFromDefault` can name in native commands — the
+ * manual control is a different *chooser*, never a different mechanism. The
+ * range is wider than the automatic clamp at the top (200% against 100%)
+ * because a person asking for more zoom is asking to read something, and
+ * narrower than the browser's own 500% because a card at that factor shows a
+ * handful of pixels of the game.
+ */
+export const MANUAL_ZOOM_MIN = 0.25
+export const MANUAL_ZOOM_MAX = 2
+
+/**
+ * The rungs the zoom slider has, in order.
+ *
+ * Exported because the panel draws a slider over exactly these and sends back
+ * **which rung**, never a factor of its own (ADR-0031). It is the core that
+ * says what rung 3 means, so the ladder and its meaning cannot drift apart
+ * between two processes.
+ */
+export const MANUAL_ZOOM_PRESETS: readonly number[] = PRESETS.filter(
+  (factor) => factor >= MANUAL_ZOOM_MIN - EPSILON && factor <= MANUAL_ZOOM_MAX + EPSILON,
+)
+
+/**
+ * A factor a stored preference or an IPC payload may claim.
+ *
+ * Only the ladder, and only inside the manual range: a value between two
+ * presets would be a zoom the adapter cannot post, and it would arrive here
+ * from a hand-edited config file or a renderer asserting a number. Undefined
+ * means "no manual factor", which the caller reads as automatic.
+ */
+export function manualZoomFactor(factor: unknown): number | undefined {
+  if (typeof factor !== 'number' || !Number.isFinite(factor)) return undefined
+  return MANUAL_ZOOM_PRESETS.find((preset) => Math.abs(preset - factor) < EPSILON)
+}
+
+/**
+ * What the panel's slider is allowed to say: a rung, not a size.
+ *
+ * The whole payload of the zoom channel goes through here, so a value that is
+ * not an index into the ladder above is refused rather than clamped - clamping
+ * an arbitrary number would turn a malformed message into a zoom the user did
+ * not ask for.
+ */
+export function manualZoomAtRung(rung: unknown): number | undefined {
+  if (!Number.isInteger(rung)) return undefined
+  return MANUAL_ZOOM_PRESETS[rung as number]
+}
+
+/**
+ * Where a factor sits on the ladder, so the slider opens under the screen's
+ * current zoom rather than jumping the moment it is first touched.
+ *
+ * A factor between two rungs snaps to the nearer one: it can arrive from a
+ * hand-edited config file, or from a rung that stopped existing when the
+ * bundled Chromium pin moved. Ties favour the smaller preset, as the automatic
+ * policy does, so the two never disagree about which rung a size sits on.
+ */
+export function manualZoomRungOf(factor: number): number {
+  let best = 0
+  for (let i = 1; i < MANUAL_ZOOM_PRESETS.length; i++) {
+    if (Math.abs(MANUAL_ZOOM_PRESETS[i]! - factor) < Math.abs(MANUAL_ZOOM_PRESETS[best]! - factor))
+      best = i
+  }
+  return best
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -67,6 +67,8 @@ export {
   parseSlotRename,
   parseSlotUpdate,
   parseSlotVolume,
+  parseSlotZoomAuto,
+  parseSlotZoomRung,
   parseTheme,
 } from './ipc.js'
 export type { IpcChannel, OverlayRequest, ScreenPlacement } from './ipc.js'
@@ -107,7 +109,17 @@ export {
 export type { UserDataTarget } from './user-data.js'
 
 export { slotProfileDirName } from './slot-profile.js'
-export { defaultZoomLevel, zoomStepsFromDefault, screenZoomFactor } from './zoom.js'
+export {
+  defaultZoomLevel,
+  MANUAL_ZOOM_MAX,
+  MANUAL_ZOOM_MIN,
+  MANUAL_ZOOM_PRESETS,
+  manualZoomAtRung,
+  manualZoomFactor,
+  manualZoomRungOf,
+  screenZoomFactor,
+  zoomStepsFromDefault,
+} from './zoom.js'
 
 export { Orchestrator } from './orchestrator.js'
 export type { OrchestratorDeps, SlotSnapshot } from './orchestrator.js'

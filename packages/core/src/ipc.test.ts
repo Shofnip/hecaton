@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_GLOBAL_CONFIG } from './config.js'
+import { MANUAL_ZOOM_PRESETS } from './zoom.js'
 import {
   IPC_CHANNELS,
   parseAccountRename,
@@ -16,6 +17,8 @@ import {
   parseSlotRename,
   parseSlotUpdate,
   parseSlotVolume,
+  parseSlotZoomAuto,
+  parseSlotZoomRung,
   parseTheme,
 } from './ipc.js'
 
@@ -57,6 +60,8 @@ describe('the channel list', () => {
       'slots:setVolume',
       'slots:setMuted',
       'slots:reload',
+      'slots:setZoomAuto',
+      'slots:setZoomRung',
       'slots:cancelLogin',
       'slots:move',
       'ui:setTheme',
@@ -465,5 +470,55 @@ describe('parseSlotMove', () => {
   // how many screens the wall has. This parser is the shape check.
   it('accepts an index the wall may well be too short for', () => {
     expect(parseSlotMove({ id: 1, toIndex: 99 }).toIndex).toBe(99)
+  })
+})
+
+describe('the zoom channels', () => {
+  it('accepts the automatic-zoom toggle', () => {
+    expect(parseSlotZoomAuto({ id: 2, auto: false })).toEqual({ id: 2, auto: false })
+  })
+
+  it.each([
+    { id: 2 },
+    { id: 2, auto: 'false' },
+    { id: 2, auto: 0 },
+    { id: 0, auto: true },
+    'nope',
+    null,
+  ])('refuses a malformed zoom toggle: %j', (payload) => {
+    expect(() => parseSlotZoomAuto(payload)).toThrow()
+  })
+
+  it('accepts a rung of the ladder the core owns', () => {
+    expect(parseSlotZoomRung({ id: 1, rung: 0 })).toEqual({ id: 1, rung: 0 })
+    expect(parseSlotZoomRung({ id: 1, rung: MANUAL_ZOOM_PRESETS.length - 1 })).toEqual({
+      id: 1,
+      rung: MANUAL_ZOOM_PRESETS.length - 1,
+    })
+  })
+
+  it('carries a rung, never a factor the panel chose', () => {
+    // The whole point of the shape: the slider says which notch, the core says
+    // what size that is. A payload naming a factor is refused, not honoured.
+    expect(() => parseSlotZoomRung({ id: 1, rung: 0.5 })).toThrow()
+    expect(() => parseSlotZoomRung({ id: 1, rung: -1 })).toThrow()
+    expect(() => parseSlotZoomRung({ id: 1, rung: MANUAL_ZOOM_PRESETS.length })).toThrow()
+    expect(() => parseSlotZoomRung({ id: 1, rung: 0, zoom: 2 })).toThrow()
+    expect(() => parseSlotZoomRung({ id: 1, rung: '0' })).toThrow()
+  })
+
+  it('is on the channel list, so preload and main cannot drift from it', () => {
+    expect(IPC_CHANNELS).toContain('slots:setZoomAuto')
+    expect(IPC_CHANNELS).toContain('slots:setZoomRung')
+  })
+
+  it('anchors a zoom popover the way the volume one is anchored', () => {
+    const anchor = { x: 10, y: 20, width: 20, height: 20 }
+    expect(parseOverlayRequest({ kind: 'zoom', id: 3, anchor })).toEqual({
+      kind: 'zoom',
+      id: 3,
+      anchor,
+    })
+    expect(() => parseOverlayRequest({ kind: 'zoom', id: 3 })).toThrow()
   })
 })

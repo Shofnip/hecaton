@@ -26,6 +26,7 @@ import {
 import type { GlobalConfig, SlotOverrides, Theme } from './config.js'
 import { normalizeUrl } from './normalize-url.js'
 import { isGameId } from './registry.js'
+import { MANUAL_ZOOM_MAX, MANUAL_ZOOM_MIN, manualZoomFactor } from './zoom.js'
 
 export interface ParsedConfig {
   globals: GlobalConfig
@@ -55,6 +56,8 @@ const SLOT_KEYS = [
   'volume',
   'muted',
   'backgroundThrottling',
+  'zoomAuto',
+  'zoom',
 ] as const
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -230,6 +233,22 @@ function readSlotFields(
       context,
     )
   }
+  if (input['zoomAuto'] !== undefined) {
+    into.zoomAuto = requireBoolean(input['zoomAuto'], 'zoomAuto', context)
+  }
+  if (input['zoom'] !== undefined) {
+    // Through the ladder rule rather than a range check: a factor between two
+    // presets is one the native adapter cannot post, so accepting it here would
+    // store a zoom the screen can never actually be given.
+    const zoom = manualZoomFactor(input['zoom'])
+    if (zoom === undefined) {
+      throw new Error(
+        `${context}zoom must be one of the browser's preset factors between ` +
+          `${MANUAL_ZOOM_MIN} and ${MANUAL_ZOOM_MAX}, got ${JSON.stringify(input['zoom'])}`,
+      )
+    }
+    into.zoom = zoom
+  }
 }
 
 /** The keys an addition may carry — the slot keys minus the id it does not choose. */
@@ -272,6 +291,8 @@ export function parseSlotAddition(
   if (withPlaceholder.backgroundThrottling !== undefined) {
     fields.backgroundThrottling = withPlaceholder.backgroundThrottling
   }
+  if (withPlaceholder.zoomAuto !== undefined) fields.zoomAuto = withPlaceholder.zoomAuto
+  if (withPlaceholder.zoom !== undefined) fields.zoom = withPlaceholder.zoom
   return fields
 }
 

@@ -47,6 +47,9 @@ describe('resolveSlotConfig', () => {
       volume: 100,
       muted: false,
       backgroundThrottling: false,
+      // The app still chooses the zoom, and nobody has stepped to a factor, so
+      // there is none to carry (ADR-0031).
+      zoomAuto: true,
     })
   })
 

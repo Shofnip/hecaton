@@ -649,6 +649,50 @@ body.reordering .card-name {
   border-radius: 7px;
 }
 
+/* ---- zoom popover (ADR-0031) ----
+   The same shell as the volume one - it is the same component with a different
+   meaning - plus the Auto button underneath, which is text where the volume
+   popover has an icon and so needs its own box. */
+.zoom-popover .volume-pct {
+  /* Three characters ("100%") where the volume readout has at most four, but
+     the width has to be fixed either way: without it the popover breathes in
+     and out as the handle moves through 50% / 100% / 25%. */
+  min-width: 30px;
+  text-align: center;
+}
+
+/* While the app is choosing, the handle shows where the screen is rather than
+   what the user picked, so the fill is stated more quietly. */
+.zoom-popover.is-auto .volume-fill {
+  opacity: 0.55;
+}
+
+.zoom-auto {
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 5px 6px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.zoom-auto:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+
+/* The same "this is on" tint the control bar's toggles carry. */
+.zoom-auto.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .volume-mute.muted {
   color: var(--danger);
   border-color: var(--danger-border);
