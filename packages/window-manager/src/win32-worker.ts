@@ -32,7 +32,7 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * Protocol, one command line in -> one reply line out:
  *   reparent <child> <parent>       -> OK parent=<hwnd>
  *   movechildren <hwnd>,<x>,<y>,<w>,<h>;...  -> OK   (x,y in the parent's client area)
- *   settlechildren <hwnd>,<x>,<y>,<w>,<h>;... -> OK  (reposts position, keeps the clip)
+ *   settlechildren <hwnd>,<x>,<y>,<w>,<h>;... -> OK  (reposts position, flushes exact clip)
  *   movetop <hwnd> <x> <y>          -> OK        (x,y in screen px; keeps size and frame)
  *   focusat <parent> <x> <y>        -> OK <hwnd> | OK none  (x,y in the parent's client area)
  *   restack <child> <pid> <parent> -> OK | OK hidden (validated embedded child only)
@@ -65,6 +65,24 @@ import type { Interface as ReadlineInterface } from 'node:readline'
  * a region excluding both. The excluded pixels neither paint nor take clicks,
  * which also prevents dragging the game by its clipped title bar. SetWindowRgn
  * takes ownership of the region; its coordinates are relative to the window.
+ * `SetWindowPos` uses `SWP_ASYNCWINDOWPOS`: `MoveWindow` waited for a busy game
+ * thread (11 ms per screen against 3.5 ms for the posted request), while the
+ * async call landed on the identical pixel across six screens. `HWND_TOP`
+ * simultaneously restores the sibling order described below.
+ *
+ * Chrome's direct `Intermediate D3D Window` is the presentation surface. A
+ * four-screen launch left one of those children at the outer window's original
+ * off-screen coordinate while every other handle, process and rectangle was
+ * healthy; moving that child alone to the outer client recovered the page
+ * immediately. `RepairD3D` therefore checks it on the quiet-time settle and
+ * before reveal, and calls synchronous `MoveWindow` only when it is mismatched.
+ * It is deliberately absent from the live-resize path.
+ *
+ * `MoveTop` deliberately preserves the complete frame of a rescued login
+ * window, unlike an embedded child, and ignores the `(-32000,-32000)` rectangle
+ * Windows reports for a minimized window. `Close` posts `WM_CLOSE`, equivalent
+ * to its X button, so Chrome can shut down gracefully without blocking the
+ * worker on its browser thread.
  *
  * ### `Restack`
  *
@@ -140,6 +158,7 @@ export const WORKER_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 $cs = @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class W {
   [DllImport("shcore.dll",EntryPoint="SetProcessDpiAwareness")] public static extern int D(int v);
@@ -162,6 +181,8 @@ public static class W {
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT pt);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr p, IntPtr a, string c, string t);
+  [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr h, int x, int y, int w, int hh, bool repaint);
   [DllImport("user32.dll")] static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
   [DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
@@ -185,18 +206,17 @@ public static class W {
   const uint WM_CLOSE = 0x0010;
   // Chrome's in-client title bar. See APP_TITLE above this literal.
   const int APP_TITLE = 30;
+  static Dictionary<IntPtr,RECT> clips = new Dictionary<IntPtr,RECT>();
+  static Dictionary<IntPtr,long> clipAt = new Dictionary<IntPtr,long>();
 
   public static string Reparent(IntPtr child, IntPtr parent) {
+    clips.Remove(child); clipAt.Remove(child);
     long style = GetWindowLongPtr(child, GWL_STYLE).ToInt64();
     long stripped = (style & ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)) | WS_CHILD;
     SetWindowLongPtr(child, GWL_STYLE, (IntPtr)stripped);
     SetParent(child, parent);
     SetWindowPos(child, IntPtr.Zero, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
-    // No input-queue attach here. It is done on click (focusat) instead: attaching
-    // the panel to a Chrome thread that is busy launching serialises the panel's
-    // own input with it, which froze the cursor when several screens started at
-    // once. By the time a screen is clicked, its Chrome is idle, so the attach is
-    // cheap — and the click is when keyboard focus is actually wanted (finding 0.1).
+    // No input-queue attach here; see FocusChild above this literal.
     return "OK parent=" + GetAncestor(child, 1).ToInt64();
   }
 
@@ -211,9 +231,7 @@ public static class W {
     AttachThreadInput(self, ctid, false);
   }
 
-  // Focuses whichever embedded child sits under a click. The panel forwards the
-  // point of a WM_PARENTNOTIFY button-down here (finding 0.1): a click on a child
-  // of another process does not move keyboard focus on its own.
+  // Focuses the child under a forwarded WM_PARENTNOTIFY click.
   public static string FocusAt(IntPtr parent, int x, int y) {
     POINT pt; pt.X = x; pt.Y = y;
     IntPtr child = ChildWindowFromPointEx(parent, pt, CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT);
@@ -222,14 +240,8 @@ public static class W {
     return "OK " + child.ToInt64();
   }
 
-  // A top-level window moved in screen pixels, keeping its size and its frame.
-  // Deliberately not MoveChild: that one clips the title bar away, which is
-  // right for an embedded screen and wrong for a window the user has to drag
-  // and close - a rescued login window keeps everything it was born with.
+  // Moves a framed top-level window; see MoveTop above this literal.
   public static string MoveTop(IntPtr h, int x, int y) {
-    // A minimized window reports (-32000,-32000) and is "visible" to
-    // IsWindowVisible, so without this the rescue would chase a window the user
-    // deliberately minimized, every tick, for ever.
     if (IsIconic(h)) return "OK minimized";
     SetWindowPos(h, (IntPtr)0, x, y, 0, 0, 0x0001 | 0x0004);  // NOSIZE | NOZORDER
     BringWindowToTop(h);
@@ -238,14 +250,15 @@ public static class W {
 
   public static string MoveChildren(string spec, bool settle) {
     string[] items = spec.Split(';');
+    int regions = 0;
     for (int i = 0; i < items.Length; i++) {
       string[] p = items[i].Split(',');
-      MoveOne((IntPtr)long.Parse(p[0]), int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), int.Parse(p[4]), settle);
+      if (MoveOne((IntPtr)long.Parse(p[0]), int.Parse(p[1]), int.Parse(p[2]), int.Parse(p[3]), int.Parse(p[4]), settle)) regions++;
     }
-    return "OK";
+    return "OK " + regions;
   }
 
-  static void MoveOne(IntPtr h, int x, int y, int w, int hh, bool settle) {
+  static bool MoveOne(IntPtr h, int x, int y, int w, int hh, bool settle) {
     RECT wr; GetWindowRect(h, out wr);
     RECT cr; GetClientRect(h, out cr);
     POINT origin; origin.X = 0; origin.Y = 0; ClientToScreen(h, ref origin);
@@ -255,21 +268,33 @@ public static class W {
     int bottom = (wr.Bottom - wr.Top) - (cr.Bottom - cr.Top) - top;
     // The client must be APP_TITLE taller and shifted up, so the game lands at x,y.
     //
-    // SetWindowPos with SWP_ASYNCWINDOWPOS, not MoveWindow: MoveWindow waits for
-    // the target thread to process the resize, and the target is a browser in the
-    // middle of drawing a game. Measured 2026-09-20: 11 ms per screen against
-    // 3.5 ms for the posted request, landing on the identical pixel (0px apart
-    // over six screens) with the identical z-order. HWND_TOP with no SWP_NOZORDER
-    // re-asserts the top of the sibling z-order in the same call, so Electron's
-    // own input hwnd (it is Chromium too, and it re-raises itself on a parent
-    // resize) cannot cover the screen and swallow its clicks.
+    // Async position and HWND_TOP are measured requirements; see MoveChildren above.
     SetWindowPos(h, IntPtr.Zero, x - left, y - APP_TITLE - top,
                  w + left + right, hh + APP_TITLE + top + bottom,
                  SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
-    // Region = just the game, in window coords: past the frame-left, and past the
-    // frame-top plus the title bar. SetWindowRgn takes ownership of the region.
-    // In window coordinates, so it does not depend on the move having landed yet.
-    if (!settle) SetWindowRgn(h, CreateRectRgn(left, top + APP_TITLE, left + w, top + APP_TITLE + hh), true);
+    if (settle) RepairD3D(h);
+    // SetWindowRgn dominates live resize. Cap it at 20 Hz; the quiet-time
+    // settle always flushes the exact final clip (Stage 3 probe).
+    RECT old; bool known = clips.TryGetValue(h, out old);
+    long last, now = DateTime.UtcNow.Ticks;
+    bool clip = settle || !known || old.Left != left || old.Top != top ||
+      !clipAt.TryGetValue(h, out last) || now - last >= 500000;
+    if (clip) {
+      SetWindowRgn(h, CreateRectRgn(left, top + APP_TITLE, left + w, top + APP_TITLE + hh), false);
+      old.Left = left; old.Top = top; old.Right = w; old.Bottom = hh;
+      clips[h] = old; clipAt[h] = now;
+    }
+    return clip;
+  }
+
+  static void RepairD3D(IntPtr outer) {
+    IntPtr child=FindWindowEx(outer,IntPtr.Zero,"Intermediate D3D Window",null);
+    if(child==IntPtr.Zero)return;
+    RECT cr,wr;if(!GetClientRect(outer,out cr)||!GetWindowRect(child,out wr))return;
+    POINT p;p.X=0;p.Y=0;if(!ClientToScreen(outer,ref p))return;
+    int w=cr.Right-cr.Left,hh=cr.Bottom-cr.Top;
+    if(wr.Left!=p.X||wr.Top!=p.Y||wr.Right-wr.Left!=w||wr.Bottom-wr.Top!=hh)
+      MoveWindow(child,0,0,w,hh,true);
   }
 
   // Native zoom IDs measured by spike/scale; no focus or input-queue changes.
@@ -282,7 +307,7 @@ public static class W {
     return "OK";
   }
 
-  public static string Show(IntPtr h, int cmd) { ShowWindow(h, cmd); return "OK"; }
+  public static string Show(IntPtr h, int cmd) { if(cmd!=0)RepairD3D(h);ShowWindow(h, cmd);return "OK"; }
 
   // Identity-checked sibling order only. See Restack above this literal.
   public static string Restack(IntPtr h, uint pid, IntPtr parent) {
@@ -300,10 +325,7 @@ public static class W {
     return "OK";
   }
 
-  // Posts WM_CLOSE — the same message clicking the window's X sends — so Chrome
-  // closes gracefully even though, reparented, it is no longer a top-level window
-  // that CloseMainWindow could reach. Posted, not sent, so the worker does not
-  // block on Chrome's shutdown.
+  // Graceful, non-blocking close; see MoveTop above this literal.
   public static string Close(IntPtr h) { PostMessage(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); return "OK"; }
 
 }

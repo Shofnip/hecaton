@@ -88,6 +88,7 @@ import {
 } from '@hecaton/storage'
 import { buildGameRegistry } from '@hecaton/games'
 import { allowsNavigation, cspHeaders, panelWebPreferences } from './security.js'
+import { trackOverlayBounds } from './overlay-tracking.js'
 import { firstRunSlots } from './first-run.js'
 import { runDetachedWindowSweep, runLivenessTick } from './liveness-tick.js'
 import { SingleFlightTask } from './periodic-task.js'
@@ -1723,16 +1724,9 @@ function createOverlay(parent: BrowserWindow): void {
   overlay.setIgnoreMouseEvents(true, { forward: true })
   void overlay.loadFile(join(RENDERER_DIR, 'overlay.html'))
 
-  // Keep it exactly over the panel's content area. The panel's own move/resize is
-  // what changes that rectangle, so following those events is enough.
-  const track = (): void => {
-    if (overlay) overlay.setBounds(parent.getContentBounds())
-  }
-  parent.on('move', track)
-  parent.on('resize', track)
-  parent.on('maximize', track)
-  parent.on('unmaximize', track)
-  parent.on('restore', track)
+  // Hidden is the normal state, and overlay:open synchronises once before show.
+  // Following hidden resize frames only adds a second native resize path.
+  trackOverlayBounds(parent, overlay)
   overlay.on('closed', () => {
     overlay = undefined
   })

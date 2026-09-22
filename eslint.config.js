@@ -44,6 +44,19 @@ export default tseslint.config(
     },
   },
   {
+    // Electron integration fixtures are launched as standalone Node-style main
+    // processes. They stay beside the test for discoverability, are not copied
+    // by tsc, and need CommonJS because Electron treats an explicit script that
+    // way unless a package boundary says otherwise.
+    files: ['apps/*/src/**/*.integration.fixture.cjs'],
+    languageOptions: {
+      globals: { process: 'readonly', require: 'readonly', setTimeout: 'readonly' },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
     // The pure core must stay free of I/O. This is the project's central
     // architectural boundary, so it is enforced rather than merely documented:
     // if a decision needs the filesystem, a process or the network, the decision

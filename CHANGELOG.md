@@ -8,6 +8,26 @@ lido sem abrir o aplicativo e antes de instalar qualquer coisa.
 Escrito para quem usa, não para quem programa. O histórico técnico completo está
 nos commits.
 
+## 0.5.1
+
+Abrir várias telas e redimensionar a parede ficou mais rápido e confiável.
+
+- **Nenhuma tela fica preta ao ligar todas.** Em alguns inícios simultâneos, a
+  superfície interna do Chromium continuava fora da tela mesmo com o navegador
+  no card certo. O Hecaton agora corrige essa superfície sem trocar o navegador,
+  recarregar a página ou perder a sessão.
+- **Ligar todas ficou rápido sem travar o painel.** As telas agora começam juntas,
+  e uma que falhar não impede as outras de abrir. Um segundo clique é ignorado
+  até essa rodada terminar. Desligar todas continua acontecendo em paralelo.
+- **O cursor não dá mais uma pausa a cada dois segundos.** A verificação das
+  janelas de login saiu do relógio: ela acontece apenas quando o Hecaton ganha ou
+  perde foco, fora da interface, e a parede não é redesenhada quando nada mudou.
+- **Redimensionar ficou mais leve.** O recorte mais caro acompanha o movimento em
+  ritmo limitado e termina na posição exata, sem fila atrasada, saltos antigos ou
+  faixas pretas persistentes.
+- **Popovers mais estáveis.** Volume e zoom não piscam enquanto o ponteiro está
+  parado e continuam abertos durante a passagem entre o botão e o controle.
+
 ## 0.5.0
 
 Zoom e barra lateral agora podem ser ajustados do seu jeito, sem atrapalhar a
@@ -26,17 +46,13 @@ parede de jogos.
 - **Iniciar várias telas ficou confiável.** Uma tela que demorava a abrir podia
   gastar sua posição e sua ordem de aparecer antes de entrar no painel, ficando
   preta, pequena ou fora do lugar. A posição agora espera o encaixe terminar.
-- **Ligar todas ficou rápido sem travar o painel.** As telas agora começam juntas,
-  e uma que falhar não impede as outras de abrir. Um segundo clique é ignorado
-  até essa rodada terminar. Desligar todas continua acontecendo em paralelo.
-- **O cursor não dá mais uma pausa a cada dois segundos.** A verificação das
-  janelas de login saiu do relógio: ela acontece apenas quando o Hecaton ganha ou
-  perde foco, fora da interface, e a parede não é redesenhada quando nada mudou.
+- **Ligar todas não engasga mais o computador.** As telas passam a iniciar uma
+  por vez, com tempo para cada navegador estabilizar antes do próximo. Desligar
+  todas continua acontecendo em paralelo e rápido.
 - **Redimensionar mantém cada jogo no seu card.** Quando os movimentos chegavam
   mais rápido que o Windows conseguia aplicá-los, a posição nova de uma tela
   podia ser descartada pela mudança seguinte de outra. Os movimentos pendentes
-  agora são combinados por tela e a posição final é conferida uma vez quando o
-  movimento termina, sem fila atrasada, saltos antigos ou faixas pretas persistentes.
+  agora são combinados por tela, sem fila atrasada nem saltos para posições antigas.
 - **Desligar todas ficou rápido.** O pedido de fechamento agora chega à janela
   antes de o aplicativo esquecer como encontrá-la, evitando esperar pelo prazo
   de encerramento forçado de cada navegador.

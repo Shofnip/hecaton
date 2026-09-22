@@ -328,9 +328,13 @@ because it is a measurement against the bundled Chromium and moves with that pin
 The overlay gained a `zoom` request beside `volume`, with the same anchor shape. Both requests also
 carry `trigger: click | hover` ([ADR-0033](adr/0033-distinguish-click-and-hover-in-the-overlay-request.md)):
 click-opened popovers stay until an explicit close, while
-hover-opened ones close after the pointer misses or leaves them, deferring that close through an
-active slider drag. The discriminator was preferred to a second IPC channel because the privilege
-and payload remain the same; only renderer lifetime differs.
+hover-opened ones treat the wall trigger and overlay popover as one lifetime
+([ADR-0038](adr/0038-one-hover-lifetime-across-both-windows.md)). The overlay mirrors the trigger's
+anchor as a transparent hover bridge: a stationary pointer stays open, the 10px crossing keeps its
+260 ms grace, and leaving both regions closes, deferred through an active slider drag. A first-frame
+`:hover` check still closes when the pointer left before the overlay took input. The discriminator
+was preferred to a second IPC channel because the privilege and payload remain the same; only
+renderer lifetime differs.
 
 With the owner's explicit approval
 ([ADR-0028](adr/0028-read-only-default-zoom-preference.md)),
@@ -923,19 +927,40 @@ The load-bearing points:
   claim that every core call was complete — the unchanged-rectangle optimisation deliberately
   makes them partial. Measured 2026-09-20 over six screens: a
   focus transition 75 ms → 36 ms, and the catch-up after a divider drag 2.2 s → 84 ms.
-  `SWP_ASYNCWINDOWPOS` can acknowledge the final resize before Chrome applies it while
-  `SetWindowRgn` changes the clip immediately; repeated real-browser runs observed that mismatch
-  on roughly two of five first placements, leaving a black strip until another layout arrived.
-  After 100 ms without a newer layout, the adapter therefore sends the newest rectangle once more;
-  that pass retains the already-correct clip, re-reads the now-settled frame insets, then posts the
-  same asynchronous move. The live path and the one quiet-time correction both remain asynchronous
-  and responsive.
+  `SWP_ASYNCWINDOWPOS` can acknowledge the final resize before Chrome applies it while the clip
+  changes synchronously; repeated real-browser runs observed that mismatch on roughly two of five
+  first placements, leaving a black strip until another layout arrived. After 100 ms without a
+  newer layout, the adapter therefore sends the newest rectangle once more.
+
+  That settled pass also repairs a separate Chromium presentation race
+  ([ADR-0041](adr/0041-repair-the-d3d-child-not-the-browser.md)). A live black card had a healthy
+  document, process, outer HWND and clip, but its direct `Intermediate D3D Window` remained at the
+  off-screen launch coordinate. The worker now compares that child's rectangle with the outer
+  client area during settle and immediately before reveal, and moves it only when they differ.
+  Moving that child alone recovered the live page without navigation; 30 four-screen launch waves
+  then painted all 120 exact desktop pixels. The check is not part of live resize, and neither the
+  browser pin nor the `--app=` launch model changes.
+
+  The 2026-09-22 Stage 3 probe separated the native cost that paragraph originally treated as one:
+  four children spent about 0.01 ms reading geometry, 0.32 ms posting positions and **20.1 ms in
+  `SetWindowRgn`** per frame. Position/size still follows every newest frame; region replacement is
+  capped per child at 20 Hz, inset changes bypass the cap, and the quiet-time pass always writes the
+  exact final clip before reposting the same outer rectangle
+  ([ADR-0039](adr/0039-bound-native-clipping-during-live-resize.md)). The four-screen 80-event probe
+  fell from 4.878 to 4.076 seconds, while screens off took 3.375 seconds against the earlier
+  3.368-second Electron/native baseline. The renderer still received 80/80 events with no long task,
+  and integration coverage compares all four final Win32 child rectangles with their requested DOM
+  placements.
+
 - Modals and the volume/zoom popovers render in a **second, transparent overlay window owned by the
   panel**, because a child Chrome window always paints over the panel's DOM. It is **not**
   always-on-top: being owned is what puts it over the embedded screens, and the flag additionally
   put it over every other program on the machine (measured in `spike/overlay-z`, removed on
   2026-09-18 — see ADR-0011's Correction). Both windows share the same locked-down
-  `webPreferences`; the bundled Sora font and Poke favicon keep `connect-src 'none'`.
+  `webPreferences`; the bundled Sora font and Poke favicon keep `connect-src 'none'`. Hidden is its
+  normal state, so it does not follow parent resize frames while hidden; `overlay:open` synchronizes
+  the current content bounds immediately before showing, and a visible overlay continues following
+  every move/resize event (ADR-0039).
 - The window-manager, audio and machine-lock adapters run **persistent PowerShell workers** (Win32,
   WASAPI and the `Global\` mutex), disposed on quit; keyboard focus is forwarded on a `WM_PARENTNOTIFY` click hook; the launcher's
   shell-outs are async so they never freeze the main thread; a screen closes gracefully by a
@@ -1391,9 +1416,12 @@ strips, and the window geometry `win32-worker.ts` depends on — each of which h
 under this project once.
 
 One of them stopped being a reminder and became a check: **`npm audit --omit=dev` runs in the
-release job**, so an advisory reaching the **shipped** tree fails the build. Build-time advisories
-stay accepted deliberately ([ADR-0013](adr/0013-a-portable-unsigned-zip-under-apache-2.md)). It is
-in that job rather than in `npm run check` because `tests/repo-consistency.test.ts` requires `check`
+release job**, so an advisory reaching the **shipped** tree fails the build. Development/build
+advisories are reviewed separately rather than accepted by category: the 2026-09-22 review found
+nine, applied only compatible patch/minor resolutions, raised the Vitest floor to its fixed patch,
+and left the full audit clean ([ADR-0040](adr/0040-remediate-compatible-build-advisories.md)). The
+release command is in that job rather than in `npm run check` because
+`tests/repo-consistency.test.ts` requires `check`
 to cover the `npm` steps `ci.yml` runs, bar `npm ci`, `check` is offline today, and a registry outage must not turn into a
 red local run — while the release job already needs the network.
 

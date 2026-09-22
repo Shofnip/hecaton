@@ -1,7 +1,7 @@
 # Three-fix roadmap: launch, hover popovers, and live resize
 
 **Probe date:** 2026-09-21
-**Status:** Stage 1 implemented; Stages 2 and 3 remain investigation only
+**Status:** All three stages implemented and verified
 
 This document splits three regressions into independent sessions. Each stage starts with its own
 red test, changes only one behaviour, updates the living architecture, and finishes green before
@@ -37,9 +37,10 @@ Repository history explains the apparent regression:
 - `a600b34` reinstated strict sequential launch after zoom/bubble work, without re-establishing that
   the old main-thread blocking cause had returned.
 
-The probe therefore supports restoring a single simultaneous user action, but it does **not** yet
-prove that every machine has enough CPU/GPU headroom. That is the remaining measurement for this
-stage, not a reason to preserve the known eight-second serial behaviour.
+The first probe therefore supported restoring a single simultaneous user action, but did not by
+itself prove that every machine had enough CPU/GPU headroom. The implementation's real four-browser
+integration and repeated launch waves below became that remaining guard; the initial measurement is
+kept here because it explains why the change was made.
 
 ### Session plan
 
@@ -60,6 +61,13 @@ stage, not a reason to preserve the known eight-second serial behaviour.
 All four cards enter loading together, all four real browsers embed correctly, the panel remains
 interactive, one failed slot does not prevent the other three, and stop-all still closes
 concurrently.
+
+**Implemented and verified — 2026-09-22.** The global action dispatches every eligible start in one
+wave, ignores a duplicate request until that wave settles, and keeps failures independent through
+`Promise.allSettled`; shutdown remains concurrent. Fast tests pin all three rules. A real four-slot
+HTTP integration measured the requests arriving together, kept an independent heartbeat alive and
+verified every process was cleaned up. Repeated four-screen pixel waves later exercised the same
+launch path while diagnosing the D3D presentation race. See ADR-0037.
 
 ## Stage 2 — Make hover-opened volume and zoom popovers stable
 
@@ -104,6 +112,12 @@ handoff that clears the wall's hover guard.
 A stationary pointer opens at most one popover, it stays visually stable for at least two seconds,
 moving into and out of it behaves as designed, click-open still stays open, and both sliders can be
 dragged without closure.
+
+**Implemented and verified — 2026-09-22.** The overlay now mirrors the wall button with a bounded,
+transparent trigger bridge, so taking input away from the wall does not masquerade as a pointer
+departure. Fast tests name volume and zoom independently. A real two-window Electron probe kept
+each hover popover stable for two seconds, crossed into it without closure, kept it open through a
+drag, preserved click-open behavior, and closed it with Escape. See ADR-0038.
 
 ## Stage 3 — Make manual window resize track the hand smoothly
 
@@ -161,6 +175,17 @@ a new region for every child on every applied frame.
 The outer panel follows a manual drag without visible resistance, embedded screens track without
 flicker or accumulated lag, and the final child rectangles match the DOM exactly on both 100% and
 scaled displays.
+
+**Implemented and verified — 2026-09-22.** Worker instrumentation found `SetWindowRgn`, not DOM
+measurement or geometry reads, consuming 20.1 ms of a four-child frame. Position follows every
+newest frame; clipping is capped per child at 20 Hz and the quiet-time pass flushes the exact final
+region. A hidden overlay no longer follows parent resize events and is synchronized immediately
+before it is shown. The same 80-event, four-screen probe fell from 4.878 to 4.076 seconds, processed
+80/80 renderer events with no long task, and measured 3.375 seconds with screens off. Real Win32
+integration coverage bounds region replacement and compares all four final child rectangles with
+their requested DOM placements. The interactive rerun was at 100% display scale; the existing
+Per-Monitor-DPI worker integration and the earlier measured 125% placement run remain the scaled
+display guard. See ADR-0039.
 
 ## Recommended order
 

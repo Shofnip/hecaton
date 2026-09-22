@@ -137,7 +137,9 @@ $roots += [pscustomobject]@{ Name = 'pre-accounts'; Path = "$env:APPDATA\hecaton
 foreach ($root in $roots) {
   if (-not (Test-Path $root.Path)) { continue }
   foreach ($slot in Get-ChildItem $root.Path -Directory) {
-    foreach ($d in Get-ChildItem $slot.FullName -Directory -Filter 'OptGuide*' -ErrorAction SilentlyContinue) {
+    $modelDirs = Get-ChildItem $slot.FullName -Directory -ErrorAction SilentlyContinue |
+      Where-Object Name -In 'OptGuideOnDeviceModel', 'OptGuideOnDeviceClassifierModel'
+    foreach ($d in $modelDirs) {
       $f = @(Get-ChildItem $d.FullName -Recurse -File -ErrorAction SilentlyContinue)
       '{0}/{1,-8} {2,-38} {3,4} files {4,10:N2} MB' -f $root.Name, $slot.Name, $d.Name, $f.Count, (($f | Measure-Object Length -Sum).Sum / 1MB)
     }
@@ -208,7 +210,9 @@ the browser pin, the game list — can change under a minor.
    reason this is written down: the version was bumped for the off-screen login fix, the tag was
    never cut, and the fix shipped inside 0.3.0 — leaving a `## 0.2.1` section that no installation
    will ever display, describing a fix the 0.3.0 notes do not mention. Fold it into the section that
-   ships it, before that release goes out.
+   ships it, before that release goes out. The old 0.2.1 section remains as the historical exception
+   because 0.3.0 was already published before this rule existed; ADR-0024 records why rewriting that
+   shipped changelog afterwards would create a different inconsistency.
 
 Numbers only ever go up, and are never reused. Skipping one is allowed and costs nothing.
 
@@ -239,10 +243,11 @@ NTFS measured the opposite. Counting is the fix for both.
 
 **`npm audit --omit=dev` runs in that job**, so an advisory that reaches the **shipped** tree fails
 the build. Note what it does not see: 445 MB of bundled Chromium is not an npm dependency, and its
-security posture is step 1's pin and nothing else. Build-time advisories are accepted deliberately — they are denial-of-service issues in
-tooling that runs on the build machine, over patterns the build itself supplies — and that
-acceptance is what this step keeps honest rather than remembered. If it fails, read what it is
-before reaching for `npm audit fix --force`, which would move `electron-builder` off the exact pin.
+security posture is step 1's pin and nothing else. Development/build advisories are reviewed by
+their actual reachability and compatible fix, not accepted as a category: ADR-0040 records why the
+2026-09-22 set was resolved with patch/minor lock updates. If this gate fails, read what it is before
+changing anything. Never reach for `npm audit fix --force`: a fix that must move a pinned direct
+dependency to a new major is a security and packaging decision, not an automatic repair.
 
 ## After
 

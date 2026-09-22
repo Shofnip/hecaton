@@ -435,6 +435,40 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       expect(regionSize(childHwnd)).toEqual({ width: 380, height: 300 })
     })
 
+    it('repairs a displaced D3D presentation child during layout', async () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      const bounds = { x: 70, y: 80, width: 420, height: 320 }
+      embedManager.setLayout([{ pid, bounds }])
+      embedManager.show(pid)
+      await waitForRect(childHwnd, () => regionSize(childHwnd).width === bounds.width)
+      await new Promise((resolve) => setTimeout(resolve, 300))
+
+      const d3d = Number(
+        win32Query(`DirectChild([IntPtr]${childHwnd}, "Intermediate D3D Window").ToInt64()`),
+      )
+      expect(d3d).toBeGreaterThan(0)
+      const clientSize = win32Query(`ClientSize([IntPtr]${childHwnd})`)
+      expect(win32Query(`Move([IntPtr]${d3d}, 32000, 32000, 420, 320)`)).toBe('True')
+      expect(win32Query(`ClientRelativeRect([IntPtr]${childHwnd}, [IntPtr]${d3d})`)).toBe(
+        '32000 32000 420 320',
+      )
+
+      // This is the same input the app emits after a panel/layout frame. The
+      // browser document and processes stay untouched; only its misplaced
+      // presentation child needs to follow the outer window again.
+      embedManager.setLayout([{ pid, bounds }])
+
+      expect(
+        await waitFor(
+          () =>
+            win32Query(`ClientRelativeRect([IntPtr]${childHwnd}, [IntPtr]${d3d})`) ===
+            `0 0 ${clientSize}`,
+        ),
+        'layout did not recover the displaced D3D presentation child',
+      ).toBe(true)
+    })
+
     it('settles an asynchronous placement once after the layout becomes quiet', async () => {
       // SWP_ASYNCWINDOWPOS posts the resize to Chrome and returns before Chrome
       // applies it. MoveOne must therefore re-read the now-settled frame once;
@@ -451,6 +485,29 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
       expect(embedManager.layoutCommandsSent - before).toBe(2)
       await waitForRect(childHwnd, () => regionSize(childHwnd).width === 390)
       expect(regionSize(childHwnd)).toEqual({ width: 390, height: 310 })
+    })
+
+    it('bounds live clipping work and flushes the exact final region after resize', async () => {
+      expect(embedManager.reparent(pid)).toBe(true)
+      expect(await waitFor(() => parentOf(childHwnd) === parentHwnd)).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      const before = embedManager.layoutRegionsApplied
+
+      // SetWindowRgn is synchronous across the browser process and the Stage 3
+      // probe measured it at 20.1 ms per four-child frame. Small live deltas are
+      // therefore bounded while SetWindowPos still receives every newest frame.
+      for (let delta = 0; delta < 12; delta++) {
+        embedManager.setLayout([
+          { pid, bounds: { x: 75, y: 85, width: 380 + delta * 6, height: 300 + delta * 4 } },
+        ])
+        await new Promise((resolve) => setTimeout(resolve, 16))
+      }
+
+      await waitForRect(childHwnd, (rect) => rect.width >= 460)
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(embedManager.layoutRegionsApplied - before).toBeLessThanOrEqual(7)
+      expect(embedManager.layoutRegionsApplied - before).toBeGreaterThan(0)
+      expect(regionSize(childHwnd)).toEqual({ width: 446, height: 344 })
     })
 
     it('skips the frames the user has already moved past', async () => {
@@ -642,14 +699,32 @@ describe.skipIf(!onWindows)('NativeWindowManager', () => {
         }
         embedManager.setBounds(paintedPid!, { x: 30, y: 30, width: 660, height: 420 })
         embedManager.show(paintedPid!)
-        bringToFront(parentHwnd)
         // The post-embed repaint is a real page load; measured at ~600 ms.
         await new Promise((r) => setTimeout(r, 4000))
 
-        const pixel = centrePixelOfWindow(embedManager.windowIdOf(paintedPid!)!)
+        // The suite's two setup browsers overlap this rectangle. Hide only
+        // those known fixtures so the desktop capture cannot read a sibling.
+        const initialHwnd = embedManager.windowIdOf(pid)!
+        const otherChildHwnd = embedManager.windowIdOf(secondPid)!
+        expect(embedManager.hide(pid)).toBe(true)
+        expect(embedManager.hide(secondPid)).toBe(true)
+        expect(
+          await waitFor(
+            () => !isVisibleWindow(initialHwnd) && !isVisibleWindow(otherChildHwnd),
+            4000,
+          ),
+        ).toBe(true)
+        // Pin immediately before the screen read: another app can cover a
+        // window during the repaint wait even if it was topmost beforehand.
+        bringToFront(parentHwnd)
+        const paintedHwnd = embedManager.windowIdOf(paintedPid!)!
+        const pixel = centrePixelOfWindow(paintedHwnd)
+        const pixelBelongsToChild =
+          win32Query(`CentreBelongsTo([IntPtr]${paintedHwnd})`).trim() === 'True'
         const [red, green, blue] = pixel.split(',').map(Number)
         // #c0392b is (192,57,43); the browser's empty grey is near (43,47,56). The
         // gap is enormous, so this needs no tolerance tuning.
+        expect(pixelBelongsToChild, 'centre pixel was covered by another window').toBe(true)
         expect(red, `centre pixel was ${pixel}`).toBeGreaterThan(120)
         expect(green, `centre pixel was ${pixel}`).toBeLessThan(120)
         expect(blue, `centre pixel was ${pixel}`).toBeLessThan(120)
@@ -985,14 +1060,21 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public class ProbeUser32 {
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint f);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
+  [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT p);
+  [DllImport("user32.dll")] static extern bool IsChild(IntPtr parent, IntPtr child);
   [DllImport("user32.dll")] static extern int GetWindowRgnBox(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern IntPtr GetTopWindow(IntPtr h);
   [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr h,uint command);
   [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h,StringBuilder s,int n);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern IntPtr FindWindowEx(IntPtr parent,IntPtr after,string cls,string title);
+  [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr h,int x,int y,int w,int hh,bool repaint);
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int w,int hh,uint flags);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h,IntPtr pid);
   [DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint tid,ref GUI value);
@@ -1008,7 +1090,12 @@ public class ProbeUser32 {
     return IntPtr.Zero;
   }
   public static string Rect(IntPtr h) { RECT r; GetWindowRect(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
+  public static string ClientSize(IntPtr h) { RECT r; GetClientRect(h,out r);return (r.R-r.L)+" "+(r.B-r.T); }
+  public static IntPtr DirectChild(IntPtr parent,string cls) { return FindWindowEx(parent,IntPtr.Zero,cls,null); }
+  public static bool Move(IntPtr h,int x,int y,int w,int hh) { return MoveWindow(h,x,y,w,hh,true); }
+  public static string ClientRelativeRect(IntPtr parent,IntPtr child) { RECT r;GetWindowRect(child,out r);POINT p;p.X=0;p.Y=0;ClientToScreen(parent,ref p);return (r.L-p.X)+" "+(r.T-p.Y)+" "+(r.R-r.L)+" "+(r.B-r.T); }
   public static string RgnBox(IntPtr h) { RECT r; GetWindowRgnBox(h, out r); return r.L + " " + r.T + " " + r.R + " " + r.B; }
+  public static bool CentreBelongsTo(IntPtr h) { RECT r; GetWindowRect(h, out r); POINT p; p.X=(r.L+r.R)/2; p.Y=(r.T+r.B)/2; IntPtr at=WindowFromPoint(p); return at==h || IsChild(h,at); }
 }
 '@
 [ProbeUser32]::${expression}

@@ -426,21 +426,22 @@ shifted down and right. At 125%, the measured displacement is `position × 0.25`
 
 **Cause**
 
-This is a known, unresolved defect measured on 2026-09-20 from pixels on two machines at 125%.
-The renderer sends physical-pixel rectangles, but the PowerShell Win32 worker is DPI-unaware, so
-Windows virtualises the already-physical coordinates and scales them a second time. A 100%
-desktop cannot reveal it because the virtualisation is then a no-op.
+This was measured on 2026-09-20 from pixels on two machines at 125%. The renderer sent
+physical-pixel rectangles, but the PowerShell Win32 worker was DPI-unaware, so Windows virtualised
+the already-physical coordinates and scaled them a second time. A 100% desktop could not reveal it
+because the virtualisation was then a no-op.
 
 Do not confuse it with the pre-embed placement race reported on 2026-09-21. That bug could leave a
 cold-started screen small, in a wrong corner or entirely off-screen and was fixed by deferring its
-one-shot rectangle until after `SetParent`. The DPI defect is systematic, proportional to position
-and still present.
+one-shot rectangle until after `SetParent`. The former DPI defect was systematic and proportional
+to position.
 
 **What to do**
 
-There is no production workaround in the app yet. Set Windows display scaling to 100% for correct
-alignment. Before changing the worker, reproduce and measure the candidate fix on a display whose
-scale is not 100%; the project's 100% development machine cannot validate it.
+Update to a build containing ADR-0036. The persistent worker now becomes Per-Monitor DPI-aware
+before its first user32 call, so Windows no longer virtualises the physical layout coordinates. The
+integration suite also queries the real worker process and requires
+`PROCESS_PER_MONITOR_DPI_AWARE`; do not remove that call as an apparent no-op on a 100% desktop.
 
 ---
 
@@ -472,6 +473,35 @@ the real screen, because every other signal stayed green throughout the original
 **On a slow connection** the second may not be enough and the grey shows briefly before the page
 arrives. That is the accepted failure mode, not a new bug: without CDP there is no "painted" event
 to wait for, only elapsed time.
+
+---
+
+## One screen is black when several start together
+
+**Symptom**
+
+All browser processes are alive and every card has the right size, but one card is black while the
+other games paint normally. Reloading, hiding/showing or resizing the outer browser does not
+reliably recover it.
+
+**Cause**
+
+Chromium's direct `Intermediate D3D Window` presentation child can remain at the off-screen launch
+coordinate after its outer HWND is embedded and placed. A live reproduction had no other structural
+difference from the three healthy screens; moving only this child over the outer client area
+restored the existing page without a reload. See
+[ADR-0041](adr/0041-repair-the-d3d-child-not-the-browser.md).
+
+**What to do**
+
+Nothing on a current build. The Win32 worker checks the child on the final settled layout and just
+before revealing a screen, and repairs only a mismatched rectangle. The deterministic integration
+test `repairs a displaced D3D presentation child during layout` stages the exact geometry failure;
+the four-screen integration reads real desktop pixels.
+
+If it returns after a Chromium update, inspect the direct child class and client rectangle first.
+Do not assume the page is dead and do not downgrade the browser: the 0.2.0 Chromium reproduced the
+failure in the current harness.
 
 ---
 

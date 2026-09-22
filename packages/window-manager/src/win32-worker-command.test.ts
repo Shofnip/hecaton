@@ -65,4 +65,13 @@ describe('the encoded worker command', () => {
       WINDOWS_COMMAND_LINE_LIMIT - REQUIRED_HEADROOM,
     )
   })
+
+  it('forgets clipping state when Windows reuses a reparented handle', () => {
+    const reparent = WORKER_SCRIPT.slice(
+      WORKER_SCRIPT.indexOf('public static string Reparent'),
+      WORKER_SCRIPT.indexOf('static void FocusChild'),
+    )
+    expect(reparent).toContain('clips.Remove(child)')
+    expect(reparent).toContain('clipAt.Remove(child)')
+  })
 })

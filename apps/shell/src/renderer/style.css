@@ -1405,6 +1405,13 @@ body[data-mode='overlay'] .modal-backdrop {
   z-index: 20;
 }
 
+/* The button lives in the wall window, which loses hover when this overlay takes
+   input. Mirror only its rectangle here so both windows share one hover lifetime. */
+.popover-trigger-bridge {
+  position: fixed;
+  z-index: 21;
+}
+
 /* A control and the line that reports what it just did, as one block. The modal
    body is a flex column with its own gap, so the pair needs a box of its own to
    keep the message against the button it belongs to rather than floating

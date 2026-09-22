@@ -67,11 +67,10 @@ jobs:
       # A tag that could not pass CI must not become a release.
       - run: npm run check
 
-      # The shipped tree, and only it. Build-time advisories are accepted
-      # deliberately (ADR-0013): they are denial-of-service issues in tooling
-      # that runs here, over patterns this build itself supplies, and none of it
-      # reaches a user's disk. That acceptance leaned on somebody remembering to
-      # re-check; this is what makes it a property instead.
+      # The shipped tree, and only it. Development/build advisories are reviewed
+      # separately by reachability and compatible fix (ADR-0040); they are not
+      # accepted as a category and `npm audit fix --force` is not an automatic
+      # release remedy.
       #
       # It lives in the release job rather than in `check`: repo-consistency
       # requires `check` to cover everything CI runs, `check` is offline today,

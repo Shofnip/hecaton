@@ -2893,6 +2893,7 @@ function openVolume(id: number, anchor: Anchor, trigger: 'click' | 'hover'): voi
   }
   overlayDepth++
   const catcher = el('div', 'overlay-catcher')
+  const triggerBridge = hoverTriggerBridge(anchor)
   const pop = volumePopover(s)
   // The overlay shares the wall's client coordinates, so the button's rectangle
   // places the popover directly: centered on the button, its base 10px above it.
@@ -2907,6 +2908,7 @@ function openVolume(id: number, anchor: Anchor, trigger: 'click' | 'hover'): voi
     closed = true
     hoverClose?.dispose()
     catcher.remove()
+    triggerBridge.remove()
     pop.remove()
     document.removeEventListener('keydown', onKey)
     overlayClosed()
@@ -2916,9 +2918,11 @@ function openVolume(id: number, anchor: Anchor, trigger: 'click' | 'hover'): voi
   }
   // A click anywhere but the popover closes it (the popover stops its own clicks).
   catcher.addEventListener('click', close)
+  triggerBridge.addEventListener('click', close)
   document.addEventListener('keydown', onKey)
-  document.body.append(catcher, pop)
+  document.body.append(catcher, triggerBridge, pop)
   const hoverClose = closeOnLeave(
+    triggerBridge,
     pop,
     close,
     () => draggingVolume,
@@ -2943,6 +2947,7 @@ function openVolume(id: number, anchor: Anchor, trigger: 'click' | 'hover'): voi
 const HOVER_CLOSE_MS = 260
 
 function closeOnLeave(
+  triggerBridge: HTMLElement,
   pop: HTMLElement,
   close: () => void,
   dragging: () => boolean,
@@ -2951,10 +2956,22 @@ function closeOnLeave(
 ): HoverClose {
   const lifetime = new HoverClose(close, dragging, HOVER_CLOSE_MS, cancelDrag)
   if (trigger === 'click') return lifetime
+  triggerBridge.addEventListener('mouseleave', () => lifetime.left())
+  triggerBridge.addEventListener('mouseenter', () => lifetime.entered())
   pop.addEventListener('mouseleave', () => lifetime.left())
   pop.addEventListener('mouseenter', () => lifetime.entered())
-  lifetime.opened()
+  requestAnimationFrame(() => lifetime.opened(triggerBridge.matches(':hover')))
   return lifetime
+}
+
+/** Mirrors the wall button's hover region in the now-interactive overlay. */
+function hoverTriggerBridge(anchor: Anchor): HTMLElement {
+  const bridge = el('div', 'popover-trigger-bridge')
+  bridge.style.left = `${anchor.x}px`
+  bridge.style.top = `${anchor.y}px`
+  bridge.style.width = `${anchor.width}px`
+  bridge.style.height = `${anchor.height}px`
+  return bridge
 }
 
 /**
@@ -2972,6 +2989,7 @@ function openZoom(id: number, anchor: Anchor, trigger: 'click' | 'hover'): void 
   }
   overlayDepth++
   const catcher = el('div', 'overlay-catcher')
+  const triggerBridge = hoverTriggerBridge(anchor)
   const pop = zoomPopover(s, state.zoomPresets)
   pop.style.position = 'fixed'
   pop.style.left = `${anchor.x + anchor.width / 2}px`
@@ -2984,6 +3002,7 @@ function openZoom(id: number, anchor: Anchor, trigger: 'click' | 'hover'): void 
     closed = true
     hoverClose?.dispose()
     catcher.remove()
+    triggerBridge.remove()
     pop.remove()
     document.removeEventListener('keydown', onKey)
     // The popover registered one, to follow the factor the app picks while
@@ -2995,9 +3014,11 @@ function openZoom(id: number, anchor: Anchor, trigger: 'click' | 'hover'): void 
     if (e.key === 'Escape') close()
   }
   catcher.addEventListener('click', close)
+  triggerBridge.addEventListener('click', close)
   document.addEventListener('keydown', onKey)
-  document.body.append(catcher, pop)
+  document.body.append(catcher, triggerBridge, pop)
   const hoverClose = closeOnLeave(
+    triggerBridge,
     pop,
     close,
     () => draggingZoom,
@@ -3030,11 +3051,9 @@ interface ScreenPlacement {
  * Rectangles are physical pixels in the panel's client area: getBoundingClientRect
  * gives CSS pixels from the client origin (the web content fills the window's
  * client area), and multiplying by devicePixelRatio is the exact CSS-to-device
- * ratio for this window's display. The conversion is correct, but placement is
- * still wrong above 100% because the DPI-unaware PowerShell worker receives
- * these already-physical coordinates through Windows virtualisation and scales
- * them a second time. Measured at 125% on 2026-09-20 and recorded in
- * architecture.md; unresolved here.
+ * ratio for this window's display. The Per-Monitor-aware Win32 worker consumes
+ * those physical coordinates without Windows scaling them a second time
+ * (ADR-0036).
  */
 function emitLayout(): void {
   // Only panel-drawn modal dialogs can occlude a wall viewport. The popover

@@ -354,6 +354,9 @@ export class NativeWindowManager implements WindowManager, ZoomController {
    */
   layoutCommandsSent = 0
 
+  /** How many child clipping regions the worker actually replaced. Diagnostics and tests only. */
+  layoutRegionsApplied = 0
+
   private queueLayout(parts: Map<number, string>): void {
     for (const [pid, part] of parts) this.layoutToSettle.set(pid, part)
     this.scheduleLayoutSettle()
@@ -371,11 +374,14 @@ export class NativeWindowManager implements WindowManager, ZoomController {
       this.layoutCommandsSent++
       const command = `settlechildren ${[...settled.values()].join(';')}`
       // Chrome has now applied the first posted resize. The worker re-reads the
-      // settled frame and posts the same outer rectangle again, while retaining
-      // the already-correct viewport clip.
-      void this.worker.send(command).catch(() => {
-        // Best effort, for the same worker-restart reason as `sendLayout`.
-      })
+      // settled frame, flushes the exact final clip after the live 20 Hz cap,
+      // and posts the same outer rectangle again.
+      void this.worker
+        .send(command)
+        .then((reply) => this.recordLayoutRegions(reply))
+        .catch(() => {
+          // Best effort, for the same worker-restart reason as `sendLayout`.
+        })
     }, LAYOUT_SETTLE_MS)
     this.layoutSettleTimer.unref?.()
   }
@@ -392,6 +398,7 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     const command = `movechildren ${[...parts.values()].join(';')}`
     void this.worker
       .send(command)
+      .then((reply) => this.recordLayoutRegions(reply))
       .catch(() => {
         // Best effort, as everywhere else here: a worker that just died re-spawns
         // on the next frame, and the next frame is at most one drag tick away.
@@ -402,6 +409,11 @@ export class NativeWindowManager implements WindowManager, ZoomController {
         this.queuedLayout = undefined
         if (next !== undefined) this.sendLayout(next)
       })
+  }
+
+  private recordLayoutRegions(reply: string): void {
+    const count = Number(reply)
+    if (Number.isInteger(count) && count >= 0) this.layoutRegionsApplied += count
   }
 
   /**
@@ -585,23 +597,27 @@ export class NativeWindowManager implements WindowManager, ZoomController {
     const hwnd = this.hwndFor(pid)
     if (hwnd === undefined) return false
 
-    const remaining = (this.repaintDeadline.get(pid) ?? 0) - Date.now()
+    const repaintAt = this.repaintDeadline.get(pid)
+    if (repaintAt === undefined) {
+      this.fire(`show ${hwnd} ${SW_SHOW}`)
+      return true
+    }
+    const remaining = repaintAt - Date.now()
     if (remaining <= 0) {
       this.repaintDeadline.delete(pid)
       this.fire(`show ${hwnd} ${SW_SHOW}`)
       return true
     }
-    if (!this.deferredShows.has(pid)) {
-      const timer = setTimeout(() => {
-        this.deferredShows.delete(pid)
-        this.repaintDeadline.delete(pid)
-        const current = this.hwndFor(pid)
-        if (current !== undefined) this.fire(`show ${current} ${SW_SHOW}`)
-      }, remaining)
-      // Never hold the process open on a screen that is merely late.
-      timer.unref?.()
-      this.deferredShows.set(pid, timer)
-    }
+    if (this.deferredShows.has(pid)) return true
+    const timer = setTimeout(() => {
+      this.deferredShows.delete(pid)
+      this.repaintDeadline.delete(pid)
+      const current = this.hwndFor(pid)
+      if (current !== undefined) this.fire(`show ${current} ${SW_SHOW}`)
+    }, remaining)
+    // Never hold the process open on a screen that is merely late.
+    timer.unref?.()
+    this.deferredShows.set(pid, timer)
     return true
   }
 

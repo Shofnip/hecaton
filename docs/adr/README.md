@@ -101,7 +101,9 @@ when focus ends (Accepted).
 
 Overlay intent: [0033](0033-distinguish-click-and-hover-in-the-overlay-request.md) adds a
 validated `click | hover` discriminator to the existing volume/zoom request instead of
-adding channels or inferring a gesture across renderer processes (Accepted).
+adding channels or inferring a gesture across renderer processes. Its immediate-timer lifetime is
+superseded by [0038](0038-one-hover-lifetime-across-both-windows.md), which represents the trigger
+inside the overlay and keeps one lifetime across both windows (Accepted).
 
 Layout scheduling: [0034](0034-merge-overtaken-layout-deltas.md) corrects ADR-0025's
 false complete-frame premise: while one native command is in flight, the adapter merges
@@ -115,6 +117,18 @@ in [0035](0035-start-all-screens-sequentially.md); shutdown remains concurrent (
 DPI coordinates: [0036](0036-make-the-win32-worker-per-monitor-dpi-aware.md) makes the
 persistent PowerShell worker Per-Monitor aware before its first user32 call, preserving the
 renderer-to-adapter physical-pixel contract on scaled and mixed-DPI displays (Accepted).
+
+Live resize: [0039](0039-bound-native-clipping-during-live-resize.md) keeps every newest position
+frame, caps the measured-expensive clipping region at 20 Hz with an exact final flush, and skips
+hidden-overlay tracking (Accepted).
+
+Build advisories: [0040](0040-remediate-compatible-build-advisories.md) replaces blanket acceptance
+with compatible patch/minor remediation and review by actual advisory; `--force` remains rejected
+(Accepted, superseding ADR-0013's historical build-advisory rationale).
+
+D3D presentation recovery: [0041](0041-repair-the-d3d-child-not-the-browser.md) keeps the browser
+pin and `--app=` model, repairing only a displaced direct `Intermediate D3D Window` on reveal and
+the quiet-time layout pass (Accepted).
 
 Most of these are retroactive: the decisions were made before this directory existed, and are
 recorded here because the reasoning was still recoverable. Later ones are written as the
